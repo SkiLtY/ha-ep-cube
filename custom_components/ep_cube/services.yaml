@@ -1,0 +1,110 @@
+# Native services — 1:1 with cloud API
+set_operating_mode:
+  name: Set operating mode
+  description: Switch the EP Cube between self-consumption, time-of-use, or backup modes.
+  fields:
+    mode:
+      name: Mode
+      required: true
+      selector:
+        select:
+          options:
+            - self_consumption
+            - time_of_use
+            - backup
+    reserve_soc_pct:
+      name: Reserve SoC (%)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+
+set_tou_schedule:
+  name: Set TOU schedule
+  description: Replace the time-of-use schedule. Advanced — prefer the Predbat shim services for tariff control.
+  fields:
+    schedule:
+      name: Schedule
+      required: true
+      selector:
+        object:
+
+# Predbat shim services — rate-based, time-windowed control
+charge_start:
+  name: Predbat — start charging
+  description: Force grid charge until end_time, targeting the given SoC.
+  fields:
+    end_time:
+      name: End time
+      required: true
+      selector:
+        datetime:
+    target_soc_pct:
+      name: Target SoC (%)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    rate_w:
+      name: Charge rate (W)
+      description: Informational — TOU charges at max rate, see ARCHITECTURE.md.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 20000
+          unit_of_measurement: "W"
+
+charge_stop:
+  name: Predbat — stop charging
+  description: Remove the active grid-charge override and restore baseline schedule.
+
+discharge_start:
+  name: Predbat — start discharging
+  description: Force grid discharge until end_time, targeting the given SoC.
+  fields:
+    end_time:
+      name: End time
+      required: true
+      selector:
+        datetime:
+    target_soc_pct:
+      name: Target SoC (%)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+
+discharge_stop:
+  name: Predbat — stop discharging
+  description: Remove the active discharge override.
+
+charge_freeze:
+  name: Predbat — charge freeze
+  description: Hold battery at current SoC until end_time.
+  fields:
+    end_time:
+      name: End time
+      required: true
+      selector:
+        datetime:
+
+discharge_freeze:
+  name: Predbat — discharge freeze
+  description: Hold battery at current SoC until end_time (alias for charge_freeze).
+  fields:
+    end_time:
+      name: End time
+      required: true
+      selector:
+        datetime:
+
+idle:
+  name: Predbat — idle
+  description: Restore the baseline TOU schedule.

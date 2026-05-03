@@ -1,0 +1,24 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: ha-ep-cube-ha
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./ha_config:/config
+      - ./custom_components/ep_cube:/config/custom_components/ep_cube
+    depends_on:
+      - mock
+    environment:
+      - TZ=Europe/London
+
+  mock:
+    build:
+      context: ./mock_server
+    container_name: ha-ep-cube-mock
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    environment:
+      - PYTHONUNBUFFERED=1
