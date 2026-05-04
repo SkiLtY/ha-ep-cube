@@ -8,7 +8,7 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_DEVICE_ID = "device_id"
 
-DEFAULT_BASE_URL = "https://mock:8765"
+DEFAULT_BASE_URL = "http://mock:8765"
 DEFAULT_POLL_INTERVAL_SECONDS = 30
 
 OPERATING_MODE_SELF_CONSUMPTION = "self_consumption"
