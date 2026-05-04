@@ -24,7 +24,7 @@ services:
       - PYTHONUNBUFFERED=1
 
   appdaemon:
-    image: acockburn/appdaemon:latest
+    image: acockburn/appdaemon:4.4.2
     container_name: ha-ep-cube-appdaemon
     restart: unless-stopped
     ports:
