@@ -31,40 +31,29 @@ In the HA UI:
 
 Store it in `appdaemon_config/secrets.yaml` (created in step 3).
 
-### 2. Add AppDaemon to `docker-compose.yml`
+### 2. AppDaemon service in `docker-compose.yml`
 
-Append a new service alongside `homeassistant` and `mock`:
+Already wired in this repo. Two non-obvious choices baked into the compose file:
 
-```yaml
-  appdaemon:
-    image: acockburn/appdaemon:latest
-    container_name: ha-ep-cube-appdaemon
-    restart: unless-stopped
-    ports:
-      - "5050:5050"
-    volumes:
-      - ./appdaemon_config:/conf
-    depends_on:
-      - homeassistant
-    environment:
-      - TZ=Europe/London
-      - HA_URL=http://homeassistant:8123
-      - DASH_URL=http://0.0.0.0:5050
-```
+- **AppDaemon is pinned to `4.4.2` via a custom Dockerfile** (`./appdaemon/Dockerfile`). 4.5.x added strict topological dependency sorting that rejects Predbat's internal Python import cycles (`predbat ↔ hass ↔ userinterface`). The custom image extends `acockburn/appdaemon:4.4.2` and pre-installs Predbat's runtime deps with versions compatible with AppDaemon 4.4.2's Python 3.10 and aiohttp 3.8.x — Predbat's own `requirements.txt` pins newer numpy/aiohttp/pytz/requests that break AppDaemon's HASS plugin.
+- **Predbat clone is bind-mounted at `/predbat-source` (outside `/conf`).** AppDaemon's startup script recursively scans `/conf` for `requirements.txt` files and pip-installs them. By keeping the Predbat clone out of `/conf`, that step skips it. The Python module is exposed inside `/conf/apps/predbat` via a symlink to `/predbat-source/apps/predbat`.
 
-The `homeassistant` Docker network DNS name resolves inside the compose project — AppDaemon reaches HA at `http://homeassistant:8123`.
+### 3. `appdaemon_config/` layout
 
-### 3. Bootstrap `appdaemon_config/` with the right files
-
-On <host> (or locally then commit):
+Already committed. Final structure on the host:
 
 ```
-appdaemon_config/
-├── appdaemon.yaml      ← AppDaemon config (HA plugin + admin UI + http port)
-├── secrets.yaml        ← The HA access token (gitignored)
-└── apps/
-    ├── apps.yaml       ← Predbat config — uses our ep_cube.* services
-    └── predbat/        ← Cloned from springfall2008/batpred (gitignored — managed separately)
+ha-ep-cube/
+├── appdaemon/
+│   └── Dockerfile             ← extends acockburn/appdaemon:4.4.2 + pre-installs Predbat deps
+├── appdaemon_config/
+│   ├── appdaemon.yaml         ← HA plugin + admin UI + http port
+│   ├── secrets.yaml           ← HA long-lived token (gitignored)
+│   ├── secrets.yaml.example   ← committed template
+│   └── apps/
+│       ├── apps.yaml          ← Predbat config — uses our ep_cube.* services
+│       └── predbat -> /predbat-source/apps/predbat   ← symlink (resolved inside container)
+└── predbat-source/            ← Cloned from springfall2008/batpred (gitignored)
 ```
 
 **`appdaemon.yaml`:**
@@ -95,21 +84,22 @@ hadashboard:
 ha_token: <paste-the-long-lived-token>
 ```
 
-**`apps/apps.yaml`** — start from the template at [`docs/predbat_apps.yaml.example`](predbat_apps.yaml.example). Two edits:
-
-1. Replace `ep_cube_test_01` everywhere with your real device_id from the integration config (during sim, it's still `ep_cube_test_01` — no change needed)
-2. Uncomment the `rates_import:` block to feed Predbat hardcoded test prices for the dev loop
+**`apps/apps.yaml`** is committed with hardcoded test rates suitable for the Phase 2b dev loop. To re-key it for your real `device_id` (when not in sim), search/replace `ep_cube_test_01` throughout. Once an Octopus account is live (Phase 2c), comment out `rates_import:` and uncomment the `metric_octopus_*` lines.
 
 ### 4. Clone Predbat code
 
-The `apps/predbat/` directory holds Predbat's actual Python code. Clone the upstream repo:
+Clone the upstream repo at the **repo root** (not under `appdaemon_config/`) and link the Python module into the AppDaemon apps directory:
 
 ```bash
-cd /volume1/docker/ha-ep-cube/appdaemon_config/apps
-git clone https://github.com/springfall2008/batpred predbat
+cd /volume1/docker/ha-ep-cube
+git clone https://github.com/springfall2008/batpred predbat-source
+
+# Symlink uses an absolute container path — it resolves inside the container,
+# not on the host. Don't worry that the host path doesn't exist.
+ln -s /predbat-source/apps/predbat appdaemon_config/apps/predbat
 ```
 
-Add `appdaemon_config/apps/predbat/` to `.gitignore` so we don't accidentally bring Predbat's source into our repo.
+`predbat-source/` and `appdaemon_config/apps/predbat` are both gitignored — managed independently from this repo. Future Predbat updates: `cd predbat-source && git pull && cd .. && sudo docker compose restart appdaemon`.
 
 ### 5. Bring up AppDaemon
 

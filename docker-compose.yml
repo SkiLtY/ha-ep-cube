@@ -24,13 +24,19 @@ services:
       - PYTHONUNBUFFERED=1
 
   appdaemon:
-    image: acockburn/appdaemon:4.4.2
+    build:
+      context: ./appdaemon
+    image: ha-ep-cube-appdaemon:local
     container_name: ha-ep-cube-appdaemon
     restart: unless-stopped
     ports:
       - "5050:5050"
     volumes:
       - ./appdaemon_config:/conf
+      # Predbat clone bind-mounted OUTSIDE /conf so AppDaemon's auto-pip step
+      # ignores its requirements.txt. Inside /conf the symlink
+      # apps/predbat -> /predbat-source/apps/predbat exposes only the Python module.
+      - ./predbat-source:/predbat-source:ro
     depends_on:
       - homeassistant
     environment:
