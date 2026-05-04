@@ -13,11 +13,12 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import DeviceStatus
-from .const import DOMAIN
+from .const import CONF_DEVICE_ID, DOMAIN
 from .coordinator import EPCubeCoordinator
 
 
@@ -101,8 +102,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: EPCubeCoordinator = hass.data[DOMAIN][entry.entry_id]
+    device_id: str = entry.data[CONF_DEVICE_ID]
     async_add_entities(
-        EPCubeSensor(coordinator, entry.entry_id, desc) for desc in SENSORS
+        EPCubeSensor(coordinator, entry.entry_id, device_id, desc) for desc in SENSORS
     )
 
 
@@ -114,11 +116,18 @@ class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], SensorEntity):
         self,
         coordinator: EPCubeCoordinator,
         entry_id: str,
+        device_id: str,
         description: EPCubeSensorDescription,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{entry_id}_{description.key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name=f"EP Cube {device_id}",
+            manufacturer="Canadian Solar",
+            model="EP Cube",
+        )
 
     @property
     def native_value(self) -> float | str | None:
