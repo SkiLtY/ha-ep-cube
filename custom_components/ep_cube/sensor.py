@@ -101,7 +101,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: EPCubeCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: EPCubeCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     device_id: str = entry.data[CONF_DEVICE_ID]
     async_add_entities(
         EPCubeSensor(coordinator, entry.entry_id, device_id, desc) for desc in SENSORS

@@ -64,6 +64,17 @@ async def set_operating_mode(
     return {"status": "ok"}
 
 
+@app.get("/api/v1/device/{device_id}/tou-schedule")
+async def get_tou_schedule(
+    device_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _check_token(authorization)
+    if device_id not in DEVICES:
+        raise HTTPException(status_code=404, detail="device not found")
+    return DEVICES[device_id].tou_schedule
+
+
 @app.post("/api/v1/device/{device_id}/tou-schedule")
 async def set_tou_schedule(
     device_id: str,
@@ -87,3 +98,12 @@ async def sim_inject_state(device_id: str, patch: dict[str, Any]) -> dict[str, A
         if hasattr(state, key):
             setattr(state, key, value)
     return state.to_status_dict()
+
+
+@app.get("/__sim__/device/{device_id}/tou-current")
+async def sim_inspect_tou(device_id: str) -> dict[str, Any]:
+    """Inspect what the integration most recently wrote to TOU.
+    Use this from tests to verify the Predbat shim is behaving."""
+    if device_id not in DEVICES:
+        raise HTTPException(status_code=404, detail="device not found")
+    return DEVICES[device_id].tou_schedule

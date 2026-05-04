@@ -66,6 +66,10 @@ class EPCubeClient:
         self._device_id = device_id
         self._token: str | None = None
 
+    @property
+    def device_id(self) -> str:
+        return self._device_id
+
     async def authenticate(self) -> None:
         async with self._session.post(
             f"{self._base_url}/api/v1/auth/login",
@@ -97,6 +101,10 @@ class EPCubeClient:
         if reserve_soc_pct is not None:
             body["reserve_soc_pct"] = reserve_soc_pct
         await self._request("POST", f"/api/v1/device/{self._device_id}/operating-mode", json=body)
+
+    async def get_tou_schedule(self) -> dict[str, Any]:
+        """Read the current TOU schedule. Used by the Predbat shim for baseline snapshotting."""
+        return await self._request("GET", f"/api/v1/device/{self._device_id}/tou-schedule")
 
     async def set_tou_schedule(self, schedule: dict[str, Any]) -> None:
         await self._request(

@@ -1,0 +1,107 @@
+# Predbat custom-inverter config for the EP Cube
+# Drop into Predbat's apps.yaml under `pred_bat:` (replace the inverter block).
+#
+# Usage:
+#   1. Replace ep_cube_test_01 below with your real device_id
+#      (the one you entered in the HA integration config flow).
+#   2. Set predbat_inverter_type to a unique name; "EP_CUBE" is fine.
+#   3. After saving, restart the Predbat add-on and watch its logs to verify
+#      it sees the entities and successfully calls our shim services.
+#
+# References:
+#   - https://springfall2008.github.io/batpred/inverter-setup/
+#   - https://springfall2008.github.io/batpred/apps-yaml/
+
+pred_bat:
+  # ─── Inverter identification ──────────────────────────────────────────────
+  inverter_type: 'EP_CUBE'
+  num_inverters: 1
+  ge_inverter: 0  # not GivEnergy
+
+  # ─── Sensor entities (read) ───────────────────────────────────────────────
+  # Replace `ep_cube_test_01` with your device_id throughout.
+  soc_kw:
+    - sensor.ep_cube_ep_cube_test_01_battery_energy
+  soc_max:
+    - sensor.ep_cube_ep_cube_test_01_battery_capacity
+  soc_percent:
+    - sensor.ep_cube_ep_cube_test_01_battery_soc
+
+  battery_power:
+    - sensor.ep_cube_ep_cube_test_01_battery_power
+  pv_power:
+    - sensor.ep_cube_ep_cube_test_01_solar_power
+  load_power:
+    - sensor.ep_cube_ep_cube_test_01_load_power
+  grid_power:
+    - sensor.ep_cube_ep_cube_test_01_grid_power
+
+  reserve:
+    - sensor.ep_cube_ep_cube_test_01_reserve_soc
+
+  # ─── Battery physical specs ───────────────────────────────────────────────
+  # Adjust to match your hardware.
+  battery_rate_max_charge: 5.0     # kW
+  battery_rate_max_discharge: 5.0  # kW
+  battery_loss: 0.03               # 3% conversion loss (typical Li-ion + inverter)
+  battery_loss_discharge: 0.03
+  inverter_loss: 0.03
+
+  # ─── Control surface (write) ──────────────────────────────────────────────
+  # Predbat calls these services. Our shim translates rate+window → TOU rewrite.
+  inverter_can_charge_during_export: True
+  inverter_can_force_export: True
+
+  # Charge controls
+  charge_start_service: 'ep_cube.charge_start'
+  charge_stop_service: 'ep_cube.charge_stop'
+  charge_freeze_service: 'ep_cube.charge_freeze'
+
+  # Discharge controls
+  discharge_start_service: 'ep_cube.discharge_start'
+  discharge_stop_service: 'ep_cube.discharge_stop'
+  discharge_freeze_service: 'ep_cube.discharge_freeze'
+
+  # Idle / restore baseline
+  idle_service: 'ep_cube.idle'
+
+  # If you have multiple EP Cubes, uncomment and set the device_id explicitly:
+  # service_data:
+  #   device_id: ep_cube_test_01
+
+  # ─── Tariff (Octopus Agile) ───────────────────────────────────────────────
+  # Once you have an Octopus account + the BottlecapDave HACS integration:
+  # https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy
+  metric_octopus_import: 'event.octopus_energy_electricity_<MPAN>_<SERIAL>_current_day_rates'
+  metric_octopus_export: 'event.octopus_energy_electricity_<MPAN>_<SERIAL>_export_current_day_rates'
+
+  # Until then, hardcode test prices to validate Predbat → shim → cloud loop:
+  # rates_import:
+  #   -
+  #     start: "00:00:00"
+  #     end: "07:00:00"
+  #     rate: 8.0   # p/kWh
+  #   -
+  #     start: "16:00:00"
+  #     end: "19:00:00"
+  #     rate: 35.0
+  #   -
+  #     start: "07:00:00"
+  #     end: "16:00:00"
+  #     rate: 22.0
+  #   -
+  #     start: "19:00:00"
+  #     end: "00:00:00"
+  #     rate: 22.0
+
+  # ─── Forecast / consumption ──────────────────────────────────────────────
+  # Once Octopus account live, point at the BottlecapDave integration:
+  # load_forecast: 'sensor.octopus_energy_electricity_<MPAN>_<SERIAL>_previous_consumption'
+  # For dev, Predbat will use historical HA data from `load_power` sensor.
+
+  # ─── Predbat behaviour ───────────────────────────────────────────────────
+  forecast_hours: 48
+  best_soc_min: 0.5     # kWh — never plan below this
+  best_soc_keep: 1.0    # kWh — soft reserve target
+  combine_charge_slots: True
+  combine_discharge_slots: True

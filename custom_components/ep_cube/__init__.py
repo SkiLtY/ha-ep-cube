@@ -17,6 +17,11 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import EPCubeCoordinator
+from .services import (
+    PredbatShim,
+    async_register_services,
+    async_unregister_services,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,13 +41,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = EPCubeCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    shim = PredbatShim(hass=hass, entry_id=entry.entry_id, client=client)
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "coordinator": coordinator,
+        "client": client,
+        "shim": shim,
+    }
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Register services once, on first entry setup. Subsequent entries reuse them.
+    if len(hass.data[DOMAIN]) == 1:
+        await async_register_services(hass)
+
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
+        # Cancel any pending revert timer before tearing down
+        shim: PredbatShim | None = hass.data[DOMAIN][entry.entry_id].get("shim")
+        if shim is not None:
+            shim.cancel_revert_timer()
         hass.data[DOMAIN].pop(entry.entry_id)
+        # Last entry gone — unregister services
+        if not hass.data[DOMAIN]:
+            async_unregister_services(hass)
     return unload_ok
