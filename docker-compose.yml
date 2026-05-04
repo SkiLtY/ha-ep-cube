@@ -22,3 +22,18 @@ services:
       - "8765:8765"
     environment:
       - PYTHONUNBUFFERED=1
+
+  appdaemon:
+    image: acockburn/appdaemon:latest
+    container_name: ha-ep-cube-appdaemon
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./appdaemon_config:/conf
+    depends_on:
+      - homeassistant
+    environment:
+      - TZ=Europe/London
+      - HA_URL=http://homeassistant:8123
+      - DASH_URL=http://0.0.0.0:5050
