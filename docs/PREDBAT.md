@@ -2,21 +2,19 @@
 
 Goal: get [Predbat](https://github.com/springfall2008/batpred) reading EP Cube sensors, planning charge/discharge against test prices, and calling our shim services.
 
-## Why a sibling container
+## Why a sibling container — and why not AppDaemon
 
-Predbat is fundamentally an [AppDaemon](https://appdaemon.readthedocs.io/) app. The "Predbat add-on" you see in HA OS is just AppDaemon + Predbat code packaged together. We're on **HA Container** which has no Supervisor and therefore no Add-on store, so we run AppDaemon as its own Docker service alongside HA + mock.
+Historically Predbat shipped as an [AppDaemon](https://appdaemon.readthedocs.io/) app. Predbat upstream has since **retired the AppDaemon install path** in favour of:
 
-This is actually a cleaner architecture for our setup:
-- AppDaemon talks to HA over REST + WebSocket using a long-lived access token
-- Predbat is just files in `appdaemon_config/apps/predbat/`
-- Version-pin Predbat independently of HA Container's release cycle
-- `docker compose pull` updates AppDaemon's image; `git pull` in the Predbat clone updates Predbat itself
+1. The **Predbat HA add-on** (only works on HA OS / Supervised), or
+2. A **standalone Docker image** (`nipar44/predbat_addon`) — the route we use.
+
+We're on HA Container, which has no Supervisor and therefore no add-on store, so the Docker image is the right fit. Earlier revisions of this guide tried to run Predbat inside a custom AppDaemon container; that path ran into incompatible `Hass.__init__` signatures, import cycles, and version-pinned numpy/aiohttp churn. None of that applies any more — `nipar44/predbat_addon` is a self-contained image with the right Predbat ↔ runtime contract baked in.
 
 ## Prerequisites checklist
 
 - [x] Phase 1 + 2a complete (HA + mock running, integration loaded, 9 sensors visible, 7 shim services working)
 - [ ] HA long-lived access token generated (steps below)
-- [ ] Predbat repo cloned on <host>
 
 ## Steps
 
@@ -26,92 +24,77 @@ In the HA UI:
 
 1. Click your profile (bottom-left) → **Security** tab
 2. Scroll to **Long-lived access tokens** → **Create token**
-3. Name it `appdaemon`
+3. Name it `predbat`
 4. Copy the token *immediately* — it's shown only once
 
-Store it in `appdaemon_config/secrets.yaml` (created in step 3).
+### 2. Predbat service in `docker-compose.yml`
 
-### 2. AppDaemon service in `docker-compose.yml`
+Already wired in this repo:
 
-Already wired in this repo. Two non-obvious choices baked into the compose file:
+```yaml
+predbat:
+  image: nipar44/predbat_addon:alpine-latest
+  container_name: ha-ep-cube-predbat
+  restart: unless-stopped
+  ports:
+    - "5052:5052"
+  volumes:
+    - ./predbat_config:/config:rw
+  depends_on:
+    - homeassistant
+  environment:
+    - TZ=Europe/London
+```
 
-- **AppDaemon is pinned to `4.4.2` via a custom Dockerfile** (`./appdaemon/Dockerfile`). 4.5.x added strict topological dependency sorting that rejects Predbat's internal Python import cycles (`predbat ↔ hass ↔ userinterface`). The custom image extends `acockburn/appdaemon:4.4.2` and pre-installs Predbat's runtime deps with versions compatible with AppDaemon 4.4.2's Python 3.10 and aiohttp 3.8.x — Predbat's own `requirements.txt` pins newer numpy/aiohttp/pytz/requests that break AppDaemon's HASS plugin.
-- **Only Predbat's Python package is mounted into `/conf`.** AppDaemon's startup script recursively scans `/conf` for `requirements.txt` files and pip-installs them — Predbat's pins newer aiohttp/numpy/pytz that wreck AppDaemon's HASS plugin. The compose file nested-mounts `./predbat-source/apps/predbat:/conf/apps/predbat:ro` directly, so the rest of the clone (including its `requirements.txt`) is invisible to the container. **Symlinks don't work here** because AppDaemon's `os.walk()` of `/conf/apps` doesn't follow them — the app would be "found" in apps.yaml but its `.py` files would never be imported.
+Predbat web UI ends up at `http://<host>:5052/`.
 
-### 3. `appdaemon_config/` layout
+### 3. `predbat_config/` layout
 
-Already committed. Final structure on the host:
+Final structure on the host:
 
 ```
 ha-ep-cube/
-├── appdaemon/
-│   └── Dockerfile             ← extends acockburn/appdaemon:4.4.2 + pre-installs Predbat deps
-├── appdaemon_config/
-│   ├── appdaemon.yaml         ← HA plugin + admin UI + http port
-│   ├── secrets.yaml           ← HA long-lived token (gitignored)
-│   ├── secrets.yaml.example   ← committed template
-│   └── apps/
-│       ├── apps.yaml          ← Predbat config — uses our ep_cube.* services
-│       └── predbat -> /predbat-source/apps/predbat   ← symlink (resolved inside container)
-└── predbat-source/            ← Cloned from springfall2008/batpred (gitignored)
+└── predbat_config/
+    ├── apps.yaml              ← Predbat config (committed)
+    ├── secrets.yaml.example   ← committed template
+    ├── secrets.yaml           ← HA long-lived token (gitignored)
+    └── predbat.log            ← Predbat's runtime log (gitignored)
 ```
 
-**`appdaemon.yaml`:**
+`apps.yaml` is committed with hardcoded test rates suitable for the dev loop. The HA connection lives at the top of the `pred_bat:` block:
 
 ```yaml
----
-secrets: /conf/secrets.yaml
-appdaemon:
-  latitude: 51.5074
-  longitude: -0.1278
-  elevation: 30
-  time_zone: Europe/London
-  plugins:
-    HASS:
-      type: hass
-      ha_url: http://homeassistant:8123
-      token: !secret ha_token
-http:
-  url: http://0.0.0.0:5050
-admin:
-api:
-hadashboard:
+pred_bat:
+  ha_url: 'http://homeassistant:8123'
+  ha_key: !secret ha_key
+  ...
 ```
 
-**`secrets.yaml`** (gitignore this — already covered by the existing `.env` rules but add `appdaemon_config/secrets.yaml` to `.gitignore` explicitly):
+`secrets.yaml` is just:
 
 ```yaml
-ha_token: <paste-the-long-lived-token>
+ha_key: <paste-the-long-lived-token>
 ```
 
-**`apps/apps.yaml`** is committed with hardcoded test rates suitable for the Phase 2b dev loop. To re-key it for your real `device_id` (when not in sim), search/replace `ep_cube_test_01` throughout. Once an Octopus account is live (Phase 2c), comment out `rates_import:` and uncomment the `metric_octopus_*` lines.
+### 4. Bring up Predbat
 
-### 4. Clone Predbat code
-
-Clone the upstream repo at the **repo root** (not under `appdaemon_config/`):
+On <host>:
 
 ```bash
 cd /volume1/docker/ha-ep-cube
-git clone https://github.com/springfall2008/batpred predbat-source
-```
-
-That's it — `docker-compose.yml` bind-mounts `./predbat-source/apps/predbat` directly into the container at `/conf/apps/predbat`. No symlink needed. `predbat-source/` is gitignored and managed independently. Future Predbat updates: `cd predbat-source && git pull && cd .. && sudo docker compose restart appdaemon`.
-
-### 5. Bring up AppDaemon
-
-```bash
-cd /volume1/docker/ha-ep-cube
-git pull   # picks up the new docker-compose.yml service
-docker compose up -d
-docker compose logs -f appdaemon
+git pull
+cp predbat_config/secrets.yaml.example predbat_config/secrets.yaml
+# edit predbat_config/secrets.yaml — paste the token
+sudo docker compose up -d
+sudo docker compose logs -f predbat
 ```
 
 Watch for:
-- `Connected to Home Assistant` (auth working)
-- `Loading App: predbat` (Predbat module loaded)
+- HA WebSocket auth success
 - Predbat plan output every few minutes — slot decisions, expected SoC trajectory
+- Service calls being issued against `ep_cube.charge_start` etc.
 
-### 6. Verify the loop
+### 5. Verify the loop
 
 Force conditions that should trigger a Predbat charge plan:
 
@@ -122,7 +105,7 @@ curl -X POST http://localhost:8765/__sim__/device/ep_cube_test_01/state \
   -d '{"soc_pct": 20, "soc_kwh": 2.0}'
 ```
 
-Watch HA logs for `ep_cube.charge_start` being called by Predbat (HA UI → Settings → System → Logs, or `docker compose logs homeassistant | grep ep_cube`).
+Watch HA logs for `ep_cube.charge_start` being called by Predbat (HA UI → Settings → System → Logs, or `sudo docker compose logs homeassistant | grep ep_cube`).
 
 Then inspect what landed on the mock:
 
@@ -130,27 +113,27 @@ Then inspect what landed on the mock:
 curl -s http://localhost:8765/__sim__/device/ep_cube_test_01/tou-current | python3 -m json.tool
 ```
 
-Expect a TOU schedule with one or more `_predbat_override: true` slots covering the cheap windows from your hardcoded `rates_import`.
+Expect a TOU schedule with one or more `_predbat_override: true` slots covering the cheap windows from `rates_import`.
 
 ## Likely issues
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| AppDaemon: `Authentication failed` | Wrong token or expired | Regenerate token, update `secrets.yaml`, restart appdaemon |
-| AppDaemon: `Cannot connect to HA at http://homeassistant:8123` | Network/DNS mismatch | Ensure all services are in the same compose project; check `docker compose ps` |
-| Predbat: `Inverter not found` or sensor values are `unknown` | Entity IDs in `apps.yaml` don't match reality | Cross-check entity IDs in HA Developer Tools → States. Format is `sensor.ep_cube_<device_id>_<key>` |
-| Predbat: `service ep_cube.charge_start not found` | Services not registered (HA wasn't restarted after pulling Phase 2a code) | `docker compose restart homeassistant`, then in HA Developer Tools → Actions, type `ep_cube` and verify all 9 services appear |
-| Predbat plans correctly but no service calls fire | Check Predbat is in active mode, not "predict only" | In `apps.yaml` set `set_charge_window: True` and `set_discharge_window: True` |
-| Predbat keeps re-issuing identical plans | Expected — our shim's `_matches_active` idempotency check returns no-op for repeats. Check HA log for `idempotent no-op (same args as active override)` debug messages | Working as designed |
+| Predbat log: `Authentication failed` / `401` | Wrong token or expired | Regenerate token, update `secrets.yaml`, `sudo docker compose restart predbat` |
+| Predbat: `Cannot connect to HA at http://homeassistant:8123` | Network/DNS mismatch | All services must be in the same compose project; check `sudo docker compose ps` |
+| Predbat: sensor values `unknown` or `Inverter not found` | Entity IDs in `apps.yaml` don't match reality | Cross-check entity IDs in HA Developer Tools → States. Format is `sensor.ep_cube_<device_id>_<key>` |
+| Predbat: `service ep_cube.charge_start not found` | Services not registered after pulling Phase 2a code | `sudo docker compose restart homeassistant`, then HA Developer Tools → Actions → type `ep_cube` and verify the 9 services |
+| Predbat plans correctly but no service calls fire | Predbat in "predict only" mode | In `apps.yaml` set `set_charge_window: True` and `set_discharge_window: True` |
+| Predbat keeps re-issuing identical plans | Expected — shim's `_matches_active` idempotency returns no-op | Working as designed; check HA log for `idempotent no-op` debug messages |
 
 ## When Octopus account is live (Phase 2c)
 
 1. Install [BottlecapDave's HACS integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy)
 2. Configure it with your Octopus account API key + MPAN/serial
-3. In `appdaemon_config/apps/apps.yaml`:
+3. In `predbat_config/apps.yaml`:
    - Comment out the hardcoded `rates_import:` block
    - Uncomment the `metric_octopus_import:` and `metric_octopus_export:` lines and fill in your MPAN/serial
-4. `docker compose restart appdaemon`
+4. `sudo docker compose restart predbat`
 
 Predbat will now plan against real 30-min Agile prices.
 
@@ -158,4 +141,4 @@ Predbat will now plan against real 30-min Agile prices.
 
 - **HACS install** — Phase 4. We don't need HACS to run the integration; we volume-mount it directly.
 - **Tests** — Phase 4. Mock + smoke-test loop is enough for now.
-- **Production hardening** — `secrets.yaml` will need encrypting before public repo, AppDaemon admin UI should be behind auth, etc. Cross those bridges when Phase 4 makes the repo public.
+- **Production hardening** — `secrets.yaml` will need encrypting before public repo, Predbat web UI should be behind auth, etc. Cross those bridges when Phase 4 makes the repo public.

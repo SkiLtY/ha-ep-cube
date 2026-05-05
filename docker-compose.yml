@@ -23,25 +23,18 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
 
-  appdaemon:
-    build:
-      context: ./appdaemon
-    image: ha-ep-cube-appdaemon:local
-    container_name: ha-ep-cube-appdaemon
+  # Predbat as a standalone Docker service. Upstream Predbat retired the
+  # AppDaemon install path; nipar44/predbat_addon is the Docker fork they
+  # point at. apps.yaml + secrets.yaml live in ./predbat_config/.
+  predbat:
+    image: nipar44/predbat_addon:alpine-latest
+    container_name: ha-ep-cube-predbat
     restart: unless-stopped
     ports:
-      - "5050:5050"
+      - "5052:5052"
     volumes:
-      - ./appdaemon_config:/conf
-      # Mount only Predbat's Python package into /conf/apps/predbat as a real
-      # directory. (Symlinks aren't followed by AppDaemon's os.walk(), so the
-      # module never gets imported.) The rest of the Predbat clone — including
-      # its requirements.txt — is intentionally invisible to the container, so
-      # AppDaemon's auto-pip step skips it.
-      - ./predbat-source/apps/predbat:/conf/apps/predbat:ro
+      - ./predbat_config:/config:rw
     depends_on:
       - homeassistant
     environment:
       - TZ=Europe/London
-      - HA_URL=http://homeassistant:8123
-      - DASH_URL=http://0.0.0.0:5050
