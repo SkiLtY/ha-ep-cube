@@ -52,18 +52,28 @@ pred_bat:
   inverter_can_charge_during_export: True
   inverter_can_force_export: True
 
+  # Each *_service is a dict (Predbat schema) — service: <domain>.<name>.
+  # Our shim takes targets via service_data, not entity_id, so no entity_id here.
+
   # Charge controls
-  charge_start_service: 'ep_cube.charge_start'
-  charge_stop_service: 'ep_cube.charge_stop'
-  charge_freeze_service: 'ep_cube.charge_freeze'
+  charge_start_service:
+    service: ep_cube.charge_start
+  charge_stop_service:
+    service: ep_cube.charge_stop
+  charge_freeze_service:
+    service: ep_cube.charge_freeze
 
   # Discharge controls
-  discharge_start_service: 'ep_cube.discharge_start'
-  discharge_stop_service: 'ep_cube.discharge_stop'
-  discharge_freeze_service: 'ep_cube.discharge_freeze'
+  discharge_start_service:
+    service: ep_cube.discharge_start
+  discharge_stop_service:
+    service: ep_cube.discharge_stop
+  discharge_freeze_service:
+    service: ep_cube.discharge_freeze
 
   # Idle / restore baseline
-  idle_service: 'ep_cube.idle'
+  idle_service:
+    service: ep_cube.idle
 
   # If you have multiple EP Cubes, uncomment and set the device_id explicitly:
   # service_data:
