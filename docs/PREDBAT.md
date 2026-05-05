@@ -36,7 +36,7 @@ Store it in `appdaemon_config/secrets.yaml` (created in step 3).
 Already wired in this repo. Two non-obvious choices baked into the compose file:
 
 - **AppDaemon is pinned to `4.4.2` via a custom Dockerfile** (`./appdaemon/Dockerfile`). 4.5.x added strict topological dependency sorting that rejects Predbat's internal Python import cycles (`predbat ↔ hass ↔ userinterface`). The custom image extends `acockburn/appdaemon:4.4.2` and pre-installs Predbat's runtime deps with versions compatible with AppDaemon 4.4.2's Python 3.10 and aiohttp 3.8.x — Predbat's own `requirements.txt` pins newer numpy/aiohttp/pytz/requests that break AppDaemon's HASS plugin.
-- **Predbat clone is bind-mounted at `/predbat-source` (outside `/conf`).** AppDaemon's startup script recursively scans `/conf` for `requirements.txt` files and pip-installs them. By keeping the Predbat clone out of `/conf`, that step skips it. The Python module is exposed inside `/conf/apps/predbat` via a symlink to `/predbat-source/apps/predbat`.
+- **Only Predbat's Python package is mounted into `/conf`.** AppDaemon's startup script recursively scans `/conf` for `requirements.txt` files and pip-installs them — Predbat's pins newer aiohttp/numpy/pytz that wreck AppDaemon's HASS plugin. The compose file nested-mounts `./predbat-source/apps/predbat:/conf/apps/predbat:ro` directly, so the rest of the clone (including its `requirements.txt`) is invisible to the container. **Symlinks don't work here** because AppDaemon's `os.walk()` of `/conf/apps` doesn't follow them — the app would be "found" in apps.yaml but its `.py` files would never be imported.
 
 ### 3. `appdaemon_config/` layout
 
@@ -88,18 +88,14 @@ ha_token: <paste-the-long-lived-token>
 
 ### 4. Clone Predbat code
 
-Clone the upstream repo at the **repo root** (not under `appdaemon_config/`) and link the Python module into the AppDaemon apps directory:
+Clone the upstream repo at the **repo root** (not under `appdaemon_config/`):
 
 ```bash
 cd /volume1/docker/ha-ep-cube
 git clone https://github.com/springfall2008/batpred predbat-source
-
-# Symlink uses an absolute container path — it resolves inside the container,
-# not on the host. Don't worry that the host path doesn't exist.
-ln -s /predbat-source/apps/predbat appdaemon_config/apps/predbat
 ```
 
-`predbat-source/` and `appdaemon_config/apps/predbat` are both gitignored — managed independently from this repo. Future Predbat updates: `cd predbat-source && git pull && cd .. && sudo docker compose restart appdaemon`.
+That's it — `docker-compose.yml` bind-mounts `./predbat-source/apps/predbat` directly into the container at `/conf/apps/predbat`. No symlink needed. `predbat-source/` is gitignored and managed independently. Future Predbat updates: `cd predbat-source && git pull && cd .. && sudo docker compose restart appdaemon`.
 
 ### 5. Bring up AppDaemon
 

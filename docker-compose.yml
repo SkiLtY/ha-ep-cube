@@ -33,10 +33,12 @@ services:
       - "5050:5050"
     volumes:
       - ./appdaemon_config:/conf
-      # Predbat clone bind-mounted OUTSIDE /conf so AppDaemon's auto-pip step
-      # ignores its requirements.txt. Inside /conf the symlink
-      # apps/predbat -> /predbat-source/apps/predbat exposes only the Python module.
-      - ./predbat-source:/predbat-source:ro
+      # Mount only Predbat's Python package into /conf/apps/predbat as a real
+      # directory. (Symlinks aren't followed by AppDaemon's os.walk(), so the
+      # module never gets imported.) The rest of the Predbat clone — including
+      # its requirements.txt — is intentionally invisible to the container, so
+      # AppDaemon's auto-pip step skips it.
+      - ./predbat-source/apps/predbat:/conf/apps/predbat:ro
     depends_on:
       - homeassistant
     environment:
