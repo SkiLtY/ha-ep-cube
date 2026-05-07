@@ -190,7 +190,7 @@ Both `strings.json` (source) and `translations/en.json` (runtime) must exist. HA
 | **2b.1. Shim contract redesign** | Read params from `sensor.predbat_<inv>_*` entities instead of service-call args | ✅ done |
 | **2c. Octopus prices** | Predbat fetches Agile import + export rates from the public REST API (region L). No account required. | ✅ done |
 | **2c+. Octopus account upgrade** | Layer BottlecapDave's HACS integration on top for smart-meter consumption + IOG dispatch info. Agile rate path stays on the public URL either way. | ⏸️ awaits account |
-| **3. Hardware reconciliation** | Capture real cloud API traffic via mitmproxy, reconcile mock contract, switch to live endpoint, fix what breaks | ⏸️ blocked on hardware (~late May 2026) |
+| **3. Hardware reconciliation** | Capture real cloud API traffic via mitmproxy, reconcile mock contract, switch to live endpoint, fix what breaks | ⏸️ install booked 2026-05-19 |
 | **4. HACS + tests + CI** | HACS distribution, pytest scaffolding, GitHub Actions | ⏸️ post-Phase 3 |
 
 ## Verified flows (Phase 2a, 2026-05-04)
