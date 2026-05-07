@@ -3,6 +3,12 @@
 Translates Predbat's rate-based, time-windowed control contract into EP Cube's
 mode + TOU-schedule contract. See docs/ARCHITECTURE.md for the design.
 
+Phase 2b.1 contract (current):
+  Predbat publishes the planned window to `sensor.predbat_<inv>_*` dummy
+  entities BEFORE firing the matching service call. Service calls themselves
+  carry empty `data {}` (apps.yaml has no template `data:` keys), so the
+  handlers below ignore call args and read the plan via predbat_state.read_plan.
+
 State held per-shim:
   - baseline_mode / baseline_schedule: snapshot of user's "normal" config,
     captured the first time we override anything. Restored when an override ends.
@@ -30,6 +36,7 @@ from .const import (
     OPERATING_MODE_SELF_CONSUMPTION,
     OPERATING_MODE_TOU,
 )
+from .predbat_state import PredbatPlan, PredbatStateError, describe, read_plan
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,24 +54,9 @@ KIND_CHARGE = "charge"
 KIND_DISCHARGE = "discharge"
 KIND_FREEZE = "freeze"
 
-# Service schemas
-WINDOWED_SCHEMA = vol.Schema(
-    {
-        vol.Optional("device_id"): cv.string,
-        vol.Required("end_time"): cv.datetime,
-        vol.Required("target_soc_pct"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
-        vol.Optional("rate_w"): vol.All(vol.Coerce(float), vol.Range(min=0)),
-    }
-)
-
-FREEZE_SCHEMA = vol.Schema(
-    {
-        vol.Optional("device_id"): cv.string,
-        vol.Required("end_time"): cv.datetime,
-    }
-)
-
-STOP_SCHEMA = vol.Schema({vol.Optional("device_id"): cv.string})
+# All shim services accept only an optional device_id. The window/SoC/rate
+# parameters come from the Predbat dummy entities (see predbat_state.py).
+SHIM_SCHEMA = vol.Schema({vol.Optional("device_id"): cv.string})
 
 
 class PredbatShim:
@@ -87,18 +79,8 @@ class PredbatShim:
     def is_active(self) -> bool:
         return self._active_override is not None
 
-    async def charge_start(
-        self, end_time: datetime, target_soc_pct: float, rate_w: float | None = None
-    ) -> None:
-        """Force grid charge until end_time, targeting given SoC.
-
-        rate_w is ignored — TOU charges at max rate. Documented in ARCHITECTURE.md.
-        """
-        if rate_w is not None:
-            _LOGGER.debug(
-                "charge_start: rate_w=%s ignored (TOU charges at max rate)", rate_w
-            )
-
+    async def charge_start(self, end_time: datetime, target_soc_pct: float) -> None:
+        """Force grid charge until end_time, targeting given SoC."""
         params = {"kind": KIND_CHARGE, "end_time": end_time, "target_soc_pct": target_soc_pct}
         if self._matches_active(params):
             _LOGGER.debug("charge_start: idempotent no-op (same args as active override)")
@@ -122,20 +104,13 @@ class PredbatShim:
         else:
             _LOGGER.debug("charge_stop: no active charge override (no-op)")
 
-    async def discharge_start(
-        self, end_time: datetime, target_soc_pct: float, rate_w: float | None = None
-    ) -> None:
+    async def discharge_start(self, end_time: datetime, target_soc_pct: float) -> None:
         """Force discharge until end_time, targeting given SoC.
 
         Working assumption: a TOU 'peak' slot with grid_charge=False and a low
         target_soc_pct triggers grid export. Hardware reconciliation needed —
         may require operating_mode flip instead. See ARCHITECTURE.md.
         """
-        if rate_w is not None:
-            _LOGGER.debug(
-                "discharge_start: rate_w=%s ignored (TOU discharges at max rate)", rate_w
-            )
-
         params = {"kind": KIND_DISCHARGE, "end_time": end_time, "target_soc_pct": target_soc_pct}
         if self._matches_active(params):
             _LOGGER.debug("discharge_start: idempotent no-op")
@@ -172,7 +147,6 @@ class PredbatShim:
         if self._matches_active(params):
             return
 
-        # Read current SoC to set as reserve floor
         try:
             status = await self.client.get_status()
             current_soc = status.soc_pct
@@ -193,10 +167,7 @@ class PredbatShim:
         _LOGGER.info("charge_freeze applied: hold at %.0f%% until %s", current_soc, end_time.isoformat())
 
     async def discharge_freeze(self, end_time: datetime) -> None:
-        """Alias for charge_freeze — semantics are identical (battery idle).
-
-        Predbat distinguishes the two semantically; we treat them the same.
-        """
+        """Alias for charge_freeze — semantics are identical (battery idle)."""
         await self.charge_freeze(end_time)
 
     async def idle(self) -> None:
@@ -266,7 +237,6 @@ class PredbatShim:
     def _schedule_revert(self, end_time: datetime) -> None:
         """Schedule a one-shot revert at end_time. Replaces any previous schedule."""
         self._cancel_revert()
-        # Ensure UTC for HA's scheduler
         when = dt_util.as_utc(end_time)
         self._revert_unsub = async_track_point_in_utc_time(
             self.hass, self._on_revert_timer, when
@@ -282,7 +252,6 @@ class PredbatShim:
         try:
             await self._revert_to_baseline()
         except EPCubeError:
-            # Already logged; nothing more to do here
             pass
 
     def _build_override_schedule(
@@ -309,8 +278,6 @@ class PredbatShim:
             "target_soc_pct": target_soc_pct,
             "_predbat_override": True,
         }
-        # v1 simplification: replace today's schedule with [override, fillers from baseline].
-        # Tomorrow's schedule (i.e. weekend portion) untouched.
         baseline = self._baseline_schedule or {}
         is_weekend = now_local.weekday() >= 5
         day_key = "weekend" if is_weekend else "weekday"
@@ -337,10 +304,8 @@ def _merge_override(baseline_slots: list[dict[str, Any]], override: dict[str, An
     for slot in baseline_slots:
         s, e = slot["start"], slot["end"]
         if e <= o_start or s >= o_end:
-            # No overlap
             out.append(slot)
             continue
-        # Overlap: keep the non-overlapping flanks of the baseline slot
         if s < o_start:
             out.append({**slot, "end": o_start})
         if e > o_end:
@@ -356,8 +321,8 @@ def _merge_override(baseline_slots: list[dict[str, Any]], override: dict[str, An
 async def async_register_services(hass: HomeAssistant) -> None:
     """Register the Predbat shim services on the HA service bus.
 
-    Services dispatch to the shim of the targeted EP Cube device. If only one
-    EP Cube is configured, device_id can be omitted.
+    Handlers read the planned window from `sensor.predbat_<inv>_*` entities via
+    predbat_state.read_plan. Service-call args are ignored beyond `device_id`.
     """
 
     def _resolve_shim(call: ServiceCall) -> PredbatShim:
@@ -380,12 +345,29 @@ async def async_register_services(hass: HomeAssistant) -> None:
             )
         return next(iter(shims.values()))
 
+    def _read_plan(service: str) -> PredbatPlan:
+        try:
+            plan = read_plan(hass)
+        except PredbatStateError as err:
+            _LOGGER.error("%s: cannot read Predbat plan: %s", service, err)
+            raise vol.Invalid(f"Predbat plan unreadable: {err}") from err
+        _LOGGER.debug("%s: predbat plan = %s", service, describe(plan))
+        return plan
+
     async def handle_charge_start(call: ServiceCall) -> None:
         shim = _resolve_shim(call)
+        plan = _read_plan(SERVICE_CHARGE_START)
+        if not plan.charge_enabled or plan.charge_window is None:
+            _LOGGER.warning(
+                "charge_start fired but Predbat reports no active charge plan "
+                "(enabled=%s window=%s) — ignoring",
+                plan.charge_enabled, plan.charge_window,
+            )
+            return
+        # charge_limit defaults to 100 if Predbat hasn't published it yet.
+        target_soc_pct = float(plan.charge_limit_pct if plan.charge_limit_pct is not None else 100)
         await shim.charge_start(
-            end_time=call.data["end_time"],
-            target_soc_pct=call.data["target_soc_pct"],
-            rate_w=call.data.get("rate_w"),
+            end_time=plan.charge_window.end, target_soc_pct=target_soc_pct
         )
 
     async def handle_charge_stop(call: ServiceCall) -> None:
@@ -393,31 +375,56 @@ async def async_register_services(hass: HomeAssistant) -> None:
 
     async def handle_discharge_start(call: ServiceCall) -> None:
         shim = _resolve_shim(call)
+        plan = _read_plan(SERVICE_DISCHARGE_START)
+        if not plan.discharge_enabled or plan.discharge_window is None:
+            _LOGGER.warning(
+                "discharge_start fired but Predbat reports no active discharge plan "
+                "(enabled=%s window=%s) — ignoring",
+                plan.discharge_enabled, plan.discharge_window,
+            )
+            return
+        # discharge_target_soc defaults to 0 (discharge to floor) if missing.
+        target_soc_pct = float(
+            plan.discharge_target_soc_pct if plan.discharge_target_soc_pct is not None else 0
+        )
         await shim.discharge_start(
-            end_time=call.data["end_time"],
-            target_soc_pct=call.data["target_soc_pct"],
-            rate_w=call.data.get("rate_w"),
+            end_time=plan.discharge_window.end, target_soc_pct=target_soc_pct
         )
 
     async def handle_discharge_stop(call: ServiceCall) -> None:
         await _resolve_shim(call).discharge_stop()
 
     async def handle_charge_freeze(call: ServiceCall) -> None:
-        await _resolve_shim(call).charge_freeze(end_time=call.data["end_time"])
+        shim = _resolve_shim(call)
+        plan = _read_plan(SERVICE_CHARGE_FREEZE)
+        # Freeze re-uses the charge window's end as the freeze duration.
+        if plan.charge_window is None:
+            _LOGGER.warning(
+                "charge_freeze fired but no charge window published — ignoring"
+            )
+            return
+        await shim.charge_freeze(end_time=plan.charge_window.end)
 
     async def handle_discharge_freeze(call: ServiceCall) -> None:
-        await _resolve_shim(call).discharge_freeze(end_time=call.data["end_time"])
+        shim = _resolve_shim(call)
+        plan = _read_plan(SERVICE_DISCHARGE_FREEZE)
+        if plan.discharge_window is None:
+            _LOGGER.warning(
+                "discharge_freeze fired but no discharge window published — ignoring"
+            )
+            return
+        await shim.discharge_freeze(end_time=plan.discharge_window.end)
 
     async def handle_idle(call: ServiceCall) -> None:
         await _resolve_shim(call).idle()
 
-    hass.services.async_register(DOMAIN, SERVICE_CHARGE_START, handle_charge_start, schema=WINDOWED_SCHEMA)
-    hass.services.async_register(DOMAIN, SERVICE_CHARGE_STOP, handle_charge_stop, schema=STOP_SCHEMA)
-    hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_START, handle_discharge_start, schema=WINDOWED_SCHEMA)
-    hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_STOP, handle_discharge_stop, schema=STOP_SCHEMA)
-    hass.services.async_register(DOMAIN, SERVICE_CHARGE_FREEZE, handle_charge_freeze, schema=FREEZE_SCHEMA)
-    hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_FREEZE, handle_discharge_freeze, schema=FREEZE_SCHEMA)
-    hass.services.async_register(DOMAIN, SERVICE_IDLE, handle_idle, schema=STOP_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_CHARGE_START, handle_charge_start, schema=SHIM_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_CHARGE_STOP, handle_charge_stop, schema=SHIM_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_START, handle_discharge_start, schema=SHIM_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_STOP, handle_discharge_stop, schema=SHIM_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_CHARGE_FREEZE, handle_charge_freeze, schema=SHIM_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_FREEZE, handle_discharge_freeze, schema=SHIM_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_IDLE, handle_idle, schema=SHIM_SCHEMA)
 
 
 def async_unregister_services(hass: HomeAssistant) -> None:

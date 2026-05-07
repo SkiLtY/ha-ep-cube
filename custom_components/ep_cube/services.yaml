@@ -31,33 +31,19 @@ set_tou_schedule:
       selector:
         object:
 
-# Predbat shim services — rate-based, time-windowed control
+# Predbat shim services
+#
+# Phase 2b.1 contract: these services take no parameters beyond an optional
+# device_id. The planned window, target SoC, and enable flags are read from
+# Predbat's dummy entities (sensor.predbat_<inv>_*) by the handler. Predbat
+# itself fires these services with empty data {}.
+#
+# Manual invocation from Developer Tools is for diagnostics only — without
+# Predbat publishing a plan first, the start/freeze handlers will warn-and-skip.
+
 charge_start:
   name: Predbat — start charging
-  description: Force grid charge until end_time, targeting the given SoC.
-  fields:
-    end_time:
-      name: End time
-      required: true
-      selector:
-        datetime:
-    target_soc_pct:
-      name: Target SoC (%)
-      required: true
-      selector:
-        number:
-          min: 0
-          max: 100
-          unit_of_measurement: "%"
-    rate_w:
-      name: Charge rate (W)
-      description: Informational — TOU charges at max rate, see ARCHITECTURE.md.
-      required: false
-      selector:
-        number:
-          min: 0
-          max: 20000
-          unit_of_measurement: "W"
+  description: Force grid charge until the end of Predbat's planned charge window. Reads start/end and target SoC from sensor.predbat_<inv>_charge_*.
 
 charge_stop:
   name: Predbat — stop charging
@@ -65,21 +51,7 @@ charge_stop:
 
 discharge_start:
   name: Predbat — start discharging
-  description: Force grid discharge until end_time, targeting the given SoC.
-  fields:
-    end_time:
-      name: End time
-      required: true
-      selector:
-        datetime:
-    target_soc_pct:
-      name: Target SoC (%)
-      required: true
-      selector:
-        number:
-          min: 0
-          max: 100
-          unit_of_measurement: "%"
+  description: Force grid discharge until the end of Predbat's planned discharge window. Reads start/end and target SoC from sensor.predbat_<inv>_discharge_*.
 
 discharge_stop:
   name: Predbat — stop discharging
@@ -87,23 +59,11 @@ discharge_stop:
 
 charge_freeze:
   name: Predbat — charge freeze
-  description: Hold battery at current SoC until end_time.
-  fields:
-    end_time:
-      name: End time
-      required: true
-      selector:
-        datetime:
+  description: Hold battery at current SoC until the end of Predbat's planned charge window.
 
 discharge_freeze:
   name: Predbat — discharge freeze
-  description: Hold battery at current SoC until end_time (alias for charge_freeze).
-  fields:
-    end_time:
-      name: End time
-      required: true
-      selector:
-        datetime:
+  description: Hold battery at current SoC until the end of Predbat's planned discharge window.
 
 idle:
   name: Predbat — idle

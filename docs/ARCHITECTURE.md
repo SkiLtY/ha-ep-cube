@@ -41,19 +41,49 @@
 
 Predbat ([docs](https://springfall2008.github.io/batpred/inverter-setup/)) drives an inverter via a rate-based, time-windowed contract. EP Cube's cloud surface is mode + TOU schedule. The shim is the translation layer.
 
-> ⚠️ **Phase 2b.1 redesign coming.** The Phase 2a shim contract documented below assumed Predbat passes `(rate, end_time, target_soc)` as service-call args. Phase 2b validation revealed Predbat's `*_service` calls actually pass empty `data {}` — Predbat writes the planned window to its own dummy entities (`sensor.predbat_EP_CUBE_0_charge_start_time` / `_charge_end_time` / `_scheduled_charge_enable` / `_charge_limit`) and expects the integration to read those. Phase 2b.1 reworks the shim to read params from those entities; the inverter-facing translation logic (TOU rewrite, baseline snapshot, auto-revert, idempotency) stays the same.
+### How Predbat publishes its plan (Phase 2b.1)
 
-### Services exposed to Predbat (current — Phase 2a contract)
+For `has_service_api: True` inverters, Predbat writes the planned window to its own dummy `sensor.*` entities **before** firing the matching service call. Service calls themselves carry empty `data {}` (apps.yaml has no template `data:` keys), so the shim ignores call args and reads the plan from the entities.
 
-| Service | Predbat input | Shim translation | Status |
+Naming pattern:
+
+```
+sensor.{prefix}_{inverter_type}_{index}_{name}
+       └─ predbat ┘ └─ EP_CUBE ┘ └─ 0 ┘ └─ varies ─┘
+```
+
+Entities consumed by the shim (parsed in [predbat_state.py](../custom_components/ep_cube/predbat_state.py)):
+
+| Entity name | Format | Meaning |
+|---|---|---|
+| `scheduled_charge_enable` | `"on"` / `"off"` | Charge plan active |
+| `charge_start_time` / `charge_end_time` | `"HH:MM:SS"` | Planned charge window |
+| `charge_limit` | int 0–100 | Target SoC for charge |
+| `scheduled_discharge_enable` | `"on"` / `"off"` | Discharge plan active |
+| `discharge_start_time` / `discharge_end_time` | `"HH:MM:SS"` | Planned discharge window |
+| `discharge_target_soc` | int 0–100 | Discharge floor |
+| `idle_start_time` / `idle_end_time` | `"HH:MM:SS"` | Demand-only window (read but not yet acted on) |
+| `reserve` | int 0–100 | Battery reserve |
+
+`"23:59:00"` for both ends of a window is Predbat's "no plan" sentinel. Times resolve to today's local datetime; if the time has already passed, predbat_state assumes tomorrow (Predbat publishes upcoming windows). Windows where `end <= start` are treated as midnight-spanning and end is rolled forward by one day.
+
+Single-device assumption — `inverter_type=EP_CUBE`, `index=0` — is hardcoded in `const.py`. Multi-device support is deferred to Phase 4.
+
+### Services exposed to Predbat
+
+All shim services accept only an optional `device_id`. The window/SoC parameters come from the entities above.
+
+| Service | Plan inputs read | Shim translation | Status |
 |---|---|---|---|
-| `ep_cube.charge_start` | `rate_w`, `end_time`, `target_soc_pct` | Set mode=TOU. Insert grid-charge slot covering now → end_time, target SoC. **`rate_w` ignored** — TOU charges at max. To time-extend a charge, shift slot start later. | ✅ verified on mock |
+| `ep_cube.charge_start` | `charge_*_time`, `charge_limit`, `scheduled_charge_enable` | Set mode=TOU. Insert grid-charge slot covering now → charge_end_time, target SoC = charge_limit. Charge rate not in TOU surface. | ✅ verified on mock (Phase 2a flow) |
 | `ep_cube.charge_stop` | — | Restore baseline mode + schedule. Cancel revert timer. | ✅ verified on mock |
-| `ep_cube.discharge_start` | `rate_w`, `end_time`, `target_soc_pct` | Insert TOU slot with `grid_charge: false` + `type: peak` + low target_soc. **Working assumption** — may need operating_mode flip to actually export. Verify on hardware. | ⚠️ untested on hardware |
+| `ep_cube.discharge_start` | `discharge_*_time`, `discharge_target_soc`, `scheduled_discharge_enable` | Insert TOU slot with `grid_charge: false` + `type: peak` + target_soc = discharge_target_soc. **Working assumption** — may need operating_mode flip to actually export. Verify on hardware. | ⚠️ untested on hardware |
 | `ep_cube.discharge_stop` | — | Same as charge_stop. | ✅ verified on mock |
-| `ep_cube.charge_freeze` | `end_time` | Read current SoC, set reserve_soc=current, mode=self_consumption. | ✅ verified on mock |
-| `ep_cube.discharge_freeze` | `end_time` | Alias for charge_freeze. | ✅ verified on mock |
+| `ep_cube.charge_freeze` | `charge_*_time` | Read current SoC, set reserve_soc=current, mode=self_consumption, revert at charge_end_time. | ✅ verified on mock (Phase 2a flow) |
+| `ep_cube.discharge_freeze` | `discharge_*_time` | Alias for charge_freeze, end-time taken from discharge window. | ✅ verified on mock |
 | `ep_cube.idle` | — | Restore baseline. Equivalent to `*_stop` for any active override. | ✅ verified on mock |
+
+If `*_start` or `*_freeze` fires while Predbat reports no plan (`enable=off` or sentinel window), the handler logs a warning and no-ops. This guards against stale fires during shutdown / config errors.
 
 ### State the shim holds (per device)
 
@@ -155,7 +185,7 @@ Both `strings.json` (source) and `translations/en.json` (runtime) must exist. HA
 | **1. Mock + skeleton** | Mock server live, HA integration loads, config flow works, sensors populated from mock | ✅ done |
 | **2a. Predbat shim** | Shim services callable, idempotency + revert logic, Predbat custom-inverter template | ✅ done |
 | **2b. Predbat install** | `nipar44/predbat_addon` Docker container running Predbat, plans against hardcoded test prices, fires shim service calls | ✅ done |
-| **2b.1. Shim contract redesign** | Read params from `sensor.predbat_<inv>_*` entities instead of service-call args | ⏳ next |
+| **2b.1. Shim contract redesign** | Read params from `sensor.predbat_<inv>_*` entities instead of service-call args | ✅ done |
 | **2c. Octopus prices** | Switch Predbat price source from hardcoded → BottlecapDave's HACS integration | ⏸️ blocked on Octopus account |
 | **3. Hardware reconciliation** | Capture real cloud API traffic via mitmproxy, reconcile mock contract, switch to live endpoint, fix what breaks | ⏸️ blocked on hardware (~late May 2026) |
 | **4. HACS + tests + CI** | HACS distribution, pytest scaffolding, GitHub Actions | ⏸️ post-Phase 3 |
