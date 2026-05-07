@@ -126,16 +126,70 @@ Expect a TOU schedule with one or more `_predbat_override: true` slots covering 
 | Predbat plans correctly but no service calls fire | Predbat in "predict only" mode | In `apps.yaml` set `set_charge_window: True` and `set_discharge_window: True` |
 | Predbat keeps re-issuing identical plans | Expected — shim's `_matches_active` idempotency returns no-op | Working as designed; check HA log for `idempotent no-op` debug messages |
 
-## When Octopus account is live (Phase 2c)
+## Tariff (Phase 2c — done)
 
-1. Install [BottlecapDave's HACS integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy)
-2. Configure it with your Octopus account API key + MPAN/serial
-3. In `predbat_config/apps.yaml`:
-   - Comment out the hardcoded `rates_import:` block
-   - Uncomment the `metric_octopus_import:` and `metric_octopus_export:` lines and fill in your MPAN/serial
-4. `sudo docker compose restart predbat`
+`apps.yaml` is already wired to fetch Octopus Agile rates from the public REST API — no Octopus account needed:
 
-Predbat will now plan against real 30-min Agile prices.
+```yaml
+rates_import_octopus_url: "https://api.octopus.energy/v1/products/AGILE-24-10-01/electricity-tariffs/E-1R-AGILE-24-10-01-L/standard-unit-rates"
+rates_export_octopus_url: "https://api.octopus.energy/v1/products/AGILE-OUTGOING-19-05-13/electricity-tariffs/E-1R-AGILE-OUTGOING-19-05-13-L/standard-unit-rates/"
+```
+
+Region letter at the end of each URL (`-L`) is the DNO region — change to match yours. Octopus rotates the import product code (`AGILE-24-10-01`) every ~year; when that happens, list current codes via:
+
+```bash
+curl -s 'https://api.octopus.energy/v1/products/?brand=OCTOPUS_ENERGY' \
+  | jq '.results[] | select(.code | test("AGILE")) | .code'
+```
+
+When a real Octopus account becomes available, [BottlecapDave's integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) layers on smart-meter consumption + IOG dispatch info; the Agile rate path stays on the public URL either way.
+
+## PV forecast — Solcast
+
+Predbat needs a half-hourly PV forecast to schedule charges around free solar. Without one, the plan shows `PV kWh: 0.0` and Predbat assumes worst-case zero generation. We use [Solcast](https://solcast.com/) — free tier, 10 API calls/day, accurate.
+
+The plumbing in `apps.yaml` (`pv_forecast_today` / `_tomorrow` / `_d3` / `_d4`) auto-discovers Solcast sensors via regex, so once the HACS integration is installed there's nothing to edit on the Predbat side — just restart it.
+
+### One-time setup
+
+1. **Sign up** at [solcast.com/free-rooftop-solar-forecast](https://solcast.com/free-rooftop-solar-forecast). Personal use is free, capped at 10 API polls/day across all sites.
+
+2. **Configure your rooftop site** on Solcast's web UI:
+   - Latitude/longitude (your house — Solcast accepts any UK location)
+   - DC capacity (kWp) — the array's nameplate rating
+   - Tilt (typical UK roof: 30–40°)
+   - Azimuth (180° = due south, 90° = east, 270° = west)
+   - Tracking type (almost always "Fixed")
+
+   If hardware specs aren't finalised yet, use placeholders (e.g. 4 kWp, 35° tilt, 180° azimuth) and refine when the EP Cube + panels are commissioned.
+
+3. **Note your credentials:**
+   - **API key** — Account → API Key (single string)
+   - **Resource ID** — under each site, a UUID like `aaaa-bbbb-…`
+
+4. **Install the HACS integration:**
+   - In HA: HACS → Integrations → ⋮ → "Custom repositories" is *not* needed — `BJReplay/ha-solcast-solar` is in the default HACS repository.
+   - Search for "Solcast PV Forecast" → Download → restart HA.
+   - Settings → Devices & Services → Add Integration → "Solcast PV Forecast" → paste API key.
+   - The integration auto-discovers sites tied to the API key.
+
+5. **Restart Predbat** (`docker compose restart predbat` on <host>) so it picks up the new `sensor.solcast_pv_forecast_*` entities. Within one plan cycle (~5 min) the Plan tab's `PV kWh` column should show non-zero values.
+
+### What entities Solcast creates (so you know what to expect)
+
+| Entity | Unit | Purpose |
+|---|---|---|
+| `sensor.solcast_pv_forecast_forecast_today` | kWh | Daily total today |
+| `sensor.solcast_pv_forecast_forecast_tomorrow` | kWh | Daily total tomorrow |
+| `sensor.solcast_pv_forecast_forecast_day_3` … `_day_7` | kWh | Disabled by default; enable in HA UI if you want >2-day lookahead |
+| `sensor.solcast_pv_forecast_forecast_this_hour` / `_next_hour` | Wh | Half-hour-resolution short horizon |
+| `sensor.solcast_pv_forecast_forecast_next_x_hours` | Wh | Custom horizon |
+
+Predbat reads `detailedForecast` attributes off the daily totals for half-hour granularity.
+
+### Rate-limit awareness
+
+10 polls/day = ~one every 2.5 hours. The integration auto-paces. Don't manually trigger updates more often or you'll exhaust the quota and Solcast will return 429 until midnight UTC.
 
 ## What's deliberately not in this guide
 
