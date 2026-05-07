@@ -4,7 +4,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Predbat (AppDaemon container — Phase 2b)                         │
+│ Predbat (nipar44/predbat_addon Docker container — Phase 2b ✅)   │
 │   - reads Octopus Agile prices                                   │
 │   - calls integration services to schedule charge/discharge      │
 └────────────────────────────────┬─────────────────────────────────┘
@@ -41,7 +41,9 @@
 
 Predbat ([docs](https://springfall2008.github.io/batpred/inverter-setup/)) drives an inverter via a rate-based, time-windowed contract. EP Cube's cloud surface is mode + TOU schedule. The shim is the translation layer.
 
-### Services exposed to Predbat
+> ⚠️ **Phase 2b.1 redesign coming.** The Phase 2a shim contract documented below assumed Predbat passes `(rate, end_time, target_soc)` as service-call args. Phase 2b validation revealed Predbat's `*_service` calls actually pass empty `data {}` — Predbat writes the planned window to its own dummy entities (`sensor.predbat_EP_CUBE_0_charge_start_time` / `_charge_end_time` / `_scheduled_charge_enable` / `_charge_limit`) and expects the integration to read those. Phase 2b.1 reworks the shim to read params from those entities; the inverter-facing translation logic (TOU rewrite, baseline snapshot, auto-revert, idempotency) stays the same.
+
+### Services exposed to Predbat (current — Phase 2a contract)
 
 | Service | Predbat input | Shim translation | Status |
 |---|---|---|---|
@@ -152,7 +154,8 @@ Both `strings.json` (source) and `translations/en.json` (runtime) must exist. HA
 |---|---|---|
 | **1. Mock + skeleton** | Mock server live, HA integration loads, config flow works, sensors populated from mock | ✅ done |
 | **2a. Predbat shim** | Shim services callable, idempotency + revert logic, Predbat custom-inverter template | ✅ done |
-| **2b. Predbat install** | AppDaemon container running Predbat, plans against hardcoded test prices, calls our shim | ⏳ next |
+| **2b. Predbat install** | `nipar44/predbat_addon` Docker container running Predbat, plans against hardcoded test prices, fires shim service calls | ✅ done |
+| **2b.1. Shim contract redesign** | Read params from `sensor.predbat_<inv>_*` entities instead of service-call args | ⏳ next |
 | **2c. Octopus prices** | Switch Predbat price source from hardcoded → BottlecapDave's HACS integration | ⏸️ blocked on Octopus account |
 | **3. Hardware reconciliation** | Capture real cloud API traffic via mitmproxy, reconcile mock contract, switch to live endpoint, fix what breaks | ⏸️ blocked on hardware (~late May 2026) |
 | **4. HACS + tests + CI** | HACS distribution, pytest scaffolding, GitHub Actions | ⏸️ post-Phase 3 |

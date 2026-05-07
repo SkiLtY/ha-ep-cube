@@ -20,7 +20,7 @@ ha-ep-cube/
 ├── docs/
 │   ├── ARCHITECTURE.md          ← Predbat shim contract + design notes
 │   ├── <private-docs>       ← Bring-up steps for <host> (deploy key, clone, stack, pull)
-│   ├── PREDBAT.md               ← Phase 2b — AppDaemon container + Predbat install
+│   ├── PREDBAT.md               ← Phase 2b — Predbat Docker container install
 │   └── predbat_apps.yaml.example  ← Predbat custom-inverter template
 ├── docker-compose.yml           ← HA + mock-server stack for local iteration
 └── ha_config/                   ← HA config volume (gitignored apart from .gitkeep)
@@ -46,7 +46,8 @@ Production deployment to Synology: see [<private-docs>](<private-docs>).
 
 - [x] **Phase 1** — Mock cloud + HA integration skeleton + 9 sensors + DeviceInfo *(verified on <host>, 2026-05-03)*
 - [x] **Phase 2a** — Predbat shim: 7 services, baseline snapshot, idempotency, auto-revert timer *(verified end-to-end on <host>, 2026-05-04)*
-- [ ] **Phase 2b** — Install Predbat as AppDaemon container, point at our shim, validate plan loop against hardcoded test prices *(see [docs/PREDBAT.md](docs/PREDBAT.md))*
+- [x] **Phase 2b** — Predbat running as `nipar44/predbat_addon` Docker container, plan loop validated against hardcoded test prices, fires shim service calls *(verified on <host>, 2026-05-05; see [docs/PREDBAT.md](docs/PREDBAT.md))*
+- [ ] **Phase 2b.1** — Refactor shim to Predbat's actual service contract (params come from `sensor.predbat_<inv>_*` entities, not from service-call args)
 - [ ] **Phase 2c** — Switch Predbat's price source to real Octopus Agile via [BottlecapDave's HACS integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) *(blocked on Octopus account switch)*
 - [ ] **Phase 3** — Hardware reconciliation: capture real cloud API traffic via mitmproxy, fix mock contract, switch to live endpoint *(blocked on hardware arrival)*
 - [ ] **Phase 4** — HACS distribution, light test scaffolding, GitHub Actions
@@ -78,7 +79,7 @@ Production deployment to Synology: see [<private-docs>](<private-docs>).
 
 ## HA install type
 
-This stack uses **HA Container** (lightweight, no Supervisor). HA Container can't install add-ons — Predbat runs as a sibling **AppDaemon container** instead. Same end result, slightly different bring-up. See [docs/PREDBAT.md](docs/PREDBAT.md).
+This stack uses **HA Container** (lightweight, no Supervisor). HA Container can't install add-ons — Predbat runs as a sibling **`nipar44/predbat_addon` Docker container** (the upstream-recommended replacement for the now-deprecated AppDaemon install path). See [docs/PREDBAT.md](docs/PREDBAT.md).
 
 ## Licence
 
