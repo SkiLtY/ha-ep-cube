@@ -2,7 +2,7 @@
 
 Home Assistant custom integration for the **Canadian Solar EP Cube** residential battery, with a Predbat-compatible service layer for Octopus Agile tariff optimisation.
 
-> **Status:** pre-alpha. Hardware arrives ~late May 2026. Until then, development is against a mock cloud server. APIs and entity shapes will change.
+> **Status:** pre-alpha. Software stack is feature-complete against a mock cloud and ready for hardware. Predbat plans against live Octopus Agile rates + Solcast PV forecasts and fires shim services that translate to TOU writes. EP Cube hardware arrives ~late May 2026; until then, dev runs entirely against the mock. APIs and entity shapes will change.
 
 ## Why
 
@@ -16,14 +16,20 @@ The end goal: working Octopus Agile control via [Predbat](https://github.com/spr
 ha-ep-cube/
 ├── CLAUDE.md                    ← Primary context for AI-assisted dev
 ├── custom_components/ep_cube/   ← The HA integration (HACS-installable later)
+│   ├── services.py              ← Predbat shim service handlers (Phase 2b.1 contract)
+│   └── predbat_state.py         ← Reads sensor.predbat_<inv>_* entities Predbat publishes
 ├── mock_server/                 ← FastAPI mock of the EP Cube cloud, for dev without hardware
+├── ha_config/
+│   ├── configuration.yaml       ← HA core config (loads packages/)
+│   └── packages/ep_cube.yaml    ← Riemann load_today + input_numbers Predbat writes to
+├── predbat_config/apps.yaml     ← Predbat config (Agile URLs, Solcast auto-discovery, shim service map)
 ├── docs/
 │   ├── ARCHITECTURE.md          ← Predbat shim contract + design notes
 │   ├── <private-docs>       ← Bring-up steps for <host> (deploy key, clone, stack, pull)
-│   ├── PREDBAT.md               ← Phase 2b — Predbat Docker container install
+│   ├── PREDBAT.md               ← Predbat install + tariff (Agile public URL) + Solcast runbook
+│   ├── TROUBLESHOOTING.md       ← Known gotchas
 │   └── predbat_apps.yaml.example  ← Predbat custom-inverter template
-├── docker-compose.yml           ← HA + mock-server stack for local iteration
-└── ha_config/                   ← HA config volume (gitignored apart from .gitkeep)
+└── docker-compose.yml           ← HA + mock-server + predbat stack
 ```
 
 ## Dev setup
@@ -45,25 +51,29 @@ Production deployment to Synology: see [<private-docs>](<private-docs>).
 ## Roadmap
 
 - [x] **Phase 1** — Mock cloud + HA integration skeleton + 9 sensors + DeviceInfo *(verified on <host>, 2026-05-03)*
-- [x] **Phase 2a** — Predbat shim: 7 services, baseline snapshot, idempotency, auto-revert timer *(verified end-to-end on <host>, 2026-05-04)*
-- [x] **Phase 2b** — Predbat running as `nipar44/predbat_addon` Docker container, plan loop validated against hardcoded test prices, fires shim service calls *(verified on <host>, 2026-05-05; see [docs/PREDBAT.md](docs/PREDBAT.md))*
-- [ ] **Phase 2b.1** — Refactor shim to Predbat's actual service contract (params come from `sensor.predbat_<inv>_*` entities, not from service-call args)
-- [ ] **Phase 2c** — Switch Predbat's price source to real Octopus Agile via [BottlecapDave's HACS integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) *(blocked on Octopus account switch)*
-- [ ] **Phase 3** — Hardware reconciliation: capture real cloud API traffic via mitmproxy, fix mock contract, switch to live endpoint *(blocked on hardware arrival)*
+- [x] **Phase 2a** — Predbat shim: 7 services, baseline snapshot, idempotency, auto-revert timer *(verified, 2026-05-04)*
+- [x] **Phase 2b** — Predbat running as `nipar44/predbat_addon` Docker container, plan loop validated, fires shim service calls *(verified, 2026-05-05)*
+- [x] **Phase 2b.1** — Shim consumes the dummy entities Predbat publishes (`sensor.predbat_<inv>_*`) instead of expecting parameters in service-call args. New `predbat_state.py` is the single Predbat-aware module *(verified, 2026-05-07)*
+- [x] **Phase 2c** — Live Octopus Agile rates via the public REST API (region L), no Octopus account required *(verified, 2026-05-07)*
+- [x] **Phase 2c+** — Solcast PV forecast wired in (split E/W array). Predbat plan now schedules charges around forecast solar generation *(verified, 2026-05-07)*
+- [ ] **Phase 3** — Hardware reconciliation: replace Solcast/EP Cube placeholders with real install specs, capture real cloud API traffic via mitmproxy, reconcile mock contract, switch to live endpoint *(blocked on hardware arrival, ~late May 2026)*
 - [ ] **Phase 4** — HACS distribution, light test scaffolding, GitHub Actions
+- [ ] **Phase 4+** — BottlecapDave's [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) integration once an Octopus account is live (smart-meter consumption, IOG dispatch). Strict upgrade — the public Agile URL keeps working either way.
 
 ## Services exposed
 
 ### Predbat shim (`services.py`)
 
+All shim services accept only an optional `device_id`. Window/SoC/rate parameters are read from the dummy entities Predbat publishes (`sensor.predbat_<inv>_*`) — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full contract.
+
 | Service | Purpose |
 |---|---|
-| `ep_cube.charge_start` | Force grid charge until `end_time`, target SoC |
+| `ep_cube.charge_start` | Force grid charge until end of Predbat's planned charge window, target SoC from `charge_limit` |
 | `ep_cube.charge_stop` | Cancel active charge override, restore baseline |
-| `ep_cube.discharge_start` | Force discharge until `end_time`, target SoC |
+| `ep_cube.discharge_start` | Force discharge until end of planned discharge window, target SoC from `discharge_target_soc` |
 | `ep_cube.discharge_stop` | Cancel active discharge override |
-| `ep_cube.charge_freeze` | Hold battery at current SoC until `end_time` |
-| `ep_cube.discharge_freeze` | Alias for charge_freeze |
+| `ep_cube.charge_freeze` | Hold battery at current SoC until end of charge window |
+| `ep_cube.discharge_freeze` | Alias for charge_freeze, end-time taken from discharge window |
 | `ep_cube.idle` | Restore baseline TOU schedule |
 
 ### Native (1:1 with cloud API)

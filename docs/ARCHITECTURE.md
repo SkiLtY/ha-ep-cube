@@ -5,7 +5,9 @@
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │ Predbat (nipar44/predbat_addon Docker container — Phase 2b ✅)   │
-│   - reads Octopus Agile prices                                   │
+│   - reads Octopus Agile prices via public REST API (Phase 2c)    │
+│   - reads Solcast PV forecast (split E/W array, Phase 2c+)       │
+│   - publishes plan to sensor.predbat_<inv>_* dummy entities      │
 │   - calls integration services to schedule charge/discharge      │
 └────────────────────────────────┬─────────────────────────────────┘
                                  │  HA service calls (REST/WebSocket)
