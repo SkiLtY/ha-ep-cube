@@ -11,12 +11,16 @@ off-peak / mid-peak / peak with prices, and the inverter optimises against
 them. Predbat thinks in terms of "charge / hold / discharge" with explicit
 windows. The shim maps:
 
-- `charge` → off-peak slot with synthetic low price (allowChargingXiaGrid=1
-  ensures grid → battery is permitted)
-- `discharge` → peak slot with synthetic high price (inverter avoids grid
-  import, prefers battery discharge; export gated by getSellingConfig)
-- `hold` / `freeze` → set Self-Consumption mode with reserve at current SoC
-  (no TOU mode flip needed — simpler + more predictable)
+- `charge` → off-peak slot ("charge from grid, not supporting loads"; gated
+  by allowChargingXiaGrid=1)
+- `discharge` → peak slot ("drain to loads, refuse grid import"). This is
+  the best available approximation of Predbat's "force-export" intent —
+  the EP Cube cloud has no command for active battery → grid export. Any
+  surplus above load may export if `sellingEnable` permits, but it is
+  not commanded. See ARCHITECTURE.md → "Known limitation: force-export".
+- `hold` / `freeze` → mid-peak slot ("not charging from grid, not
+  supporting loads" — genuinely idle, including no solar → battery charging
+  during the window). Vendor-confirmed semantics (2026-05-20 TOU capture).
 
 Synthetic prices are in `const.py` (`SHIM_PRICE_*`). They are spaced wide
 enough that the inverter never ambiguates the tier ordering.
@@ -26,8 +30,7 @@ enough that the inverter never ambiguates the tier ordering.
 1. `_snapshot_baseline()` captures the full getSwitchMode payload on the
    first override. Persists for the shim's lifetime.
 2. `_apply_override()` dispatches to the right wire endpoint:
-   - charge/discharge → setTimOfUse (mode-switch + schedule in one POST)
-   - freeze → setSelfConsumption with current SoC as reserve
+   - charge/discharge/freeze → setTimOfUse (mode-switch + schedule in one POST)
 3. `_schedule_revert()` arms a one-shot HA timer at end_time.
 4. `_revert_to_baseline()` re-applies the baseline mode using the appropriate
    set* endpoint, restoring TOU slots if baseline was in TOU mode.
@@ -50,7 +53,6 @@ from homeassistant.util import dt as dt_util
 from .api import EPCubeClient, EPCubeError, build_slot, build_tou_payload
 from .const import (
     DOMAIN,
-    OPERATING_MODE_SELF_CONSUMPTION,
     OPERATING_MODE_TOU,
     SHIM_PRICE_MID_PEAK,
     SHIM_PRICE_OFF_PEAK,
@@ -131,9 +133,12 @@ class PredbatShim:
             _LOGGER.debug("charge_stop: no active charge override (no-op)")
 
     async def discharge_start(self, end_time: datetime, target_soc_pct: float) -> None:
-        """Force discharge until end_time. Wires a 'peak' tier slot — the
-        inverter prefers battery → load and is permitted to export (subject
-        to sellingEnable in getSellingConfig)."""
+        """Best-effort approximation of Predbat's "force-export" intent. Wires
+        a 'peak' tier slot — vendor-confirmed semantics: battery drains to
+        loads, grid import refused. The cloud has NO command for active
+        battery → grid export; any surplus above load may export if
+        `sellingEnable` permits, but it is not commanded. Known limitation —
+        see ARCHITECTURE.md."""
         params = {"kind": KIND_DISCHARGE, "end_time": end_time, "target_soc_pct": target_soc_pct}
         if self._matches_active(params):
             _LOGGER.debug("discharge_start: idempotent no-op")
@@ -160,32 +165,24 @@ class PredbatShim:
             _LOGGER.debug("discharge_stop: no active discharge override (no-op)")
 
     async def charge_freeze(self, end_time: datetime) -> None:
-        """Hold battery at current SoC until end_time. Uses Self-Consumption
-        mode with the reserve set to current SoC — battery can charge from
-        solar but won't discharge below current. Simpler than a TOU mid-peak
-        slot and more predictable."""
+        """Hold the battery genuinely idle until end_time via a mid-peak TOU
+        slot — no grid import, no load support, no solar → battery charging
+        during the window. Vendor-confirmed semantics (2026-05-20 TOU capture).
+        Auto-revert restores the baseline mode at end_time."""
         params = {"kind": KIND_FREEZE, "end_time": end_time}
         if self._matches_active(params):
+            _LOGGER.debug("charge_freeze: idempotent no-op")
             return
-        try:
-            status = await self.client.get_status()
-            current_soc = int(status.soc_pct)
-        except EPCubeError as err:
-            _LOGGER.error("charge_freeze: failed to read current SoC: %s", err)
-            raise
         await self._snapshot_baseline()
-        try:
-            await self.client.set_self_consumption(reserve_soc_pct=current_soc)
-        except EPCubeError as err:
-            _LOGGER.error("charge_freeze: set_self_consumption failed: %s", err)
-            raise
-        self._active_override = {
-            **params,
-            "applied_mode": OPERATING_MODE_SELF_CONSUMPTION,
-            "applied_reserve_soc": current_soc,
-        }
+        payload = self._build_tou_override(
+            tier="mid_peak",
+            price=SHIM_PRICE_MID_PEAK,
+            end_time=end_time,
+            allow_grid_charge=False,
+        )
+        await self._apply_tou_override(payload, params)
         self._schedule_revert(end_time)
-        _LOGGER.info("charge_freeze applied: hold at %d%% until %s", current_soc, end_time.isoformat())
+        _LOGGER.info("charge_freeze applied: mid-peak slot until %s", end_time.isoformat())
 
     async def discharge_freeze(self, end_time: datetime) -> None:
         """Alias for charge_freeze — semantics are identical (battery idle)."""

@@ -79,9 +79,9 @@ All shim services accept only an optional `device_id`. The window/SoC parameters
 |---|---|---|---|
 | `ep_cube.charge_start` | `charge_*_time`, `charge_limit`, `scheduled_charge_enable` | Set mode=TOU. Insert grid-charge slot covering now → charge_end_time, target SoC = charge_limit. Charge rate not in TOU surface. | ✅ verified on mock (Phase 2a flow) |
 | `ep_cube.charge_stop` | — | Restore baseline mode + schedule. Cancel revert timer. | ✅ verified on mock |
-| `ep_cube.discharge_start` | `discharge_*_time`, `discharge_target_soc`, `scheduled_discharge_enable` | Insert TOU slot with `grid_charge: false` + `type: peak` + target_soc = discharge_target_soc. **Working assumption** — may need operating_mode flip to actually export. Verify on hardware. | ⚠️ untested on hardware |
+| `ep_cube.discharge_start` | `discharge_*_time`, `discharge_target_soc`, `scheduled_discharge_enable` | TOU peak slot covering now → discharge_end_time. Vendor-confirmed peak = "drain to loads, refuse grid import" — **NOT** active export. Best-effort approximation of Predbat's force-export intent. See "Known limitation: force-export" below. | ⚠️ semantic gap documented |
 | `ep_cube.discharge_stop` | — | Same as charge_stop. | ✅ verified on mock |
-| `ep_cube.charge_freeze` | `charge_*_time` | Read current SoC, set reserve_soc=current, mode=self_consumption, revert at charge_end_time. | ✅ verified on mock (Phase 2a flow) |
+| `ep_cube.charge_freeze` | `charge_*_time` | TOU mid-peak slot covering now → charge_end_time. Vendor-confirmed mid-peak = "not charging, not supporting loads" — genuinely idle (no solar → battery either). | ✅ verified on mock |
 | `ep_cube.discharge_freeze` | `discharge_*_time` | Alias for charge_freeze, end-time taken from discharge window. | ✅ verified on mock |
 | `ep_cube.idle` | — | Restore baseline. Equivalent to `*_stop` for any active override. | ✅ verified on mock |
 
@@ -121,6 +121,25 @@ Every override is one cloud write. Predbat re-plans every ~5 min. Naïve push ha
 **Rule:** only push when the *next 30-min slot decision* changes. Most replans are no-ops at the inverter level thanks to the `_matches_active` idempotency check.
 
 Bound: target ≤ 12 cloud writes/day in normal operation. Validated against the verified shim flow on the mock.
+
+### Known limitation: force-export
+
+Predbat's `discharge_start` conceptually means "push battery → grid at this rate". The EP Cube cloud API exposes no command for this. Its three operating modes (self-consumption / TOU / backup) and TOU's three tiers (off-peak / mid-peak / peak) all describe behaviour relative to *household loads*, not the grid meter:
+
+- **off-peak** — charge from grid, ignore loads
+- **mid-peak** — idle (no grid, no load support)
+- **peak** — drain to loads, refuse grid import
+
+There is no "peak + export surplus to grid at commanded rate" mode. The shim maps `discharge_start → peak` as the closest available, on the basis that:
+1. Battery output up to load demand will be consumed by the house (saves import).
+2. Any surplus above load *may* export if `sellingEnable` permits and the inverter chooses to — but this is implicit, not commanded.
+
+For the Octopus Agile arbitrage use case this is usually fine — Predbat's discharge windows align with peak import prices when the house is also drawing load, so battery → loads still captures most of the value. The gap matters for "export windows during low household load" (e.g. midday plunge-pricing while you're at work) where peak mode will under-deliver versus a true force-export.
+
+Workarounds considered (none implemented):
+- **Local Modbus/RS485** — EP Cube has no exposed local API.
+- **Hidden settings** (`selfHelpRate`, `winterMode` seen in JS bundle, unexplored).
+- **Accept the gap** — current path. Documented here so it doesn't get re-discovered as a bug.
 
 ## Native services
 
@@ -172,7 +191,7 @@ Both `strings.json` (source) and `translations/en.json` (runtime) must exist. HA
 
 | Question | Status | When to resolve |
 |---|---|---|
-| Force discharge to grid (export) — TOU slot or operating-mode flip? | Working assumption: TOU slot with `grid_charge: false` + low target SoC. | Hardware reconciliation (Phase 3) |
+| Force discharge to grid (export) — TOU slot or operating-mode flip? | **Resolved (Phase 3.1):** neither — the cloud API has no force-export command. Shim maps `discharge_start → peak` as best-effort. See "Known limitation: force-export". | Closed |
 | Charge rate control | Confirmed not in TOU surface. Workaround: shift window-start. | Acceptable — Octopus Agile use case rarely needs sub-max charging |
 | Cloud API rate limits | Unknown. Assume 60 req/min until measured. | Phase 3 |
 | Token refresh interval | Unknown. Assume 24h until measured. | Phase 3 |
