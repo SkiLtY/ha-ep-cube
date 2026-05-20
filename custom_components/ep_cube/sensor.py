@@ -18,7 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import DeviceStatus
-from .const import CONF_DEVICE_ID, DOMAIN
+from .const import CONF_DEV_ID, DOMAIN
 from .coordinator import EPCubeCoordinator
 
 
@@ -102,7 +102,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: EPCubeCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    device_id: str = entry.data[CONF_DEVICE_ID]
+    device_id: str = entry.data[CONF_DEV_ID]
     async_add_entities(
         EPCubeSensor(coordinator, entry.entry_id, device_id, desc) for desc in SENSORS
     )

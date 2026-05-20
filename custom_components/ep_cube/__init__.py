@@ -10,10 +10,12 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import EPCubeClient
 from .const import (
+    CONF_AUTH_URL,
     CONF_BASE_URL,
-    CONF_DEVICE_ID,
-    CONF_PASSWORD,
-    CONF_USERNAME,
+    CONF_CAPACITY_KWH,
+    CONF_DEV_ID,
+    CONF_SESSION_COOKIE,
+    CONF_SG_SN,
     DOMAIN,
 )
 from .coordinator import EPCubeCoordinator
@@ -30,12 +32,15 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = async_get_clientsession(hass)
+    base_url = entry.data[CONF_BASE_URL]
     client = EPCubeClient(
         session=session,
-        base_url=entry.data[CONF_BASE_URL],
-        username=entry.data[CONF_USERNAME],
-        password=entry.data[CONF_PASSWORD],
-        device_id=entry.data[CONF_DEVICE_ID],
+        base_url=base_url,
+        auth_url=entry.data.get(CONF_AUTH_URL) or base_url,
+        dev_id=entry.data[CONF_DEV_ID],
+        sg_sn=entry.data[CONF_SG_SN],
+        session_cookie=entry.data.get(CONF_SESSION_COOKIE) or None,
+        capacity_kwh=entry.data.get(CONF_CAPACITY_KWH, 0.0),
     )
 
     coordinator = EPCubeCoordinator(hass, entry, client)
