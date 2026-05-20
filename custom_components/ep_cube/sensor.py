@@ -18,7 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import DeviceStatus
-from .const import CONF_DEV_ID, DOMAIN
+from .const import DOMAIN
 from .coordinator import EPCubeCoordinator
 
 
@@ -102,9 +102,8 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: EPCubeCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    device_id: str = entry.data[CONF_DEV_ID]
     async_add_entities(
-        EPCubeSensor(coordinator, entry.entry_id, device_id, desc) for desc in SENSORS
+        EPCubeSensor(coordinator, entry.entry_id, desc) for desc in SENSORS
     )
 
 
@@ -116,15 +115,20 @@ class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], SensorEntity):
         self,
         coordinator: EPCubeCoordinator,
         entry_id: str,
-        device_id: str,
         description: EPCubeSensorDescription,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{entry_id}_{description.key}"
+        # Device name is intentionally stable across devIds so downstream
+        # consumers (Predbat apps.yaml, ha_config/packages/ep_cube.yaml) can
+        # reference entity IDs like `sensor.ep_cube_battery_soc` without
+        # needing to hard-code a per-account devId slug. Multi-account / dual
+        # mock+cloud users disambiguate via the config-entry title
+        # (`EP Cube ({dev_id})`) and HA's auto-appended `_2` suffix.
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry_id)},
-            name=f"EP Cube {device_id}",
+            name="EP Cube",
             manufacturer="Canadian Solar",
             model="EP Cube",
         )

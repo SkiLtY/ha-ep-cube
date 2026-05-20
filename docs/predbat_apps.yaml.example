@@ -2,11 +2,13 @@
 # Drop into Predbat's apps.yaml under `pred_bat:` (replace the inverter block).
 #
 # Usage:
-#   1. Replace ep_cube_test_01 below with your real device_id
-#      (the one you entered in the HA integration config flow).
-#   2. Set predbat_inverter_type to a unique name; "EP_CUBE" is fine.
-#   3. After saving, restart the Predbat add-on and watch its logs to verify
+#   1. Set predbat_inverter_type to a unique name; "EP_CUBE" is fine.
+#   2. After saving, restart the Predbat add-on and watch its logs to verify
 #      it sees the entities and successfully calls our shim services.
+#
+# Entity IDs are stable across devIds — the integration uses a fixed
+# `EP Cube` device name, so the slug is just `sensor.ep_cube_<key>` with
+# no per-account substitution needed.
 #
 # References:
 #   - https://springfall2008.github.io/batpred/inverter-setup/
@@ -19,25 +21,24 @@ pred_bat:
   ge_inverter: 0  # not GivEnergy
 
   # ─── Sensor entities (read) ───────────────────────────────────────────────
-  # Replace `ep_cube_test_01` with your device_id throughout.
   soc_kw:
-    - sensor.ep_cube_ep_cube_test_01_battery_energy
+    - sensor.ep_cube_battery_energy
   soc_max:
-    - sensor.ep_cube_ep_cube_test_01_battery_capacity
+    - sensor.ep_cube_battery_capacity
   soc_percent:
-    - sensor.ep_cube_ep_cube_test_01_battery_soc
+    - sensor.ep_cube_battery_soc
 
   battery_power:
-    - sensor.ep_cube_ep_cube_test_01_battery_power
+    - sensor.ep_cube_battery_power
   pv_power:
-    - sensor.ep_cube_ep_cube_test_01_solar_power
+    - sensor.ep_cube_solar_power
   load_power:
-    - sensor.ep_cube_ep_cube_test_01_load_power
+    - sensor.ep_cube_load_power
   grid_power:
-    - sensor.ep_cube_ep_cube_test_01_grid_power
+    - sensor.ep_cube_grid_power
 
   reserve:
-    - sensor.ep_cube_ep_cube_test_01_reserve_soc
+    - sensor.ep_cube_reserve_soc
 
   # ─── Battery physical specs ───────────────────────────────────────────────
   # Adjust to match your hardware.
@@ -77,7 +78,7 @@ pred_bat:
 
   # If you have multiple EP Cubes, uncomment and set the device_id explicitly:
   # service_data:
-  #   device_id: ep_cube_test_01
+  #   device_id: <your-devId>  # the small-int devId from the HA integration config
 
   # ─── Tariff (Octopus Agile) ───────────────────────────────────────────────
   # Once you have an Octopus account + the BottlecapDave HACS integration:
