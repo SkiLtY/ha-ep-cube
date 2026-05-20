@@ -11,7 +11,12 @@ CONF_SG_SN = "sg_sn"                 # 21-digit serial, used by homeDeviceInfo
 CONF_SESSION_COOKIE = "session_cookie"  # JSESSIONID value pasted from browser (real cloud)
 CONF_USERNAME = "username"           # mock-only dev convenience (skips captcha)
 CONF_PASSWORD = "password"           # mock-only dev convenience
-CONF_CAPACITY_KWH = "capacity_kwh"   # cached at config-flow time from getDeviceList
+CONF_CAPACITY_KWH = "capacity_kwh"   # cached fallback; primary source is batteryPackNum × EP_CUBE_PACK_KWH
+
+# Per-pack capacity. EP Cube is a single-module product line; all packs are
+# 5.0 kWh. System capacity = batteryPackNum × this. Sourced from the real-cloud
+# homeDeviceInfo response which exposes batteryPackNum but not systemCapacity.
+EP_CUBE_PACK_KWH = 5.0
 
 DEFAULT_BASE_URL = "http://mock:8765"
 DEFAULT_POLL_INTERVAL_SECONDS = 60   # real cloud polls at ~55s; we match

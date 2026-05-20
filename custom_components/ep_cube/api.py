@@ -21,6 +21,7 @@ from typing import Any
 import aiohttp
 
 from .const import (
+    EP_CUBE_PACK_KWH,
     OPERATING_MODE_BACKUP,
     OPERATING_MODE_SELF_CONSUMPTION,
     OPERATING_MODE_TOU,
@@ -292,9 +293,16 @@ class EPCubeClient:
         load_w = backup_w + nonbackup_w
         grid_w = _kw_str_to_w(info.get("gridPower"))
         # battery_power: power conservation. Sign convention: >0 = charging.
-        # Working assumption: gridPower >0 = import. If proven inverted on real
-        # cloud, flip the sign of grid_w in the line below (single place).
+        # gridPower >0 = import confirmed on real cloud 2026-05-20 (night-time
+        # check: solar=0, battery=0, load=grid balanced the identity).
         battery_w = solar_w + grid_w - load_w
+
+        # System capacity = batteryPackNum × per-pack kWh. homeDeviceInfo
+        # carries the count; deviceList doesn't expose systemCapacity on
+        # parallel-pack accounts. Fall back to the cached value if missing.
+        pack_num = info.get("batteryPackNum")
+        if isinstance(pack_num, int) and pack_num > 0:
+            self._capacity_kwh = pack_num * EP_CUBE_PACK_KWH
 
         work_status = str(info.get("workStatus", mode.get("workStatus", "1")))
         operating_mode = WORK_STATUS_TO_OPERATING_MODE.get(work_status, "unknown")
