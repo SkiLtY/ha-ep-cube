@@ -2,7 +2,7 @@
 
 Home Assistant custom integration for the **Canadian Solar EP Cube** residential battery, with a Predbat-compatible service layer for Octopus Agile tariff optimisation.
 
-> **Status:** pre-alpha. Software stack is feature-complete against the real cloud contract. Mock and integration both rewritten 2026-05-20 against the captured `monitoring-eu.epcube.com` API (Apereo CAS auth, kW-string values, price-tier TOU model, two device IDs). Predbat plans against live Octopus Agile rates + Solcast PV forecasts and fires shim services that translate to `setTimOfUse` writes. **Live-cloud bring-up pending** — JSESSIONID paste flow + first real-cloud poll next session. APIs and entity shapes will change.
+> **Status:** pre-alpha. Integration is live against the real `monitoring-eu.epcube.com` cloud as of 2026-05-20 — all 9 sensors populating with verified values (capacity derived from `batteryPackNum × 5.0 kWh`, gridPower sign confirmed as positive=import). Predbat plans against live Octopus Agile rates + Solcast PV forecasts and fires shim services that translate to `setTimOfUse` writes. Mock still runs alongside for regression. Outstanding: Phase 3.1 force-export gap + `charge_freeze` semantics tidy. APIs and entity shapes will still change before HACS distribution (Phase 4).
 
 ## Why
 
@@ -57,7 +57,8 @@ Production deployment to Synology: see [<private-docs>](<private-docs>).
 - [x] **Phase 2b.1** — Shim consumes the dummy entities Predbat publishes (`sensor.predbat_<inv>_*`) instead of expecting parameters in service-call args. New `predbat_state.py` is the single Predbat-aware module *(verified, 2026-05-07)*
 - [x] **Phase 2c** — Live Octopus Agile rates via the public REST API (region L), no Octopus account required *(verified, 2026-05-07)*
 - [x] **Phase 2c+** — Solcast PV forecast wired in (split E/W array). Predbat plan now schedules charges around forecast solar generation *(verified, 2026-05-07)*
-- [ ] **Phase 3** — Hardware reconciliation: capture real cloud API contract, rewrite mock + integration, switch to live endpoint *(commissioning + two HAR captures + mock rewrite + integration rewrite all landed 2026-05-20; live-cloud bring-up via JSESSIONID paste flow is the remaining step — see [<private-runbook>](<private-runbook>))*
+- [x] **Phase 3** — Hardware reconciliation: capture real cloud API contract, rewrite mock + integration, switch to live endpoint *(all complete 2026-05-20 — two HAR captures, full mock + integration rewrite, JSESSIONID paste config-flow, first real-cloud poll green with all 9 sensors populating; capacity-from-`batteryPackNum` fix in [`c50e65a`](https://github.com/SkiLtY/ha-ep-cube/commit/c50e65a) handled a parallel-pack edge case the captures had missed)*
+- [ ] **Phase 3.1** — Tidy: swap `charge_freeze` from Self-Consumption@current-SoC to a mid-peak TOU slot (cleaner "idle" semantics per vendor docs); investigate force-export gap for Predbat `discharge_start` *(no native cloud equivalent — best-effort peak-slot mapping ships drains-to-loads only)*
 - [ ] **Phase 4** — HACS distribution, light test scaffolding, GitHub Actions
 - [ ] **Phase 4+** — BottlecapDave's [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) integration. Strict upgrade — the public Agile URL keeps working either way. Adds:
   - Real half-hourly **smart-meter consumption** sensors (replaces the Riemann-integral `sensor.ep_cube_load_today` we ship in `ha_config/packages/ep_cube.yaml`; gives Predbat a real 7-day rolling load forecast instead of single-day accumulation)
