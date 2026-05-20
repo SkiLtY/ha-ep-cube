@@ -59,7 +59,12 @@ Production deployment to Synology: see [<private-docs>](<private-docs>).
 - [x] **Phase 2c+** — Solcast PV forecast wired in (split E/W array). Predbat plan now schedules charges around forecast solar generation *(verified, 2026-05-07)*
 - [ ] **Phase 3** — Hardware reconciliation: replace Solcast/EP Cube placeholders with real install specs, capture real cloud API traffic via mitmproxy, reconcile mock contract, switch to live endpoint *(install booked for 2026-05-19)*
 - [ ] **Phase 4** — HACS distribution, light test scaffolding, GitHub Actions
-- [ ] **Phase 4+** — BottlecapDave's [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) integration once an Octopus account is live (smart-meter consumption, IOG dispatch). Strict upgrade — the public Agile URL keeps working either way.
+- [ ] **Phase 4+** — BottlecapDave's [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) integration. Strict upgrade — the public Agile URL keeps working either way. Adds:
+  - Real half-hourly **smart-meter consumption** sensors (replaces the Riemann-integral `sensor.ep_cube_load_today` we ship in `ha_config/packages/ep_cube.yaml`; gives Predbat a real 7-day rolling load forecast instead of single-day accumulation)
+  - **IOG dispatch slots** (only relevant if moving to a smart-EV tariff later)
+  - Full account/tariff metadata for audit + reporting
+  
+  *Do after Phase 3 is verified — Octopus consumption data lags by ~1 day, and the load-forecast swap is most valuable once we know real EP Cube load patterns aren't already biased by mock-cloud quirks.*
 
 ## Services exposed
 

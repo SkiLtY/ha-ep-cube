@@ -142,7 +142,7 @@ curl -s 'https://api.octopus.energy/v1/products/?brand=OCTOPUS_ENERGY' \
   | jq '.results[] | select(.code | test("AGILE")) | .code'
 ```
 
-When a real Octopus account becomes available, [BottlecapDave's integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) layers on smart-meter consumption + IOG dispatch info; the Agile rate path stays on the public URL either way.
+[BottlecapDave's integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) is a Phase 4+ upgrade once Phase 3 (hardware) is verified. It brings in real half-hourly smart-meter consumption (replacing the Riemann-integral `sensor.ep_cube_load_today` we ship in the package) and IOG dispatch metadata. The Agile rate path stays on the public URL either way — the upgrade is additive.
 
 ## PV forecast — Solcast
 

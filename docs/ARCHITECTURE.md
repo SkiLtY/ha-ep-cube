@@ -189,7 +189,7 @@ Both `strings.json` (source) and `translations/en.json` (runtime) must exist. HA
 | **2b. Predbat install** | `nipar44/predbat_addon` Docker container running Predbat, plans against hardcoded test prices, fires shim service calls | ✅ done |
 | **2b.1. Shim contract redesign** | Read params from `sensor.predbat_<inv>_*` entities instead of service-call args | ✅ done |
 | **2c. Octopus prices** | Predbat fetches Agile import + export rates from the public REST API (region L). No account required. | ✅ done |
-| **2c+. Octopus account upgrade** | Layer BottlecapDave's HACS integration on top for smart-meter consumption + IOG dispatch info. Agile rate path stays on the public URL either way. | ⏸️ awaits account |
+| **4+. Octopus consumption upgrade** | Install BottlecapDave's HACS integration → real half-hourly consumption sensors replace Riemann `load_today` (better Predbat load forecast). IOG dispatch info also picked up if relevant later. Agile rate path stays on the public URL either way. | ⏸️ account live, gated on Phase 3 verified |
 | **3. Hardware reconciliation** | Capture real cloud API traffic via mitmproxy, reconcile mock contract, switch to live endpoint, fix what breaks | ⏸️ install booked 2026-05-19 |
 | **4. HACS + tests + CI** | HACS distribution, pytest scaffolding, GitHub Actions | ⏸️ post-Phase 3 |
 
