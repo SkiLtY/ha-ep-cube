@@ -64,7 +64,7 @@ Production deployment to Synology: see [<private-docs>](<private-docs>).
   - **IOG dispatch slots** (only relevant if moving to a smart-EV tariff later)
   - Full account/tariff metadata for audit + reporting
   
-  *Do after Phase 3 is verified — Octopus consumption data lags by ~1 day, and the load-forecast swap is most valuable once we know real EP Cube load patterns aren't already biased by mock-cloud quirks.*
+  *Gating: wait for Octopus Home Mini (requested 2026-05-20, ETA 2026-06-17 to 2026-07-01) so we configure the integration once with real-time consumption rather than twice — half-hourly first, then real-time on OHM arrival. The Riemann-integral `load_today` continues to work acceptably in the interim.*
 
 ## Services exposed
 
