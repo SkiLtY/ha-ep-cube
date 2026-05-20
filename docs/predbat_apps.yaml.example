@@ -80,11 +80,13 @@ pred_bat:
   # service_data:
   #   device_id: <your-devId>  # the small-int devId from the HA integration config
 
-  # ─── Tariff (Octopus Agile) ───────────────────────────────────────────────
-  # Once you have an Octopus account + the BottlecapDave HACS integration:
+  # ─── Tariff (auto-detected from BottlecapDave's Octopus HACS integration) ─
   # https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy
-  metric_octopus_import: 'event.octopus_energy_electricity_<MPAN>_<SERIAL>_current_day_rates'
-  metric_octopus_export: 'event.octopus_energy_electricity_<MPAN>_<SERIAL>_export_current_day_rates'
+  # Regex auto-matches whatever MPAN/serial the integration exposes, and
+  # whatever tariff is currently active on the account (Flexible / Agile /
+  # Cosy / etc.) — no apps.yaml change needed when switching tariffs.
+  metric_octopus_import: 're:(event.octopus_energy_electricity_[0-9a-z_]+(?<!export)_current_day_rates)'
+  metric_octopus_export: 're:(event.octopus_energy_electricity_[0-9a-z_]+_export_current_day_rates)'
 
   # Until then, hardcode test prices to validate Predbat → shim → cloud loop:
   # rates_import:
