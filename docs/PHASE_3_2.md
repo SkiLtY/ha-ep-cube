@@ -202,19 +202,65 @@ def match_template_ccoeff_normed(image, template):
 2. ~~**Can captcha-solving be done with numpy alone?**~~ ✅ Resolved 2026-05-21 — yes, see spike section above.
 3. **Token storage strategy in HA**: store password in `entry.data` (encrypted at rest by HA) and re-auth on demand, or store token + refresh on 403 by re-prompting user? Decision affects UX significantly.
 
-## Recommendation
+## Implementation status
 
-**Proceed to implementation in Phase 3.2, sequenced as:**
+**Steps 1-5 complete, end-to-end live on the integration.** Mock-server update (step 6) and docs (step 7) outstanding.
 
-1. **Capture session** (~30 min) — log into [epcube-token.streamlit.app](https://epcube-token.streamlit.app/) with our credentials, get a token, then curl-spike the 4 read endpoints + 1 write endpoint to confirm response shapes against our schemas. Validate `getSellingConfig` availability on `/api/device/*`. Test write-revocation behaviour by opening mobile app mid-session.
-2. **Vendor the captcha-solver** as a self-contained module (numpy-only ideally) — `custom_components/ep_cube/captcha.py`.
-3. **Refactor `api.py`** — new `_request` adds `Authorization` header instead of `Cookie`; collapse three write methods into one `switch_mode(...)`; add post-write read-back helper.
-4. **Refactor `config_flow.py`** — replace cookie field with email + password fields; run the 3-step flow on submit; store password encrypted; bootstrap initial token.
-5. **Add re-auth on 403** — at the `_request` layer, catch 403/401 once, re-run login, retry.
-6. **Update mock server** to mirror `/api/device/*` + `/api/open/common/*` endpoints so we keep regression coverage.
-7. **Document the write-revocation behaviour** in [TROUBLESHOOTING.md](TROUBLESHOOTING.md) prominently.
+1. ✅ **Capture session** (2026-05-21) — see "Captured findings" above.
+2. ✅ **Vendor the captcha-solver** ([commit `dc2292d`](https://github.com/SkiLtY/ha-ep-cube/commit/dc2292d), fixes in [`dad3d0d`](https://github.com/SkiLtY/ha-ep-cube/commit/dad3d0d)) — `custom_components/ep_cube/captcha.py` with the pure-numpy matcher and the full 4-POST login flow. Live-validated via `spikes/captcha_login_spike.py`: captcha solved, 246-byte Bearer returned, `/api/device/deviceList` accepts it.
+3. ✅ **Refactor `api.py`** ([commit `d12d911`](https://github.com/SkiLtY/ha-ep-cube/commit/d12d911), three follow-up fixes [`22a8589`](https://github.com/SkiLtY/ha-ep-cube/commit/22a8589), [`b2edab4`](https://github.com/SkiLtY/ha-ep-cube/commit/b2edab4), [`e4c5c36`](https://github.com/SkiLtY/ha-ep-cube/commit/e4c5c36)) — Bearer auth, `/api/device/*` endpoints, unified `switch_mode()`, `weatherWatch:"0"` + `onlySave:"0"` forced, post-write read-back. Live-validated against the user's cube.
+4. ✅ **Refactor `config_flow.py`** ([commit `5f2c326`](https://github.com/SkiLtY/ha-ep-cube/commit/5f2c326)) — VERSION 4 schema is `username + password + base_url + optional dev_id/sg_sn`. Runs `captcha.login()` on submit. User reconfigured the integration live and was logged back in immediately.
+5. ✅ **Re-auth on 403** ([commit `5f2c326`](https://github.com/SkiLtY/ha-ep-cube/commit/5f2c326)) — `__init__.py` wraps `captcha.make_reauth_callback(...)` in a closure that persists the refreshed token back to `entry.data` via `async_update_entry`, so HA restarts after a refresh don't burn another captcha solve.
+6. ⏸️ **Update mock server** — deferred to next session. Mock currently still speaks `/v1/api/home/*`; regression coverage broken until this lands.
+7. ⏸️ **Document write-revocation in TROUBLESHOOTING.md** — deferred. Findings already in this file under "The risk we planned for".
 
-**Defer until after**: Phase 3.2 should *not* block Phase 4 (HACS) — but should land *before* HACS publication, since the JSESSIONID UX is a hard barrier for new users.
+**Defer until after**: Phase 3.2 should *not* block Phase 4 (HACS) — but mock-server + TROUBLESHOOTING should land before HACS publication.
+
+## Wire-level discoveries from step 3-5 bring-up (2026-05-21)
+
+These cost real time during the bring-up and are easy to fall back into; documenting so the next refactor doesn't repeat the loop.
+
+### Power fields are centi-kilowatts on `/api/device/homeDeviceInfo`
+
+Mobile-API power fields (`solarPower`, `gridPower`, `backUpPower`, `nonBackUpPower`, …) are fixed-point integers in 0.01 kW units, NOT plain numbers and NOT raw watts.
+
+| Observation | Cube wire value | App display | Unit |
+|---|---|---|---|
+| Solar at dusk | `solarPower:74` | 0.63 kW | 1 unit = 0.01 kW = 10 W |
+| Load | `loadPower:60` | 0.66 kW | same |
+
+`_power_to_w()` in `api.py` multiplies by **10** to convert. The web-portal surface previously returned kW-as-string (`"5.01kW"`) so the old `_kw_str_to_w` multiplied by 1000 — that converter was correct then and would have been right if the spike doc's `solarPower:93.00` value had been interpreted as 0.93 kW = 930 W. Three commits chased this (×1000 → ×1 → ×10).
+
+### `data.status` is a domain field, not an envelope error
+
+`homeDeviceInfo` returns `data.status: "1"` (= device online). An over-eager "double-wrapped 404" inner-envelope check at the `_request` layer treated any non-200 inner `status` as an error and rejected every healthy read. The real 404-double-wrap case (`getSellingConfig` returning `data.status: 404`) is still flagged — the fix is to only treat HTTP-error-shaped inner codes (≥400) as errors.
+
+### aj-captcha `captchaVerification` format
+
+The string passed to `/api/open/common/login` is NOT `token + "---" + pointJson` (where pointJson is the already-encrypted point sent to `/check`). The real format is:
+
+```
+captchaVerification = base64(AES_ECB(secret_key, f"{token}---{json({x,y})}"))
+```
+
+i.e. AES-encrypt the **literal `token---plaintext_json` string** with the same per-session `secret_key`. The first wrong attempt produced `500 "captcha is overdue, please try again later."` which sounds like a TTL issue but is actually "server can't find a cached verification with this key". Reference implementation: [Bobsilvio/epcube-token app.py](https://github.com/Bobsilvio/epcube-token/blob/main/app.py) `generate_captcha_verification`.
+
+### `/captcha/check` outer "Success" is envelope-level, not captcha-level
+
+The outer `message: "Success"` only means the HTTP envelope reached the captcha service. The real verdict lives inside `data`:
+
+| Field | Success | Failure |
+|---|---|---|
+| `data.repCode` | `"0000"` | `"6111"` |
+| `data.repData.result` | `true` | (field absent) |
+| `data.repMsg` | (field absent) | `"验证失败"` (mojibake'd as garbled UTF-8) |
+| `data.success` | `true` | (field absent) |
+
+A `message == "Success"` fallback at this layer is a false-positive footgun — it accepts failed captchas and proceeds to `/login` with a bogus verification.
+
+### Validation errors are 500, not 4xx
+
+The cube returns `500 "The parameter cannot be null ：weatherWatch"` (note U+FF1A fullwidth colon — cloud is China-hosted) for missing required fields on `switchMode`. A genuine 403 on a write therefore really means "token rejected" rather than "payload typing wrong" — cleaner error-discrimination than the web-portal surface, which used to return misleading 403 "token expired" for typing errors.
 
 ## References
 
