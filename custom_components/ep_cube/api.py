@@ -121,8 +121,8 @@ def build_tou_payload(
     weekend_mid: list[tuple[str, str, float]] | None = None,
     weekend_peak: list[tuple[str, str, float]] | None = None,
     allow_grid_charge: bool = True,
-    weekday_days: list[int] | None = None,
-    weekend_days: list[int] | None = None,
+    weekday_days: list[int | str] | None = None,
+    weekend_days: list[int | str] | None = None,
     dst_active: bool = False,
 ) -> dict[str, Any]:
     """Build the full 18-field `setTimOfUse` POST body.
@@ -133,9 +133,16 @@ def build_tou_payload(
     the caller takes responsibility for populating them — most overrides
     apply the same schedule to both DST states, which the cloud handles by
     only consulting the non-DST set when `dayLightSavingTime == False`.
+
+    Day arrays are coerced to `list[str]` because the EP Cube cloud rejects
+    integer day arrays with a misleading `403 "token expired"` response —
+    see docs/PHASE_3_2.md for the wire-format strict-typing table.
     """
     def slots(entries: list[tuple[str, str, float]] | None) -> list[str]:
         return [build_slot(*e) for e in (entries or [])]
+
+    weekday_str = [str(d) for d in (weekday_days or [1, 2, 3, 4, 5])]
+    weekend_str = [str(d) for d in (weekend_days or [6, 7])]
 
     return {
         "devId": dev_id,
@@ -144,20 +151,20 @@ def build_tou_payload(
         "peakTimeList": slots(weekday_peak),
         "midPeakTimeList": slots(weekday_mid),
         "offPeakTimeList": slots(weekday_off),
-        "activeWeek": weekday_days or [1, 2, 3, 4, 5],
+        "activeWeek": weekday_str,
         "peakTimeListNonWorkDay": slots(weekend_peak),
         "midPeakTimeListNonWorkDay": slots(weekend_mid),
         "offPeakTimeListNonWorkDay": slots(weekend_off),
-        "activeWeekNonWorkDay": weekend_days or [6, 7],
+        "activeWeekNonWorkDay": weekend_str,
         "dayLightSavingTime": dst_active,
         "dayLightPeakTimeList": [],
         "dayLightMidPeakTimeList": [],
         "dayLightOffPeakTimeList": [],
-        "dayLightActiveWeek": weekday_days or [1, 2, 3, 4, 5],
+        "dayLightActiveWeek": weekday_str,
         "dayLightPeakTimeListNonWorkDay": [],
         "dayLightMidPeakTimeListNonWorkDay": [],
         "dayLightOffPeakTimeListNonWorkDay": [],
-        "dayLightActiveWeekNonWorkDay": weekend_days or [6, 7],
+        "dayLightActiveWeekNonWorkDay": weekend_str,
     }
 
 
