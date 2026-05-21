@@ -9,7 +9,7 @@
 | Question | Answer |
 |---|---|
 | Does the mobile-app API cover our 9-sensor read contract? | **Yes** — `homeDeviceInfo` + `getSwitchMode` + `deviceList` exist verbatim on `/api/device/*`, same response shapes. |
-| Does it cover our 7-service write contract? | **Yes, and better** — one unified `POST /api/device/switchMode` replaces our three split endpoints (`setSelfConsumption`, `setBackUp`, `setTimOfUse`). |
+| Does it cover our 7-service write contract? | **Yes, unified but not strictly simpler** — one `POST /api/device/switchMode` replaces three split endpoints, *but* it requires the full payload on every call (vs `setSelfConsumption` which only needed 3 fields). Confirmed 2026-05-21: 3-field minimal call returns `500 "The parameter cannot be null ：weatherWatch"`. Trade-off: simpler *code* structure (one method to maintain), more payload-building per call. |
 | Does it eliminate the JSESSIONID-paste-every-hour UX? | **Yes**, one-time email+password in config-flow replaces hourly cookie paste. Captcha is solved programmatically (template matching + AES-ECB encrypt). |
 | Token lifetime? | **Undocumented** but issue tracker shows no chronic re-auth complaints — empirically days-to-weeks, not hours. |
 | Show-stopper risks? | **One**: opening the official mobile app silently revokes write privileges on the HA token. Reads keep working; writes 403. Mitigation required before this is production-ready for Predbat. |
@@ -44,7 +44,9 @@ Accept-Encoding: gzip, deflate, br
 Accept-Language: it-IT
 ```
 
-After login, every subsequent request carries `Authorization: <raw_token>` (note: **no `Bearer ` prefix** — verbatim raw token).
+After login, every subsequent request to `/api/device/*` carries `Authorization: Bearer <token>` (**with** the `Bearer ` prefix — confirmed empirically 2026-05-21 against `/api/device/deviceList`; raw-token form returns the canonical misleading 403 `"User token expired"`). Bobsilvio's tool uses raw-token form, but that targets `/api/open/*` endpoints which may have different auth shape — needs separate verification if we touch those paths.
+
+`Accept-Language: en-GB` should be used in our integration (the server localizes error bodies by request locale — `it-IT` returns Italian; we want English).
 
 **Implication for our config-flow**: user pastes email + password once, integration runs the 3-step flow on submit, stores the resulting token. On 401/403 (with the right marker), re-run the flow silently using stored credentials. No more hourly portal trip.
 
@@ -63,10 +65,10 @@ Both surfaces hit the **same host** (`monitoring-eu.epcube.com`), just different
 | `GET /v1/api/home/homeDeviceInfo?sgSn=` | `GET /api/device/homeDeviceInfo?dayMonthYearFormat=YYYY-MM-DD&sgSn=` | Same response shape, mobile path adds a date query param |
 | `GET /v1/api/home/getSwitchMode?devId=` | `GET /api/device/getSwitchMode?devId=` | Identical |
 | `GET /v1/api/home/deviceList` | `GET /api/device/deviceList` | Identical |
-| `GET /v1/api/home/getSellingConfig/{devId}` | _unknown — needs capture_ | Check before refactor |
+| `GET /v1/api/home/getSellingConfig/{devId}` | **Not available** (404 on both path-param and query-param forms, confirmed 2026-05-21) | **Non-issue**: `get_selling_config` is dead code in our integration — defined in [api.py:347](../custom_components/ep_cube/api.py) but never called. Drop during refactor. |
 | `POST /v1/api/home/setSelfConsumption` | `POST /api/device/switchMode` (workStatus=1) | **Three endpoints collapse into one** |
 | `POST /v1/api/home/setBackUp` | `POST /api/device/switchMode` (workStatus=3) | |
-| `POST /v1/api/home/setTimOfUse` | `POST /api/device/switchMode` (workStatus=2, onlySave=0) | `onlySave=1` saves TOU without switching modes — handy for shim |
+| `POST /v1/api/home/setTimOfUse` | `POST /api/device/switchMode` (workStatus=2, onlySave=0) | ⚠️ `onlySave` is **persistent state on the cube**, not a per-call flag (confirmed 2026-05-21 by writing `onlySave:"1"` and seeing it stick in the next `getSwitchMode` read). Our integration must explicitly send `onlySave:"0"` on every write to avoid leaving the cube in save-only mode. The spike-doc earlier framing of "handy for shim" was wrong. |
 | `GET /v1/api/home/clearTouMode?devId=` | `POST /api/device/switchMode` with empty time lists | No dedicated clear endpoint |
 | — | `GET /api/device/userDeviceInfo?devId=` | Bonus — device details not exposed via web portal |
 | — | `GET /api/device/queryDataElectricityV2?devId=&queryDateStr=&scopeType=` | Bonus — historical energy queries with daily/monthly/yearly scope |
@@ -105,15 +107,30 @@ From [Bobsilvio/epcube#24 comments](https://github.com/Bobsilvio/epcube/issues/2
 
 This is more work than just swapping the auth header. But the alternative (writes-failing-silently-until-user-notices) is unacceptable for an automation that controls a £15k battery.
 
+## Captured findings (2026-05-21 capture session)
+
+Captures run against `/api/device/*` with Bearer token issued by [epcube-token.streamlit.app](https://epcube-token.streamlit.app/):
+
+- **`deviceList`** ✅ — full schema match, returned `devId=5613`, `sgSn=100100007001257120126`, capacity `20.0kWh` (4 × 5kWh), embedded `workParam` confirms current state.
+- **`getSwitchMode?devId=5613`** ✅ — schema identical to web-portal surface. `workStatus="1"`, `activeWeek=[1,2,3,4,5]` (ints on read), `dayLightSavingTime=false` bool.
+- **`homeDeviceInfo?sgSn=...&dayMonthYearFormat=...`** ✅ — **schema delta vs web portal**: values are plain numbers (`gridElectricity:5.01`, `solarPower:93.00`), not `"5.01kWh"` strings. Refactor will be *simpler* — no string-stripping in [api.py](../custom_components/ep_cube/api.py).
+- **`getSellingConfig`** ❌ — 404 on both `/api/device/getSellingConfig/{devId}` and `/api/device/getSellingConfig?devId={devId}`. Non-issue: dead code in our integration (see endpoint map).
+- **`userDeviceInfo?devId=5613`** ✅ — bonus device metadata (model `EP Cube HES-EU2-S7-20G`, activation date, warranty date, address). No `sellingPowerLimit`/grid-code here either.
+- **404 envelope is double-wrapped** — outer `status:200/message:Success`, inner `data.status:404`. Our `_request` error handling must check both layers, not just HTTP status.
+- **Validation errors are 500 with the offending field named** — e.g. minimal `switchMode` payload missing `weatherWatch` returned `500 "The parameter cannot be null ：weatherWatch"` (note U+FF1A fullwidth colon — cloud is China-hosted). Important: validation errors come as 500, **not** as the misleading-403 form. So if we see `403 "User token expired"` on a write, it's genuinely auth-related (token expired OR mobile-app write-revocation), not a typing bug. Cleaner error-discrimination than we expected.
+- **Full no-op write confirmed working** (2026-05-21) — `switchMode` POST mirroring the captured `getSwitchMode` state (with `activeWeek` ints → list[str] conversion applied) returned `200 Success` and a `getSwitchMode` read-back confirmed state unchanged. End-to-end write path validated.
+- **`onlySave` is persisted state, not a per-call flag** — see endpoint-map row for setTimOfUse for full detail. Our integration must explicitly send `onlySave:"0"` on every write.
+- **Cube normalizes `activeWeek` on read** — writes require list[str] (`["1","2","3","4","5"]`), reads return list[int] (`[1,2,3,4,5]`). Validates the session-6 `str()` coercion fix in `build_tou_payload`.
+- **`weatherWatch` is a forecast-driven pre-charge feature** — when `"1"`, cube pulls weather forecast and pre-charges ahead of predicted storms. Conflicts with Predbat's economic optimization; we must always send `weatherWatch:"0"` on writes.
+
 ## Open questions (to resolve before code starts)
 
-1. **Is `getSellingConfig` available on `/api/device/*`?** Needs a single curl-equivalent capture from a logged-in mobile session. If not, we keep that one endpoint on the JSESSIONID path (hybrid auth — ugly but workable), or accept losing the sellingPowerLimit/grid-code read.
-2. **What's the actual 401/403/expiry behaviour?** Need to:
+1. **What's the actual 401/403/expiry behaviour?** Need to:
    - Note the timestamp on a fresh token, leave it alone for 24h, retry — does it 401?
    - Try to deliberately invalidate by opening the mobile app, then probe a read and a write — confirm reads keep working and writes 403.
    - Document the response body of a *genuine* write-revocation (vs the misleading 403 from typing errors).
-3. **Can captcha-solving be done with numpy alone?** Worth a 30-minute spike — if yes, no manifest change. If no, accept opencv-headless dependency.
-4. **Token storage strategy in HA**: store password in `entry.data` (encrypted at rest by HA) and re-auth on demand, or store token + refresh on 403 by re-prompting user? Decision affects UX significantly.
+2. **Can captcha-solving be done with numpy alone?** Worth a 30-minute spike — if yes, no manifest change. If no, accept opencv-headless dependency.
+3. **Token storage strategy in HA**: store password in `entry.data` (encrypted at rest by HA) and re-auth on demand, or store token + refresh on 403 by re-prompting user? Decision affects UX significantly.
 
 ## Recommendation
 
