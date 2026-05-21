@@ -10,11 +10,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import EPCubeClient
 from .const import (
-    CONF_AUTH_URL,
     CONF_BASE_URL,
+    CONF_BEARER_TOKEN,
     CONF_CAPACITY_KWH,
     CONF_DEV_ID,
-    CONF_SESSION_COOKIE,
     CONF_SG_SN,
     DOMAIN,
 )
@@ -32,14 +31,12 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = async_get_clientsession(hass)
-    base_url = entry.data[CONF_BASE_URL]
     client = EPCubeClient(
         session=session,
-        base_url=base_url,
-        auth_url=entry.data.get(CONF_AUTH_URL) or base_url,
+        base_url=entry.data[CONF_BASE_URL],
         dev_id=entry.data[CONF_DEV_ID],
         sg_sn=entry.data[CONF_SG_SN],
-        session_cookie=entry.data.get(CONF_SESSION_COOKIE) or None,
+        bearer_token=entry.data.get(CONF_BEARER_TOKEN) or None,
         capacity_kwh=entry.data.get(CONF_CAPACITY_KWH, 0.0),
     )
 
@@ -55,7 +52,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register services once, on first entry setup. Subsequent entries reuse them.
     if len(hass.data[DOMAIN]) == 1:
         await async_register_services(hass)
 
@@ -65,12 +61,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        # Cancel any pending revert timer before tearing down
         shim: PredbatShim | None = hass.data[DOMAIN][entry.entry_id].get("shim")
         if shim is not None:
             shim.cancel_revert_timer()
         hass.data[DOMAIN].pop(entry.entry_id)
-        # Last entry gone — unregister services
         if not hass.data[DOMAIN]:
             async_unregister_services(hass)
     return unload_ok

@@ -1,20 +1,35 @@
 """EP Cube cloud API client.
 
-Speaks the real `monitoring-eu.epcube.com` / `cas-eu.epcube.com` contract
-captured on 2026-05-20. See `<captures-private>/2026-05-20-contract-extract.md` for the
-wire reference. The mock at `mock_server/` mirrors this shape, so this client
-works against either.
+Speaks the mobile-app contract on `monitoring-eu.epcube.com/api/device/*`
+with `Authorization: Bearer <token>` auth. See docs/PHASE_3_2.md for the
+wire reference and the spike notes that justify each typing decision.
+
+Auth model: a Bearer token is supplied to the constructor. When a write
+returns 403 we call the optional `reauth_callback` (provided at construct
+time) to get a fresh token; if that yields a new token we retry once.
+The callback hides the captcha-solver login flow from this client — at
+the time this refactor landed (Phase 3.2 step 3), no callback exists yet
+and 403s simply raise.
+
+Wire-typing rules (the EP Cube cloud is inconsistently strict and returns
+misleading 403 "token expired" for some payload-typing errors):
+  - day arrays (`activeWeek`, `dayLightActiveWeek*`): list[str]
+  - `touType`: native int
+  - `dayLightSavingTime`: native bool
+  - `weatherWatch`, `onlySave`, reserve SoCs, `workStatus`: str
+  - `weatherWatch` always "0" (conflicts with Predbat) and `onlySave`
+    always "0" (persisted state on the cube — must be cleared explicitly).
 
 DeviceStatus field names are preserved from the prior implementation so
-sensor.py is unchanged — the wire-format coercion (kW string → W float,
-batterySoc int → soc_pct float, per-mode reserve selection) happens inside
-`get_status()`. The shim layer (services.py) calls the typed setters
-(`set_self_consumption`, `set_backup`, `set_tou_schedule`) directly.
+sensor.py is unchanged. The mobile-app `homeDeviceInfo` returns plain
+numbers rather than the web-portal's kW-as-string values, but `_kw_str_to_w`
+already tolerates both.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +45,8 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+ReauthCallback = Callable[[], Awaitable[str | None]]
+
 
 # ----------------------------------------------------------------------
 # Exceptions
@@ -39,11 +56,11 @@ class EPCubeError(Exception):
 
 
 class AuthError(EPCubeError):
-    """Authentication failed, cookie rejected, or session expired."""
+    """Bearer token rejected or no token configured."""
 
 
-class SessionExpiredError(AuthError):
-    """Cloud session no longer valid — user must re-paste JSESSIONID."""
+class WriteVerificationError(EPCubeError):
+    """Post-write read-back showed the cube did not adopt the requested state."""
 
 
 class RateLimitError(EPCubeError):
@@ -52,6 +69,19 @@ class RateLimitError(EPCubeError):
 
 class ServerError(EPCubeError):
     """Cloud returned 5xx."""
+
+
+# ----------------------------------------------------------------------
+# HTTP headers — copied verbatim from the iOS app to maximise the chance
+# the cloud serves us identically to a real mobile session.
+# ----------------------------------------------------------------------
+_DEFAULT_HEADERS = {
+    "User-Agent": "ReservoirMonitoring/2.1.0 (iPhone; iOS 18.3.2; Scale/3.00)",
+    "Accept": "*/*",
+    "Content-Type": "application/json",
+    "Accept-Encoding": "gzip, deflate",
+    "Accept-Language": "en-GB",
+}
 
 
 # ----------------------------------------------------------------------
@@ -74,26 +104,24 @@ class DeviceStatus:
 # Helpers
 # ----------------------------------------------------------------------
 def _kw_str_to_w(value: Any) -> float:
-    """Coerce the cloud's kW-as-string values to float watts.
-
-    Accepts ints, floats, strings of decimals; returns 0.0 for None/empty.
-    Defensive against the cloud's inconsistent typing (some endpoints return
-    int/float, most return string)."""
+    """Coerce a kW-typed value to float watts. Mobile-app endpoints return
+    plain numbers (e.g. `5.01`); the older web-portal surface returned
+    strings (`"5.01"`). Tolerates both, plus None/empty → 0.0."""
     if value is None or value == "":
         return 0.0
     return float(value) * 1000.0
 
 
 def _kwh_str_to_float(value: Any) -> float:
-    """Coerce a kWh-as-string value to a float (kWh, not Wh — sensor takes kWh)."""
+    """Coerce a kWh-typed value to float kWh. Same tolerance as `_kw_str_to_w`."""
     if value is None or value == "":
         return 0.0
     return float(value)
 
 
 def _capacity_string_to_kwh(value: Any) -> float:
-    """Parse `getDeviceList`'s `systemCapacity: "20.0kWh"` into float kWh.
-    Tolerates absent units (some cloud variants drop the suffix)."""
+    """Parse `deviceList`'s `systemCapacity: "20.0kWh"` into float kWh.
+    Tolerates absent units."""
     if value is None:
         return 0.0
     s = str(value).strip().lower().removesuffix("kwh").strip()
@@ -104,105 +132,169 @@ def _capacity_string_to_kwh(value: Any) -> float:
 
 
 # ----------------------------------------------------------------------
-# TOU payload builder — used by the shim
+# Slot string + switchMode payload builder
 # ----------------------------------------------------------------------
 def build_slot(start_hhmm: str, end_hhmm: str, price: float) -> str:
     """Build a single TOU slot wire-string."""
     return f"{start_hhmm}_{end_hhmm}_{price:.2f}"
 
 
-def build_tou_payload(
+def _normalise_slots(slots: list[str] | None) -> list[str]:
+    """Pass through a list of pre-built wire strings (or build empty)."""
+    return list(slots or [])
+
+
+def build_switch_mode_payload(
     dev_id: str,
     *,
-    weekday_off: list[tuple[str, str, float]] | None = None,
-    weekday_mid: list[tuple[str, str, float]] | None = None,
-    weekday_peak: list[tuple[str, str, float]] | None = None,
-    weekend_off: list[tuple[str, str, float]] | None = None,
-    weekend_mid: list[tuple[str, str, float]] | None = None,
-    weekend_peak: list[tuple[str, str, float]] | None = None,
+    work_status: str,
+    self_consumption_reserve_soc: int = 10,
+    backup_reserve_soc: int = 100,
     allow_grid_charge: bool = True,
+    # TOU schedule (used regardless of work_status — cube stores it for when
+    # TOU mode is active; sending the baseline schedule on a self-consumption
+    # switch is safe and matches the mobile-app behaviour).
+    peak_slots: list[str] | None = None,
+    mid_peak_slots: list[str] | None = None,
+    off_peak_slots: list[str] | None = None,
+    peak_slots_weekend: list[str] | None = None,
+    mid_peak_slots_weekend: list[str] | None = None,
+    off_peak_slots_weekend: list[str] | None = None,
     weekday_days: list[int | str] | None = None,
     weekend_days: list[int | str] | None = None,
     dst_active: bool = False,
+    dst_peak_slots: list[str] | None = None,
+    dst_mid_peak_slots: list[str] | None = None,
+    dst_off_peak_slots: list[str] | None = None,
+    dst_peak_slots_weekend: list[str] | None = None,
+    dst_mid_peak_slots_weekend: list[str] | None = None,
+    dst_off_peak_slots_weekend: list[str] | None = None,
+    dst_weekday_days: list[int | str] | None = None,
+    dst_weekend_days: list[int | str] | None = None,
+    tou_type: int = 0,
 ) -> dict[str, Any]:
-    """Build the full 18-field `setTimOfUse` POST body.
+    """Build the full /api/device/switchMode POST body.
 
-    Each tier list is a sequence of `(start_hhmm, end_hhmm, price)` tuples.
-    `weekday_days` defaults to `[1,2,3,4,5]` (Mon–Fri); `weekend_days` to
-    `[6,7]` (Sat+Sun). The DST-active parallel arrays are left empty unless
-    the caller takes responsibility for populating them — most overrides
-    apply the same schedule to both DST states, which the cloud handles by
-    only consulting the non-DST set when `dayLightSavingTime == False`.
+    Every field is required — minimal 3-field calls return
+    `500 "The parameter cannot be null ：weatherWatch"` (see PHASE_3_2.md).
+    `weatherWatch` is forced to "0" because the forecast-driven pre-charge
+    feature conflicts with Predbat's economic optimisation. `onlySave` is
+    forced to "0" because it is persisted state on the cube — silently
+    leaving the cube in save-only mode would be a footgun.
 
-    Day arrays are coerced to `list[str]` because the EP Cube cloud rejects
-    integer day arrays with a misleading `403 "token expired"` response —
-    see docs/PHASE_3_2.md for the wire-format strict-typing table.
+    Day arrays are coerced to list[str] — the cube rejects int arrays with
+    a misleading `403 "token expired"`. The cube normalises them back to
+    list[int] on read.
     """
-    def slots(entries: list[tuple[str, str, float]] | None) -> list[str]:
-        return [build_slot(*e) for e in (entries or [])]
-
     weekday_str = [str(d) for d in (weekday_days or [1, 2, 3, 4, 5])]
     weekend_str = [str(d) for d in (weekend_days or [6, 7])]
+    dst_weekday_str = [str(d) for d in (dst_weekday_days or weekday_days or [1, 2, 3, 4, 5])]
+    dst_weekend_str = [str(d) for d in (dst_weekend_days or weekend_days or [6, 7])]
 
     return {
-        "devId": dev_id,
-        "workStatus": "2",  # setTimOfUse always activates TOU mode
-        "allowChargingXiaGrid": 1 if allow_grid_charge else 0,
-        "peakTimeList": slots(weekday_peak),
-        "midPeakTimeList": slots(weekday_mid),
-        "offPeakTimeList": slots(weekday_off),
+        "devId": str(dev_id),
+        "workStatus": str(work_status),
+        "allowChargingXiaGrid": "1" if allow_grid_charge else "0",
+        "weatherWatch": "0",
+        "onlySave": "0",
+        "selfConsumptioinReserveSoc": str(int(self_consumption_reserve_soc)),
+        "backupPowerReserveSoc": str(int(backup_reserve_soc)),
+        "touType": int(tou_type),
+        "dayLightSavingTime": bool(dst_active),
+        "peakTimeList": _normalise_slots(peak_slots),
+        "midPeakTimeList": _normalise_slots(mid_peak_slots),
+        "offPeakTimeList": _normalise_slots(off_peak_slots),
         "activeWeek": weekday_str,
-        "peakTimeListNonWorkDay": slots(weekend_peak),
-        "midPeakTimeListNonWorkDay": slots(weekend_mid),
-        "offPeakTimeListNonWorkDay": slots(weekend_off),
+        "peakTimeListNonWorkDay": _normalise_slots(peak_slots_weekend),
+        "midPeakTimeListNonWorkDay": _normalise_slots(mid_peak_slots_weekend),
+        "offPeakTimeListNonWorkDay": _normalise_slots(off_peak_slots_weekend),
         "activeWeekNonWorkDay": weekend_str,
-        "dayLightSavingTime": dst_active,
-        "dayLightPeakTimeList": [],
-        "dayLightMidPeakTimeList": [],
-        "dayLightOffPeakTimeList": [],
-        "dayLightActiveWeek": weekday_str,
-        "dayLightPeakTimeListNonWorkDay": [],
-        "dayLightMidPeakTimeListNonWorkDay": [],
-        "dayLightOffPeakTimeListNonWorkDay": [],
-        "dayLightActiveWeekNonWorkDay": weekend_str,
+        "dayLightPeakTimeList": _normalise_slots(dst_peak_slots),
+        "dayLightMidPeakTimeList": _normalise_slots(dst_mid_peak_slots),
+        "dayLightOffPeakTimeList": _normalise_slots(dst_off_peak_slots),
+        "dayLightActiveWeek": dst_weekday_str,
+        "dayLightPeakTimeListNonWorkDay": _normalise_slots(dst_peak_slots_weekend),
+        "dayLightMidPeakTimeListNonWorkDay": _normalise_slots(dst_mid_peak_slots_weekend),
+        "dayLightOffPeakTimeListNonWorkDay": _normalise_slots(dst_off_peak_slots_weekend),
+        "dayLightActiveWeekNonWorkDay": dst_weekend_str,
     }
+
+
+def payload_from_switch_mode_read(
+    dev_id: str,
+    read_state: dict[str, Any],
+    *,
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a switchMode write payload by mirroring a getSwitchMode response.
+
+    Used by the shim to construct revert-to-baseline writes from a captured
+    snapshot, and to construct minimum-diff overrides where most fields
+    track the live state.
+
+    `overrides` is shallow-merged after the base payload is constructed —
+    e.g. `{"workStatus": "2", "peakTimeList": [...]}` to apply a TOU change.
+    """
+    def slots(key: str) -> list[str]:
+        return list(read_state.get(key, []) or [])
+
+    def as_str_list(key: str) -> list[str]:
+        return [str(v) for v in (read_state.get(key, []) or [])]
+
+    payload = build_switch_mode_payload(
+        dev_id=dev_id,
+        work_status=str(read_state.get("workStatus", "1")),
+        self_consumption_reserve_soc=int(read_state.get("selfConsumptioinReserveSoc") or 10),
+        backup_reserve_soc=int(read_state.get("backupPowerReserveSoc") or 100),
+        allow_grid_charge=str(read_state.get("allowChargingXiaGrid", "1")) == "1",
+        peak_slots=slots("peakTimeList"),
+        mid_peak_slots=slots("midPeakTimeList"),
+        off_peak_slots=slots("offPeakTimeList"),
+        peak_slots_weekend=slots("peakTimeListNonWorkDay"),
+        mid_peak_slots_weekend=slots("midPeakTimeListNonWorkDay"),
+        off_peak_slots_weekend=slots("offPeakTimeListNonWorkDay"),
+        weekday_days=as_str_list("activeWeek"),
+        weekend_days=as_str_list("activeWeekNonWorkDay"),
+        dst_active=bool(read_state.get("dayLightSavingTime", False)),
+        dst_peak_slots=slots("dayLightPeakTimeList"),
+        dst_mid_peak_slots=slots("dayLightMidPeakTimeList"),
+        dst_off_peak_slots=slots("dayLightOffPeakTimeList"),
+        dst_peak_slots_weekend=slots("dayLightPeakTimeListNonWorkDay"),
+        dst_mid_peak_slots_weekend=slots("dayLightMidPeakTimeListNonWorkDay"),
+        dst_off_peak_slots_weekend=slots("dayLightOffPeakTimeListNonWorkDay"),
+        dst_weekday_days=as_str_list("dayLightActiveWeek") or as_str_list("activeWeek"),
+        dst_weekend_days=as_str_list("dayLightActiveWeekNonWorkDay") or as_str_list("activeWeekNonWorkDay"),
+        tou_type=int(read_state.get("touType") or 0),
+    )
+    if overrides:
+        payload.update(overrides)
+    return payload
 
 
 # ----------------------------------------------------------------------
 # Client
 # ----------------------------------------------------------------------
 class EPCubeClient:
-    """Async client for the EP Cube cloud.
-
-    Uses an explicit `Cookie: JSESSIONID=...` header on every request rather
-    than the aiohttp ClientSession's shared cookie jar — HA's shared session
-    is used by many integrations, and we don't want to pollute its jar with
-    our auth cookie (or be vulnerable to other integrations clobbering ours).
-    """
+    """Async client for the EP Cube cloud mobile-app surface."""
 
     def __init__(
         self,
         session: aiohttp.ClientSession,
         *,
         base_url: str,
-        auth_url: str | None = None,
         dev_id: str,
         sg_sn: str,
-        session_cookie: str | None = None,
+        bearer_token: str | None = None,
         capacity_kwh: float = 0.0,
-        # Mock-only convenience for dev-mode auth bootstrap (skips captcha).
-        username: str | None = None,
-        password: str | None = None,
+        reauth_callback: ReauthCallback | None = None,
     ) -> None:
         self._session = session
         self._base_url = base_url.rstrip("/")
-        self._auth_url = (auth_url or base_url).rstrip("/")
         self._dev_id = dev_id
         self._sg_sn = sg_sn
-        self._session_cookie = session_cookie
+        self._bearer_token = bearer_token
         self._capacity_kwh = capacity_kwh
-        self._username = username
-        self._password = password
+        self._reauth_callback = reauth_callback
 
     # ------------------------------------------------------------------
     # Identity
@@ -224,50 +316,27 @@ class EPCubeClient:
     def capacity_kwh(self) -> float:
         return self._capacity_kwh
 
+    @property
+    def bearer_token(self) -> str | None:
+        return self._bearer_token
+
     # ------------------------------------------------------------------
     # Auth
     # ------------------------------------------------------------------
     async def authenticate(self) -> None:
-        """Establish a valid session.
-
-        Priority order:
-        1. If `session_cookie` was supplied (real cloud path), assume it's
-           valid — we'll detect rejection on first call and raise.
-        2. Else if `username` + `password` were supplied (mock dev path),
-           POST to /cas/login and capture the JSESSIONID from Set-Cookie.
-        3. Else raise — no way to authenticate without one of those.
-
-        After establishing the cookie, fetch deviceList to cache capacity
-        (and to act as a liveness probe).
-        """
-        if self._session_cookie is None and (self._username and self._password):
-            await self._dev_login(self._username, self._password)
-        if self._session_cookie is None:
+        """Probe the configured token by fetching deviceList. Also refreshes
+        the cached capacity. Raises AuthError if the token is missing or
+        rejected."""
+        if self._bearer_token is None:
             raise AuthError(
-                "no session_cookie configured — paste a JSESSIONID from the "
-                "Canadian Solar portal, or supply username/password (mock only)"
+                "no bearer_token configured — supply one from the EP Cube "
+                "mobile-app login (or epcube-token.streamlit.app while the "
+                "in-integration captcha login is not yet implemented)"
             )
         await self._refresh_capacity()
 
-    async def _dev_login(self, username: str, password: str) -> None:
-        """Mock-only convenience login. Real cloud requires the slider captcha."""
-        url = f"{self._auth_url}/cas/login"
-        async with self._session.post(
-            url,
-            data={"username": username, "password": password},
-            allow_redirects=False,
-        ) as resp:
-            cookie = resp.cookies.get("JSESSIONID")
-            if cookie is None:
-                raise AuthError(
-                    f"dev login at {url} did not return JSESSIONID "
-                    f"(status={resp.status})"
-                )
-            self._session_cookie = cookie.value
-            _LOGGER.debug("dev login: acquired JSESSIONID=%s", self._session_cookie[:8] + "...")
-
     async def _refresh_capacity(self) -> None:
-        """Pull capacity from getDeviceList — also acts as auth probe."""
+        """Pull capacity from deviceList — also acts as auth probe."""
         try:
             devices = await self.get_device_list()
         except EPCubeError as err:
@@ -275,7 +344,8 @@ class EPCubeClient:
                             err, self._capacity_kwh)
             return
         for entry in devices:
-            if str(entry.get("id")) == self._dev_id or entry.get("sgSn") == self._sg_sn:
+            row_dev_id = entry.get("devId") or entry.get("id")
+            if str(row_dev_id) == self._dev_id or entry.get("sgSn") == self._sg_sn:
                 capacity = _capacity_string_to_kwh(entry.get("systemCapacity"))
                 if capacity > 0:
                     self._capacity_kwh = capacity
@@ -287,11 +357,12 @@ class EPCubeClient:
     # ------------------------------------------------------------------
     async def get_status(self) -> DeviceStatus:
         """Merge a live `homeDeviceInfo` poll with the current `getSwitchMode`
-        snapshot into a single DeviceStatus. Two HTTP calls per poll — fine at
-        the 60s default cadence."""
+        snapshot into a single DeviceStatus."""
         info, mode = await asyncio.gather(
-            self._get(f"/v1/api/home/homeDeviceInfo?sgSn={self._sg_sn}"),
-            self._get(f"/v1/api/home/getSwitchMode?devId={self._dev_id}"),
+            self._get(
+                f"/api/device/homeDeviceInfo?sgSn={self._sg_sn}&dayMonthYearFormat=YYYY-MM-DD"
+            ),
+            self._get(f"/api/device/getSwitchMode?devId={self._dev_id}"),
         )
 
         solar_w = _kw_str_to_w(info.get("solarPower"))
@@ -299,14 +370,9 @@ class EPCubeClient:
         nonbackup_w = _kw_str_to_w(info.get("nonBackUpPower"))
         load_w = backup_w + nonbackup_w
         grid_w = _kw_str_to_w(info.get("gridPower"))
-        # battery_power: power conservation. Sign convention: >0 = charging.
-        # gridPower >0 = import confirmed on real cloud 2026-05-20 (night-time
-        # check: solar=0, battery=0, load=grid balanced the identity).
+        # battery_power: power conservation. >0 = charging.
         battery_w = solar_w + grid_w - load_w
 
-        # System capacity = batteryPackNum × per-pack kWh. homeDeviceInfo
-        # carries the count; deviceList doesn't expose systemCapacity on
-        # parallel-pack accounts. Fall back to the cached value if missing.
         pack_num = info.get("batteryPackNum")
         if isinstance(pack_num, int) and pack_num > 0:
             self._capacity_kwh = pack_num * EP_CUBE_PACK_KWH
@@ -329,66 +395,46 @@ class EPCubeClient:
 
     async def get_switch_mode(self) -> dict[str, Any]:
         """Raw getSwitchMode — used by the shim for baseline snapshot."""
-        return await self._get(f"/v1/api/home/getSwitchMode?devId={self._dev_id}")
+        return await self._get(f"/api/device/getSwitchMode?devId={self._dev_id}")
 
     async def get_tou_schedule(self) -> dict[str, Any]:
-        """Backwards-compat alias for the shim — returns the full getSwitchMode
-        payload, which contains all schedule fields as well as mode/reserve."""
+        """Backwards-compat alias — getSwitchMode contains all schedule fields."""
         return await self.get_switch_mode()
 
     async def get_device_list(self) -> list[dict[str, Any]]:
-        """Returns the array of devices on the account. Used by config-flow
-        to populate the device picker and by authenticate() to probe capacity."""
-        data = await self._get("/v1/api/home/deviceList")
+        """Returns the array of devices on the account."""
+        data = await self._get("/api/device/deviceList")
         if isinstance(data, list):
             return data
         return []
 
-    async def get_selling_config(self) -> dict[str, Any]:
-        """Export configuration (sellingEnable, sellingPowerLimit, grid code).
-        Useful for the shim to know whether forced export is even allowed."""
-        return await self._get(f"/v1/api/home/getSellingConfig/{self._dev_id}")
-
     # ------------------------------------------------------------------
     # Writes
     # ------------------------------------------------------------------
-    async def set_self_consumption(self, reserve_soc_pct: int) -> None:
-        """Switch to Self-Consumption (workStatus=1) and set the reserve floor."""
-        await self._post(
-            "/v1/api/home/setSelfConsumption",
-            json={
-                "devId": self._dev_id,
-                "workStatus": "1",
-                "selfConsumptioinReserveSoc": int(reserve_soc_pct),  # sic — typo verbatim
-            },
-        )
+    async def switch_mode(
+        self,
+        payload: dict[str, Any],
+        *,
+        verify_keys: tuple[str, ...] = ("workStatus",),
+    ) -> dict[str, Any]:
+        """POST /api/device/switchMode and verify the cube adopted it.
 
-    async def set_backup(self, reserve_soc_pct: int) -> None:
-        """Switch to Backup (workStatus=3) and set the reserve floor."""
-        await self._post(
-            "/v1/api/home/setBackUp",
-            json={
-                "devId": self._dev_id,
-                "workStatus": "3",
-                "backupPowerReserveSoc": int(reserve_soc_pct),
-            },
-        )
+        `payload` must be a full switchMode body — use `build_switch_mode_payload`
+        or `payload_from_switch_mode_read` to construct one. `verify_keys` is
+        the subset of fields the post-write read-back checks; the default is
+        just `workStatus` because that's the field a Predbat override actually
+        cares about. Pass more keys (e.g. `("workStatus", "peakTimeList")`)
+        when you want stronger verification.
 
-    async def set_tou_schedule(self, payload: dict[str, Any]) -> None:
-        """Switch to TOU (workStatus=2) AND save the schedule in one POST.
-
-        `payload` must be the full wire-shape dict — use `build_tou_payload()`
-        to construct one. The cloud bundles mode-switch with schedule-save,
-        so there is no separate "switch to TOU mode" endpoint.
+        Returns the post-write read-back state. Raises WriteVerificationError
+        if the cube's state does not match the request.
         """
-        # Ensure devId is present and workStatus is correct, in case caller forgot.
-        body = {**payload, "devId": self._dev_id, "workStatus": "2"}
-        await self._post("/v1/api/home/setTimOfUse", json=body)
-
-    async def clear_tou_schedule(self) -> None:
-        """Wipe all TOU slot lists. Does NOT change mode — pair with
-        set_self_consumption() if you want to fully reset."""
-        await self._get(f"/v1/api/home/clearTouMode?devId={self._dev_id}")
+        # Ensure devId is present.
+        body = {**payload, "devId": str(self._dev_id)}
+        await self._post("/api/device/switchMode", json=body)
+        readback = await self.get_switch_mode()
+        _verify_write(body, readback, verify_keys)
+        return readback
 
     # ------------------------------------------------------------------
     # Transport
@@ -405,47 +451,59 @@ class EPCubeClient:
         path: str,
         *,
         json: dict[str, Any] | None = None,
+        _retry_after_reauth: bool = False,
     ) -> Any:
-        if self._session_cookie is None:
-            raise SessionExpiredError("no session cookie — call authenticate() first")
+        if self._bearer_token is None:
+            raise AuthError("no bearer token — call authenticate() first")
 
         url = f"{self._base_url}{path}"
-        headers = {"Cookie": f"JSESSIONID={self._session_cookie}"}
+        headers = {**_DEFAULT_HEADERS, "Authorization": f"Bearer {self._bearer_token}"}
 
         async with self._session.request(
             method, url, headers=headers, json=json, allow_redirects=False,
         ) as resp:
-            # Session-expired detection: real cloud redirects to /cas/login when
-            # the cookie no longer maps to a valid session.
-            if resp.status in (301, 302, 303, 307, 308):
-                location = resp.headers.get("Location", "")
-                if "cas" in location.lower() or "login" in location.lower():
-                    raise SessionExpiredError(
-                        f"redirected to {location!r} — JSESSIONID expired, "
-                        "re-authenticate via config-flow reconfigure"
-                    )
-                raise EPCubeError(f"{method} {path} unexpected redirect → {location!r}")
-            if resp.status == 401:
-                raise AuthError(f"{method} {path} returned 401")
+            if resp.status in (401, 403):
+                # Validation errors come back as 500 with the field named —
+                # so a 403 here genuinely means the token is unhappy. Try a
+                # single re-auth cycle if a callback is wired up.
+                if not _retry_after_reauth and self._reauth_callback is not None:
+                    new_token = await self._reauth_callback()
+                    if new_token:
+                        self._bearer_token = new_token
+                        _LOGGER.info("%s %s 403 → re-auth succeeded, retrying", method, path)
+                        return await self._request(
+                            method, path, json=json, _retry_after_reauth=True,
+                        )
+                raise AuthError(f"{method} {path} returned {resp.status} (token rejected)")
             if resp.status == 429:
                 raise RateLimitError(f"{method} {path} rate-limited")
             if resp.status >= 500:
-                raise ServerError(f"{method} {path} returned {resp.status}")
+                body_text = await resp.text()
+                raise ServerError(f"{method} {path} returned {resp.status}: {body_text[:300]}")
             if resp.status >= 400:
                 body_text = await resp.text()
-                raise EPCubeError(f"{method} {path} returned {resp.status}: {body_text}")
+                raise EPCubeError(f"{method} {path} returned {resp.status}: {body_text[:300]}")
 
             body = await resp.json()
 
-        # Unwrap the standard envelope: {timestamp, message, status, data}.
-        # Some responses have no data field (write endpoints) — that's fine.
+        # Outer envelope: {timestamp, message, status, data}. Some responses
+        # have no data field — that's fine. The cube also double-wraps some
+        # errors (outer status:200, inner data.status:404) so check both.
         if not isinstance(body, dict):
             return body
         envelope_status = body.get("status", 200)
         if envelope_status != 200:
             msg = body.get("message", "unknown error")
             raise EPCubeError(f"{method} {path} envelope error status={envelope_status}: {msg}")
-        return body.get("data")
+        data = body.get("data")
+        if isinstance(data, dict):
+            inner_status = data.get("status")
+            if inner_status not in (None, 200, "200"):
+                inner_msg = data.get("message") or data.get("msg") or "unknown inner error"
+                raise EPCubeError(
+                    f"{method} {path} inner envelope error status={inner_status}: {inner_msg}"
+                )
+        return data
 
 
 # ----------------------------------------------------------------------
@@ -459,8 +517,43 @@ def _reserve_for_mode(mode: str, switch_mode: dict[str, Any]) -> float:
     if mode == OPERATING_MODE_BACKUP:
         return float(switch_mode.get("backupPowerReserveSoc", 0) or 0)
     if mode == OPERATING_MODE_TOU:
-        # TOU doesn't have its own reserve field — the inverter follows the
-        # tier prices. Surface the self-consumption reserve as a sane proxy
-        # since that's what kicks in outside any TOU window.
+        # TOU has no per-mode reserve — surface the self-consumption value
+        # as a sane proxy (it kicks in outside any TOU window).
         return float(switch_mode.get("selfConsumptioinReserveSoc", 0) or 0)
     return 0.0
+
+
+def _verify_write(
+    request: dict[str, Any],
+    readback: dict[str, Any],
+    keys: tuple[str, ...],
+) -> None:
+    """Compare requested keys against the post-write readback. The cube
+    normalises some fields on read (e.g. day arrays return as list[int]
+    even though writes require list[str]) — we accept any
+    string/int representation equivalence."""
+    mismatches: list[str] = []
+    for key in keys:
+        want = request.get(key)
+        got = readback.get(key)
+        if not _values_equal(want, got):
+            mismatches.append(f"{key}: requested={want!r} got={got!r}")
+    if mismatches:
+        raise WriteVerificationError(
+            "switchMode write not reflected in read-back: " + "; ".join(mismatches)
+        )
+
+
+def _values_equal(a: Any, b: Any) -> bool:
+    """Loose equality that tolerates the cube's read-side normalisation:
+    str/int interchangeable for scalars, list[str]/list[int] interchangeable
+    for arrays, slot strings byte-equal."""
+    if a is None and b is None:
+        return True
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return False
+        return all(_values_equal(x, y) for x, y in zip(a, b))
+    if isinstance(a, bool) or isinstance(b, bool):
+        return bool(a) == bool(b)
+    return str(a) == str(b)

@@ -4,13 +4,10 @@ from __future__ import annotations
 DOMAIN = "ep_cube"
 
 # Config-entry keys
-CONF_BASE_URL = "base_url"           # e.g. https://monitoring-eu.epcube.com — data host
-CONF_AUTH_URL = "auth_url"           # e.g. https://cas-eu.epcube.com — auth host (optional; defaults to base_url)
+CONF_BASE_URL = "base_url"           # e.g. https://monitoring-eu.epcube.com — data + auth host (mobile API)
 CONF_DEV_ID = "dev_id"               # e.g. "5613" — small int, used by most endpoints
 CONF_SG_SN = "sg_sn"                 # 21-digit serial, used by homeDeviceInfo
-CONF_SESSION_COOKIE = "session_cookie"  # JSESSIONID value pasted from browser (real cloud)
-CONF_USERNAME = "username"           # mock-only dev convenience (skips captcha)
-CONF_PASSWORD = "password"           # mock-only dev convenience
+CONF_BEARER_TOKEN = "bearer_token"   # Bearer token for /api/device/* (no "Bearer " prefix)
 CONF_CAPACITY_KWH = "capacity_kwh"   # cached fallback; primary source is batteryPackNum × EP_CUBE_PACK_KWH
 
 # Per-pack capacity. EP Cube is a single-module product line; all packs are
@@ -18,7 +15,7 @@ CONF_CAPACITY_KWH = "capacity_kwh"   # cached fallback; primary source is batter
 # homeDeviceInfo response which exposes batteryPackNum but not systemCapacity.
 EP_CUBE_PACK_KWH = 5.0
 
-DEFAULT_BASE_URL = "http://mock:8765"
+DEFAULT_BASE_URL = "https://monitoring-eu.epcube.com"
 DEFAULT_POLL_INTERVAL_SECONDS = 60   # real cloud polls at ~55s; we match
 
 # Operating-mode names. Internal API stays in these strings; mapping to

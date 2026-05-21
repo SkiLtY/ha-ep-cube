@@ -50,15 +50,18 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
-from .api import EPCubeClient, EPCubeError, build_slot, build_tou_payload
+from .api import (
+    EPCubeClient,
+    EPCubeError,
+    build_slot,
+    payload_from_switch_mode_read,
+)
 from .const import (
     DOMAIN,
     OPERATING_MODE_TOU,
     SHIM_PRICE_MID_PEAK,
     SHIM_PRICE_OFF_PEAK,
     SHIM_PRICE_PEAK,
-    WORK_STATUS_BACKUP,
-    WORK_STATUS_SELF_CONSUMPTION,
     WORK_STATUS_TOU,
 )
 from .predbat_state import PredbatPlan, PredbatStateError, describe, read_plan
@@ -236,9 +239,13 @@ class PredbatShim:
         end_time: datetime,
         allow_grid_charge: bool,
     ) -> dict[str, Any]:
-        """Compose a setTimOfUse payload with the override slot appended to
-        the baseline's tier lists. The override slot covers now → end_time on
-        the current day's profile (weekday or weekend).
+        """Compose a /api/device/switchMode payload that mirrors the baseline
+        snapshot and appends an override slot to the appropriate tier list.
+
+        The override slot covers now → end_time on the current day's profile
+        (weekday or weekend). DST tier lists are preserved from the baseline
+        untouched — overrides only fire when the cube is in non-DST mode,
+        which is a pre-existing limitation of the shim.
 
         v1 limitation: the override slot is assumed not to span midnight or a
         weekday→weekend transition. Predbat slots are typically 30 min, so
@@ -254,50 +261,51 @@ class PredbatShim:
         is_weekend = now_local.weekday() >= 5
         baseline = self._baseline or {}
 
-        # Start with baseline's tier lists for both profiles. Append our
-        # override slot to the appropriate tier in the active profile only.
-        def base_tier(key: str) -> list[str]:
-            return list(baseline.get(key) or [])
-
-        weekday_off = base_tier("offPeakTimeList")
-        weekday_mid = base_tier("midPeakTimeList")
-        weekday_peak = base_tier("peakTimeList")
-        weekend_off = base_tier("offPeakTimeListNonWorkDay")
-        weekend_mid = base_tier("midPeakTimeListNonWorkDay")
-        weekend_peak = base_tier("peakTimeListNonWorkDay")
-
-        target_list = {
-            ("off_peak", False): weekday_off,
-            ("mid_peak", False): weekday_mid,
-            ("peak", False): weekday_peak,
-            ("off_peak", True): weekend_off,
-            ("mid_peak", True): weekend_mid,
-            ("peak", True): weekend_peak,
+        # Pick the right baseline tier key for this override.
+        tier_key = {
+            ("off_peak", False): "offPeakTimeList",
+            ("mid_peak", False): "midPeakTimeList",
+            ("peak", False): "peakTimeList",
+            ("off_peak", True): "offPeakTimeListNonWorkDay",
+            ("mid_peak", True): "midPeakTimeListNonWorkDay",
+            ("peak", True): "peakTimeListNonWorkDay",
         }[(tier, is_weekend)]
-        target_list.append(override_slot)
+        appended_tier = [*(baseline.get(tier_key) or []), override_slot]
 
-        return build_tou_payload(
-            dev_id=self.client.dev_id,
-            weekday_off=_strs_to_tuples(weekday_off),
-            weekday_mid=_strs_to_tuples(weekday_mid),
-            weekday_peak=_strs_to_tuples(weekday_peak),
-            weekend_off=_strs_to_tuples(weekend_off),
-            weekend_mid=_strs_to_tuples(weekend_mid),
-            weekend_peak=_strs_to_tuples(weekend_peak),
-            allow_grid_charge=allow_grid_charge,
-            weekday_days=baseline.get("activeWeek") or None,
-            weekend_days=baseline.get("activeWeekNonWorkDay") or None,
-            dst_active=bool(baseline.get("dayLightSavingTime", False)),
+        # Start from the full baseline snapshot, then apply our diffs:
+        #   - flip workStatus → TOU (2)
+        #   - replace the target tier list with our appended version
+        #   - honour the caller's allow_grid_charge intent
+        return payload_from_switch_mode_read(
+            self.client.dev_id,
+            baseline,
+            overrides={
+                "workStatus": WORK_STATUS_TOU,
+                tier_key: appended_tier,
+                "allowChargingXiaGrid": "1" if allow_grid_charge else "0",
+            },
         )
 
     async def _apply_tou_override(
         self, payload: dict[str, Any], params: dict[str, Any]
     ) -> None:
-        """Single POST: setTimOfUse bundles mode-switch with schedule-save."""
+        """Single POST: /api/device/switchMode bundles mode-switch with schedule-save.
+        Verifies the cube adopted both workStatus and the affected tier list."""
+        # Verify the tier list that we appended into — figure out which one
+        # from the payload diff against the baseline.
+        verify_keys: tuple[str, ...] = ("workStatus",)
+        if self._baseline is not None:
+            for key in (
+                "peakTimeList", "midPeakTimeList", "offPeakTimeList",
+                "peakTimeListNonWorkDay", "midPeakTimeListNonWorkDay", "offPeakTimeListNonWorkDay",
+            ):
+                if (payload.get(key) or []) != (self._baseline.get(key) or []):
+                    verify_keys = ("workStatus", key)
+                    break
         try:
-            await self.client.set_tou_schedule(payload)
+            await self.client.switch_mode(payload, verify_keys=verify_keys)
         except EPCubeError as err:
-            _LOGGER.error("setTimOfUse failed: %s", err)
+            _LOGGER.error("switchMode override failed: %s", err)
             raise
         self._active_override = {
             **params,
@@ -306,44 +314,17 @@ class PredbatShim:
         }
 
     async def _revert_to_baseline(self) -> None:
-        """Restore the snapshotted baseline. Dispatches to the appropriate set*
-        endpoint based on baseline workStatus. Cancels any pending revert timer."""
+        """Restore the snapshotted baseline with one switchMode POST. The
+        baseline payload already carries workStatus + per-mode reserves + the
+        original TOU schedule, so a single mirror-write restores all state."""
         self._cancel_revert()
         if self._baseline is None:
             _LOGGER.warning("_revert_to_baseline: no baseline available — leaving cloud as-is")
             self._active_override = None
             return
-        baseline = self._baseline
-        work_status = str(baseline.get("workStatus", WORK_STATUS_SELF_CONSUMPTION))
+        payload = payload_from_switch_mode_read(self.client.dev_id, self._baseline)
         try:
-            if work_status == WORK_STATUS_SELF_CONSUMPTION:
-                await self.client.set_self_consumption(
-                    int(baseline.get("selfConsumptioinReserveSoc") or 10)
-                )
-            elif work_status == WORK_STATUS_BACKUP:
-                await self.client.set_backup(
-                    int(baseline.get("backupPowerReserveSoc") or 100)
-                )
-            elif work_status == WORK_STATUS_TOU:
-                # Reconstruct the baseline TOU payload from the snapshot and POST.
-                payload = build_tou_payload(
-                    dev_id=self.client.dev_id,
-                    weekday_off=_strs_to_tuples(baseline.get("offPeakTimeList") or []),
-                    weekday_mid=_strs_to_tuples(baseline.get("midPeakTimeList") or []),
-                    weekday_peak=_strs_to_tuples(baseline.get("peakTimeList") or []),
-                    weekend_off=_strs_to_tuples(baseline.get("offPeakTimeListNonWorkDay") or []),
-                    weekend_mid=_strs_to_tuples(baseline.get("midPeakTimeListNonWorkDay") or []),
-                    weekend_peak=_strs_to_tuples(baseline.get("peakTimeListNonWorkDay") or []),
-                    allow_grid_charge=str(baseline.get("allowChargingXiaGrid", "1")) == "1",
-                    weekday_days=baseline.get("activeWeek"),
-                    weekend_days=baseline.get("activeWeekNonWorkDay"),
-                    dst_active=bool(baseline.get("dayLightSavingTime", False)),
-                )
-                await self.client.set_tou_schedule(payload)
-            else:
-                _LOGGER.warning("_revert_to_baseline: unknown baseline workStatus=%r — defaulting to self-consumption",
-                                work_status)
-                await self.client.set_self_consumption(10)
+            await self.client.switch_mode(payload)
         except EPCubeError as err:
             _LOGGER.error("revert FAILED — battery may be stuck on override. err=%s", err)
             # Leave _active_override so a subsequent retry can target the right state.
@@ -369,19 +350,6 @@ class PredbatShim:
             await self._revert_to_baseline()
         except EPCubeError:
             pass
-
-
-def _strs_to_tuples(slots: list[str]) -> list[tuple[str, str, float]]:
-    """Parse a list of wire-format slot strings into (start, end, price) tuples,
-    suitable for passing back into build_tou_payload."""
-    out: list[tuple[str, str, float]] = []
-    for s in slots:
-        try:
-            start, end, price = s.split("_")
-            out.append((start, end, float(price)))
-        except (ValueError, AttributeError):
-            _LOGGER.warning("ignoring malformed slot string: %r", s)
-    return out
 
 
 # ---------- service registration ----------

@@ -1,16 +1,11 @@
 """Config flow for EP Cube.
 
-Two-path auth:
-- **Real cloud**: user pastes a `JSESSIONID` cookie value from a browser DevTools
-  session (the slider captcha can't be solved headlessly). Session expiry
-  surfaces as a `SessionExpiredError` later — user re-runs config-flow with a
-  fresh cookie.
-- **Mock cloud**: leave the cookie blank and supply username/password — the
-  mock's `/cas/login` accepts any creds and issues a JSESSIONID.
+User pastes a Bearer token (obtained from the mobile-app auth flow or, until
+Phase 3.2 step 4 lands, from epcube-token.streamlit.app) and the integration
+fetches the device list to resolve devId / sgSn / capacity.
 
-After auth, the device list is fetched. If exactly one device is returned, it
-is auto-selected. If multiple, the user picks from a dropdown. If none, the
-flow fails with a clear error.
+The captcha-based in-integration login is the eventual replacement for this
+paste flow — see docs/PHASE_3_2.md step 4.
 """
 from __future__ import annotations
 
@@ -29,14 +24,11 @@ from .api import (
     _capacity_string_to_kwh,
 )
 from .const import (
-    CONF_AUTH_URL,
     CONF_BASE_URL,
+    CONF_BEARER_TOKEN,
     CONF_CAPACITY_KWH,
     CONF_DEV_ID,
-    CONF_PASSWORD,
-    CONF_SESSION_COOKIE,
     CONF_SG_SN,
-    CONF_USERNAME,
     DEFAULT_BASE_URL,
     DOMAIN,
 )
@@ -46,10 +38,7 @@ _LOGGER = logging.getLogger(__name__)
 USER_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
-        vol.Optional(CONF_AUTH_URL, default=""): str,
-        vol.Optional(CONF_SESSION_COOKIE, default=""): str,
-        vol.Optional(CONF_USERNAME, default=""): str,
-        vol.Optional(CONF_PASSWORD, default=""): str,
+        vol.Required(CONF_BEARER_TOKEN): str,
         vol.Optional(CONF_DEV_ID, default=""): str,
         vol.Optional(CONF_SG_SN, default=""): str,
     }
@@ -57,39 +46,33 @@ USER_SCHEMA = vol.Schema(
 
 
 class EPCubeConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 2
+    VERSION = 3
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
 
         if user_input is not None:
             base_url = user_input[CONF_BASE_URL]
-            auth_url = user_input.get(CONF_AUTH_URL) or base_url
-            session_cookie = user_input.get(CONF_SESSION_COOKIE) or None
-            username = user_input.get(CONF_USERNAME) or None
-            password = user_input.get(CONF_PASSWORD) or None
+            bearer_token = (user_input.get(CONF_BEARER_TOKEN) or "").strip()
+            # Strip a "Bearer " prefix if the user pasted one — the api layer
+            # adds it itself.
+            if bearer_token.lower().startswith("bearer "):
+                bearer_token = bearer_token.split(None, 1)[1]
             dev_id_hint = user_input.get(CONF_DEV_ID) or ""
             sg_sn_hint = user_input.get(CONF_SG_SN) or ""
 
-            if not session_cookie and not (username and password):
+            if not bearer_token:
                 errors["base"] = "no_auth_supplied"
             else:
                 session = async_get_clientsession(self.hass)
                 client = EPCubeClient(
                     session=session,
                     base_url=base_url,
-                    auth_url=auth_url,
-                    dev_id=dev_id_hint or "0",  # placeholder; resolved from deviceList
+                    dev_id=dev_id_hint or "0",
                     sg_sn=sg_sn_hint or "0",
-                    session_cookie=session_cookie,
-                    username=username,
-                    password=password,
+                    bearer_token=bearer_token,
                 )
                 try:
-                    # Auth first (sets cookie if dev-login path), then enumerate.
-                    if session_cookie is None:
-                        # Dev login path — authenticate() handles it.
-                        await client.authenticate()
                     devices = await client.get_device_list()
                 except AuthError as err:
                     _LOGGER.warning("config_flow auth failed: %s", err)
@@ -104,24 +87,20 @@ class EPCubeConfigFlow(ConfigFlow, domain=DOMAIN):
                     if not devices:
                         errors["base"] = "no_devices"
                     else:
-                        # Pick the device. Prefer user-supplied dev_id; else
-                        # auto-pick if exactly one device on the account.
                         chosen = _pick_device(devices, dev_id_hint, sg_sn_hint)
                         if chosen is None:
                             errors["base"] = "multiple_devices"
                         else:
-                            dev_id = str(chosen.get("id"))
+                            dev_id = str(chosen.get("devId") or chosen.get("id"))
                             sg_sn = str(chosen.get("sgSn"))
                             capacity = _capacity_string_to_kwh(chosen.get("systemCapacity"))
 
                             await self.async_set_unique_id(dev_id)
                             self._abort_if_unique_id_configured()
 
-                            # Persist the resolved IDs + cookie acquired via dev-login.
                             entry_data = {
                                 CONF_BASE_URL: base_url,
-                                CONF_AUTH_URL: auth_url,
-                                CONF_SESSION_COOKIE: client._session_cookie or "",
+                                CONF_BEARER_TOKEN: bearer_token,
                                 CONF_DEV_ID: dev_id,
                                 CONF_SG_SN: sg_sn,
                                 CONF_CAPACITY_KWH: capacity,
@@ -146,7 +125,7 @@ def _pick_device(
     """Resolve which device entry to use. Returns None if ambiguous."""
     if dev_id_hint:
         for d in devices:
-            if str(d.get("id")) == dev_id_hint:
+            if str(d.get("devId") or d.get("id")) == dev_id_hint:
                 return d
         return None
     if sg_sn_hint:
