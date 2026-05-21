@@ -22,7 +22,7 @@ misleading 403 "token expired" for some payload-typing errors):
 
 DeviceStatus field names are preserved from the prior implementation so
 sensor.py is unchanged. The mobile-app `homeDeviceInfo` returns plain
-numbers rather than the web-portal's kW-as-string values, but `_kw_str_to_w`
+numbers rather than the web-portal's kW-as-string values, but `_power_to_w`
 already tolerates both.
 """
 from __future__ import annotations
@@ -103,17 +103,23 @@ class DeviceStatus:
 # ----------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------
-def _kw_str_to_w(value: Any) -> float:
-    """Coerce a kW-typed value to float watts. Mobile-app endpoints return
-    plain numbers (e.g. `5.01`); the older web-portal surface returned
-    strings (`"5.01"`). Tolerates both, plus None/empty → 0.0."""
+def _power_to_w(value: Any) -> float:
+    """Coerce a power-typed value to float watts.
+
+    The mobile-app `/api/device/homeDeviceInfo` returns power fields already
+    in watts (e.g. `solarPower:93.00` ≈ 93 W at low sun on a 6.5 kWp array,
+    confirmed empirically 2026-05-21 against a 64 W reading at dusk). The
+    web-portal surface previously returned kW-as-string ("5.01kW") and an
+    earlier version of this client multiplied by 1000 — that converter was
+    correct then and wrong now; do not reintroduce. Tolerates string/number
+    input + None/empty → 0.0."""
     if value is None or value == "":
         return 0.0
-    return float(value) * 1000.0
+    return float(value)
 
 
 def _kwh_str_to_float(value: Any) -> float:
-    """Coerce a kWh-typed value to float kWh. Same tolerance as `_kw_str_to_w`."""
+    """Coerce a kWh-typed value to float kWh. Same tolerance as `_power_to_w`."""
     if value is None or value == "":
         return 0.0
     return float(value)
@@ -365,11 +371,11 @@ class EPCubeClient:
             self._get(f"/api/device/getSwitchMode?devId={self._dev_id}"),
         )
 
-        solar_w = _kw_str_to_w(info.get("solarPower"))
-        backup_w = _kw_str_to_w(info.get("backUpPower"))
-        nonbackup_w = _kw_str_to_w(info.get("nonBackUpPower"))
+        solar_w = _power_to_w(info.get("solarPower"))
+        backup_w = _power_to_w(info.get("backUpPower"))
+        nonbackup_w = _power_to_w(info.get("nonBackUpPower"))
         load_w = backup_w + nonbackup_w
-        grid_w = _kw_str_to_w(info.get("gridPower"))
+        grid_w = _power_to_w(info.get("gridPower"))
         # battery_power: power conservation. >0 = charging.
         battery_w = solar_w + grid_w - load_w
 
