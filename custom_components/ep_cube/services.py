@@ -41,7 +41,7 @@ match the live override.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import voluptuous as vol
@@ -76,6 +76,7 @@ SERVICE_DISCHARGE_STOP = "discharge_stop"
 SERVICE_CHARGE_FREEZE = "charge_freeze"
 SERVICE_DISCHARGE_FREEZE = "discharge_freeze"
 SERVICE_IDLE = "idle"
+SERVICE_DEBUG_FREEZE = "debug_freeze"
 
 # Override kinds
 KIND_CHARGE = "charge"
@@ -85,6 +86,17 @@ KIND_FREEZE = "freeze"
 # Predbat shim services accept only an optional device_id. Window/SoC/rate
 # parameters come from the Predbat dummy entities (see predbat_state.py).
 SHIM_SCHEMA = vol.Schema({vol.Optional("device_id"): cv.string})
+
+# debug_freeze bypasses read_plan — takes a duration directly. Diagnostic
+# tool for manually exercising the shim against the live cube.
+DEBUG_FREEZE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("device_id"): cv.string,
+        vol.Optional("duration_minutes", default=5): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=60)
+        ),
+    }
+)
 
 
 class PredbatShim:
@@ -452,6 +464,17 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def handle_idle(call: ServiceCall) -> None:
         await _resolve_shim(call).idle()
 
+    async def handle_debug_freeze(call: ServiceCall) -> None:
+        # Diagnostic: skips read_plan and freezes for `duration_minutes`.
+        shim = _resolve_shim(call)
+        duration = int(call.data.get("duration_minutes", 5))
+        end_time = dt_util.utcnow() + timedelta(minutes=duration)
+        _LOGGER.warning(
+            "debug_freeze: bypassing predbat plan — freezing for %d min (end=%s)",
+            duration, end_time.isoformat(),
+        )
+        await shim.charge_freeze(end_time=end_time)
+
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_START, handle_charge_start, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_STOP, handle_charge_stop, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_START, handle_discharge_start, schema=SHIM_SCHEMA)
@@ -459,6 +482,9 @@ async def async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_FREEZE, handle_charge_freeze, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_FREEZE, handle_discharge_freeze, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_IDLE, handle_idle, schema=SHIM_SCHEMA)
+    hass.services.async_register(
+        DOMAIN, SERVICE_DEBUG_FREEZE, handle_debug_freeze, schema=DEBUG_FREEZE_SCHEMA
+    )
 
 
 def async_unregister_services(hass: HomeAssistant) -> None:
@@ -470,6 +496,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_CHARGE_FREEZE,
         SERVICE_DISCHARGE_FREEZE,
         SERVICE_IDLE,
+        SERVICE_DEBUG_FREEZE,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

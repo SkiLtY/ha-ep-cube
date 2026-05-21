@@ -68,3 +68,24 @@ discharge_freeze:
 idle:
   name: Predbat — idle
   description: Restore the baseline TOU schedule.
+
+# Diagnostic — bypasses Predbat plan reading
+debug_freeze:
+  name: Debug — freeze for N minutes
+  description: Diagnostic only. Snapshots the current cloud baseline, applies a mid-peak TOU slot (battery idle, no grid import, no load support) for the given duration, then auto-reverts. Bypasses Predbat plan reading — use for manually exercising the shim against a live or mock cube.
+  fields:
+    duration_minutes:
+      name: Duration (minutes)
+      required: false
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: min
+    device_id:
+      name: Device ID
+      required: false
+      description: Cube devId — only required if multiple EP Cubes are configured.
+      selector:
+        text:
