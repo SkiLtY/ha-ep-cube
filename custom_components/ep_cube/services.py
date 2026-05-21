@@ -99,6 +99,49 @@ DEBUG_FREEZE_SCHEMA = vol.Schema(
 )
 
 
+# All weekday/weekend/DST tier-list keys the shim might have written to.
+_TIER_LIST_KEYS: tuple[str, ...] = (
+    "peakTimeList", "midPeakTimeList", "offPeakTimeList",
+    "peakTimeListNonWorkDay", "midPeakTimeListNonWorkDay", "offPeakTimeListNonWorkDay",
+    "dayLightPeakTimeList", "dayLightMidPeakTimeList", "dayLightOffPeakTimeList",
+    "dayLightPeakTimeListNonWorkDay", "dayLightMidPeakTimeListNonWorkDay",
+    "dayLightOffPeakTimeListNonWorkDay",
+)
+
+# Slot wire format is "HH:MM_HH:MM_PRICE.PP" (see api.build_slot). A shim slot
+# is recognised by its price segment matching one of the synthetic SHIM_PRICE_*
+# values to 2dp. Documented user-facing constraint: don't manually configure
+# slots at 0.01 / 0.20 / 1.00.
+_SHIM_PRICE_TOKENS: frozenset[str] = frozenset(
+    f"{p:.2f}" for p in (SHIM_PRICE_OFF_PEAK, SHIM_PRICE_MID_PEAK, SHIM_PRICE_PEAK)
+)
+
+
+def _slot_is_shim_signature(slot: str) -> bool:
+    """True if `slot`'s price segment matches a synthetic shim price."""
+    parts = slot.rsplit("_", 1)
+    if len(parts) != 2:
+        return False
+    return parts[1] in _SHIM_PRICE_TOKENS
+
+
+def _strip_shim_slots(state: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Return (cleaned_state, n_stripped). Removes any tier-list slot whose
+    price matches a SHIM_PRICE_* signature, across every weekday/weekend/DST
+    variant. Original dict is not mutated."""
+    cleaned = dict(state)
+    stripped = 0
+    for key in _TIER_LIST_KEYS:
+        original = state.get(key)
+        if not original:
+            continue
+        kept = [s for s in original if not _slot_is_shim_signature(str(s))]
+        if len(kept) != len(original):
+            stripped += len(original) - len(kept)
+            cleaned[key] = kept
+    return cleaned, stripped
+
+
 class PredbatShim:
     """Per-device Predbat shim. One instance per EP Cube config entry."""
 
@@ -228,20 +271,38 @@ class PredbatShim:
 
     async def _snapshot_baseline(self) -> None:
         """Capture the full getSwitchMode response (mode + reserves + TOU slots).
-        Lazy — runs once per shim lifetime, on first override."""
+        Lazy — runs once per shim lifetime, on first override.
+
+        Strips stale shim-signature slots from every tier list before storing.
+        The cube cloud silently ignores tier-list diffs on TOU→Self-Consumption
+        reverts (discovered 2026-05-21 live-cube verification), so previous
+        shim runs may have left orphaned slots on the cube. Stripping at
+        snapshot time means both the override and revert payloads will exclude
+        them — self-healing without growing the cloud-write budget."""
         if self._baseline is not None:
             return
         try:
-            self._baseline = await self.client.get_switch_mode()
+            live = await self.client.get_switch_mode()
         except EPCubeError as err:
             _LOGGER.error("baseline snapshot failed: %s", err)
             raise
-        _LOGGER.info(
-            "baseline snapshotted: workStatus=%s self_reserve=%s backup_reserve=%s",
-            self._baseline.get("workStatus"),
-            self._baseline.get("selfConsumptioinReserveSoc"),
-            self._baseline.get("backupPowerReserveSoc"),
-        )
+        self._baseline, stripped = _strip_shim_slots(live)
+        if stripped:
+            _LOGGER.info(
+                "baseline snapshotted: workStatus=%s self_reserve=%s backup_reserve=%s "
+                "(stripped %d stale shim-signature slot(s))",
+                self._baseline.get("workStatus"),
+                self._baseline.get("selfConsumptioinReserveSoc"),
+                self._baseline.get("backupPowerReserveSoc"),
+                stripped,
+            )
+        else:
+            _LOGGER.info(
+                "baseline snapshotted: workStatus=%s self_reserve=%s backup_reserve=%s",
+                self._baseline.get("workStatus"),
+                self._baseline.get("selfConsumptioinReserveSoc"),
+                self._baseline.get("backupPowerReserveSoc"),
+            )
 
     def _build_tou_override(
         self,
