@@ -1,8 +1,10 @@
 # mock_server
 
-FastAPI mock of the EP Cube cloud API for development without burning real cloud sessions.
+FastAPI mock of the EP Cube **mobile-app** cloud API for development without burning real cloud sessions.
 
-**Endpoint shapes match the real `monitoring-eu.epcube.com` / `cas-eu.epcube.com` cloud** as captured on 2026-05-20. See `<captures-private>/2026-05-20-contract-extract.md` (auth + status + mode) and `<captures-private>/2026-05-20-tou-extract.md` (TOU) for the wire-level reference. The mock is permissive about auth — the real cloud's slider-puzzle captcha is out of scope; we only need shape parity for integration dev.
+**Endpoint shapes mirror the contract that `custom_components/ep_cube/api.py` + `captcha.py` speak** after the Phase 3.2 refactor: `/api/open/common/*` (captcha-solver login) + `/api/device/*` (Bearer-protected polling + writes). The older web-portal surface (`/v1/api/home/*` + JSESSIONID) the mock used to mimic is gone — see `docs/PHASE_3_2.md` for wire-level discoveries.
+
+The mock is permissive about auth: any non-empty Bearer is accepted on `/api/device/*`, the captcha images are tiny PIL-friendly placeholders the solver can run on without hanging, and `pointJson` / `captchaVerification` are NOT cryptographically validated. We only care about *shape parity*.
 
 ## Run locally
 
@@ -19,57 +21,31 @@ docker compose up -d --build mock
 
 ## Contract summary
 
-- **Response envelope.** Every authenticated JSON response is wrapped in `{timestamp, message, status, data}`. `status: 200` on success; the actual payload is in `data`.
-- **Auth.** Cookie-based, not bearer. POST to `/cas/login` (any credentials) sets `JSESSIONID=mock-session` via a 302 redirect chain mirroring the real CAS flow. Subsequent endpoints accept any cookie value (or none — auth is lenient for dev).
-- **Two identifiers per device.** `devId` (small int e.g. `"5613"`) used by most endpoints; `sgSn` (21-digit serial) used only by `homeDeviceInfo`. Both are returned from `/v1/api/home/deviceList`.
-- **Power values are kW as decimal strings.** E.g. `"solarPower": "1.20"`. SoC is an integer 0–100. The integration must coerce strings → numbers internally.
-- **TOU schedule is price-tier based.** Three parallel tier arrays (`offPeakTimeList`, `midPeakTimeList`, `peakTimeList`) per profile (weekday / weekend / DST × 2 = 4 profiles, 12 arrays total) plus `activeWeek`-style day masks. Slots encoded as `"HH:MM_HH:MM_price"` strings. Behaviour is implicit from tier label.
-- **Mode-switch is bundled with mode-specific reserve.** Three separate write endpoints: `setSelfConsumption`, `setBackUp`, `setTimOfUse`. The TOU one also saves the schedule in the same round-trip.
+- **Response envelope.** Every response is wrapped in `{timestamp, message, status, data}`. `status: 200` on success; the actual payload is in `data`.
+- **Auth.** Bearer token. POST to `/api/open/common/login` (any credentials) returns `{data: {token: "mock-bearer-token", ...}}`. Subsequent `/api/device/*` calls require `Authorization: Bearer <any-non-empty-token>` — missing/empty → 403.
+- **Two identifiers per device.** `devId` (small int e.g. `"5613"`) used by most endpoints; `sgSn` (21-digit serial) used only by `homeDeviceInfo`. Both are returned from `/api/device/deviceList`.
+- **Power values are centi-kilowatt integers.** E.g. `"solarPower": 64` means 0.64 kW = 640 W. SoC is an integer 0–100. The integration's `_power_to_w` multiplies wire value by 10 to get watts; see api.py for the empirical derivation.
+- **TOU schedule is price-tier based.** Three parallel tier arrays (`offPeakTimeList`, `midPeakTimeList`, `peakTimeList`) per profile (weekday / weekend / DST × 2 = 4 profiles, 12 arrays total) plus `activeWeek`-style day masks. Slots encoded as `"HH:MM_HH:MM_price"` strings. Day arrays must be sent as `list[str]` on write; cube normalises them to `list[int]` on read.
+- **Mode + TOU are one unified write.** `POST /api/device/switchMode` carries the workStatus + reserves + TOU schedule in a single body. Required fields validated: missing `weatherWatch` etc. returns `500 "The parameter cannot be null ：<field>"` (note U+FF1A fullwidth colon — cloud is China-hosted).
 
 ## Endpoints
 
-### Auth (cookie-based, no captcha)
+### Captcha + login (open, no Bearer)
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/cas/login` | Accept any creds, 302 → set `JSESSIONID` cookie. Mirrors real CAS form-login. |
-| GET | `/v1/api/login/cas` | CAS callback (final redirect hop). |
+| POST | `/api/open/common/captcha/get` | Returns `{repCode:"0000", repData:{secretKey, token, originalImageBase64, jigsawImageBase64}}`. Images are tiny palette PNGs. |
+| POST | `/api/open/common/captcha/check` | Always returns `{repCode:"0000", repData:{result:true}}`. AES pointJson not validated. |
+| POST | `/api/open/common/login` | Body `{userName, password, captchaVerification}` → `{token: "mock-bearer-token", ...}`. |
 
-### Session / metadata
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/v1/api/system/user/getLoginUser` | Liveness probe — first authenticated XHR on the real cloud. |
-| GET | `/v1/api/common/getVersion` | Backend version string. |
-
-### Device discovery
+### Device endpoints (Bearer-protected)
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/v1/api/home/deviceList` | Canonical "what devices does this account have". |
-| GET | `/v1/api/device/getDeviceList?pageNum=&pageSize=` | Paginated variant with derived fields (`batteryType`, `systemCapacity`). |
-
-### Live status
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/v1/api/home/homeDeviceInfo?sgSn=<21-digit>` | Battery + power flow snapshot. **Keyed by sgSn, not devId.** Real cloud poll cadence ≈ 55s. |
-
-### Mode + TOU
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/v1/api/home/getSwitchMode?devId=<id>` | Current mode + reserves + full TOU schedule. The canonical read for both mode and schedule. |
-| POST | `/v1/api/home/setSelfConsumption` | Switch to `workStatus:"1"`. Body: `{"devId","workStatus":"1","selfConsumptioinReserveSoc"}` (sic — typo preserved). |
-| POST | `/v1/api/home/setBackUp` | Switch to `workStatus:"3"`. Body: `{"devId","workStatus":"3","backupPowerReserveSoc"}`. |
-| POST | `/v1/api/home/setTimOfUse` | Switch to `workStatus:"2"` AND save the 16-field schedule in one POST. |
-| GET | `/v1/api/home/clearTouMode?devId=<id>` | Wipe all TOU slot lists (does not switch mode). |
-
-### Config
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/v1/api/home/getSellingConfig/{devId}` | Export-to-grid configuration (limits, grid code, sellingEnable flag). |
+| GET | `/api/device/deviceList` | List devices on this account. Returns a JSON list inside `data`. |
+| GET | `/api/device/homeDeviceInfo?sgSn=<21-digit>&dayMonthYearFormat=YYYY-MM-DD` | Battery + power-flow snapshot. Power fields are centi-kW ints. Status `"1"` is the device-online flag, not an envelope error. |
+| GET | `/api/device/getSwitchMode?devId=<id>` | Current mode + reserves + full TOU schedule. The canonical read for both mode and schedule. |
+| POST | `/api/device/switchMode` | Unified mode + TOU write. Body must include `devId`, `workStatus`, `weatherWatch`, `onlySave`; missing required field → 500. |
 
 ## Default device state
 
@@ -81,7 +57,7 @@ docker compose up -d --build mock
 
 ## Dev-only endpoints (state injection + inspection)
 
-Not part of the real cloud contract — provided for test isolation and shim verification.
+Not part of the real cloud contract — provided for test isolation and shim verification. **Not Bearer-protected** so test scripts don't need to fake a login.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -93,7 +69,13 @@ Not part of the real cloud contract — provided for test isolation and shim ver
 Examples:
 
 ```bash
-# Drop SoC to 25 % to trigger a Predbat charge plan
+# Acquire a bearer token (any creds work)
+TOKEN=$(curl -s -X POST http://localhost:8765/api/open/common/login \
+  -H 'Content-Type: application/json' \
+  -d '{"userName":"test","password":"test","captchaVerification":"x"}' \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['token'])")
+
+# Drop SoC to 25 % to trigger a Predbat charge plan (no auth on __sim__)
 curl -X POST http://localhost:8765/__sim__/device/5613/state \
   -H 'Content-Type: application/json' \
   -d '{"batterySoc": 25, "batteryCurrentElectricity": 5.0}'
@@ -106,13 +88,10 @@ curl -X POST http://localhost:8765/__sim__/device/5613/tou-set-slots \
 # Inspect what the shim wrote after a charge_start call
 curl -s http://localhost:8765/__sim__/device/5613/tou-current | python3 -m json.tool
 
-# Get live status (no auth required — mock is lenient)
-curl -s 'http://localhost:8765/v1/api/home/homeDeviceInfo?sgSn=100100007001257120126' | python3 -m json.tool
-
-# Full auth round-trip (sets the cookie)
-curl -c cookies.txt -X POST http://localhost:8765/cas/login \
-  -d 'username=test&password=test' -L
-curl -b cookies.txt -s http://localhost:8765/v1/api/system/user/getLoginUser | python3 -m json.tool
+# Live status (needs bearer)
+curl -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8765/api/device/homeDeviceInfo?sgSn=100100007001257120126&dayMonthYearFormat=YYYY-MM-DD' \
+  | python3 -m json.tool
 ```
 
 ## List all routes

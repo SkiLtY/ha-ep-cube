@@ -1,11 +1,17 @@
 """In-memory device state for the mock EP Cube cloud.
 
-Shapes match the real `monitoring-eu.epcube.com` contract captured on
-2026-05-20 — see `<captures-private>/2026-05-20-contract-extract.md` (status + auth)
-and `<captures-private>/2026-05-20-tou-extract.md` (TOU). Power values are stored as
-floats in kW internally for sim convenience and rendered as decimal strings
-on output to match the wire format. Schedule slots are stored as the
-wire-format `"HH:MM_HH:MM_price"` strings directly.
+Shapes mirror the **mobile-app** surface on `monitoring-eu.epcube.com`
+(`/api/device/*` + `/api/open/common/*`) that `api.py` and `captcha.py`
+speak after the Phase 3.2 refactor. The older web-portal `/v1/api/home/*`
+surface that the mock used to mimic is no longer touched by the
+integration — see `docs/PHASE_3_2.md` "Wire-level discoveries".
+
+Power values are stored as floats in kW internally for sim convenience
+and rendered as **centi-kilowatt integers** on the wire (e.g. 0.64 kW →
+`64`). The mobile API's quirky unit was confirmed empirically on
+2026-05-21 — see api.py `_power_to_w` docstring. kWh values render as
+plain floats. Schedule slots stay as the wire-format
+`"HH:MM_HH:MM_price"` strings directly.
 """
 from __future__ import annotations
 
@@ -19,9 +25,12 @@ def _now_envelope_ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _kw(value: float) -> str:
-    """Render a kW value the way the cloud does — 2 decimal places, as a string."""
-    return f"{value:.2f}"
+def _ckw(value: float) -> int:
+    """Render a kW value the way the mobile API does — centi-kW integer.
+
+    0.64 kW → 64. Inverse of api.py `_power_to_w` (which multiplies wire
+    value by 10 to get watts)."""
+    return int(round(value * 100))
 
 
 def build_slot(start_hhmm: str, end_hhmm: str, price: float) -> str:
@@ -163,11 +172,6 @@ class DeviceState:
     weatherWatch: str = "0"
     onlySave: str = "0"
 
-    # Selling / export config (getSellingConfig)
-    sellingEnable: int = 1
-    sellingPowerLimit: float = 7.30  # kW
-    gridImportPowerMax: float = 7.30
-
     # Metadata
     softwareVersion: str = "V1.2.2"
     firmwareVersion: str = "02160239021920260323"
@@ -180,28 +184,32 @@ class DeviceState:
     # Wire-format renderers
     # ------------------------------------------------------------------
     def to_home_device_info(self) -> dict[str, Any]:
-        """Match `GET /v1/api/home/homeDeviceInfo?sgSn=...` response shape."""
+        """Match `GET /api/device/homeDeviceInfo?sgSn=...` response shape.
+
+        Power fields are centi-kW integers (cube quirk — confirmed
+        2026-05-21). Status `"1"` here is the device-online flag, NOT an
+        envelope error code — see PHASE_3_2.md and api.py _request()."""
         return {
             "devId": self.devId,
             "status": "1",
             "workStatus": self.workStatus,
             "batterySoc": self.batterySoc,
-            "batteryCurrentElectricity": _kw(self.batteryCurrentElectricity),
+            "batteryCurrentElectricity": self.batteryCurrentElectricity,
             "gridPowerFailureNum": 0,
             "offGridPowerSupplyTime": 0,
-            "gridPower": _kw(self.gridPower),
-            "gridElectricity": _kw(self.gridElectricity),
-            "solarPower": _kw(self.solarPower),
-            "solarElectricity": _kw(self.solarElectricity),
-            "generatorPower": _kw(self.generatorPower),
-            "generatorElectricity": _kw(self.generatorElectricity),
-            "evPower": _kw(self.evPower),
-            "evElectricity": _kw(self.evElectricity),
-            "nonBackUpPower": _kw(self.nonBackUpPower),
-            "nonBackUpElectricity": _kw(self.nonBackUpElectricity),
-            "backUpPower": _kw(self.backUpPower),
-            "backUpElectricity": _kw(self.backUpElectricity),
-            "selfHelpRate": "0.00",
+            "gridPower": _ckw(self.gridPower),
+            "gridElectricity": self.gridElectricity,
+            "solarPower": _ckw(self.solarPower),
+            "solarElectricity": self.solarElectricity,
+            "generatorPower": _ckw(self.generatorPower),
+            "generatorElectricity": self.generatorElectricity,
+            "evPower": _ckw(self.evPower),
+            "evElectricity": self.evElectricity,
+            "nonBackUpPower": _ckw(self.nonBackUpPower),
+            "nonBackUpElectricity": self.nonBackUpElectricity,
+            "backUpPower": _ckw(self.backUpPower),
+            "backUpElectricity": self.backUpElectricity,
+            "selfHelpRate": 0.0,
             "isAlert": self.isAlert,
             "isFault": self.isFault,
             "defCreateTime": _now_envelope_ts(),
@@ -219,15 +227,15 @@ class DeviceState:
             "version": self.firmwareVersion,
             "payloadVersion": 25,
             "isOnline": self.isOnline,
-            "gridTotalPower": _kw(self.gridPower),
-            "gridHalfPower": "0.00",
-            "solarFlow": _kw(self.solarPower),
-            "solarAcPower": "0.00",
-            "solarDcPower": _kw(self.solarPower),
-            "generatorFlowPower": _kw(self.generatorPower),
-            "evFlowPower": _kw(self.evPower),
-            "nonBackUpFlowPower": _kw(self.nonBackUpPower),
-            "backUpFlowPower": _kw(self.backUpPower),
+            "gridTotalPower": _ckw(self.gridPower),
+            "gridHalfPower": 0,
+            "solarFlow": _ckw(self.solarPower),
+            "solarAcPower": 0,
+            "solarDcPower": _ckw(self.solarPower),
+            "generatorFlowPower": _ckw(self.generatorPower),
+            "evFlowPower": _ckw(self.evPower),
+            "nonBackUpFlowPower": _ckw(self.nonBackUpPower),
+            "backUpFlowPower": _ckw(self.backUpPower),
             "backupLoadsMode": 1,
             "batteryPackNum": self.batteryPackNum,
             "devType": 1,
@@ -237,7 +245,7 @@ class DeviceState:
         }
 
     def to_switch_mode(self) -> dict[str, Any]:
-        """Match `GET /v1/api/home/getSwitchMode?devId=...` response shape."""
+        """Match `GET /api/device/getSwitchMode?devId=...` response shape."""
         data: dict[str, Any] = {
             "devId": self.devId,
             "weatherWatch": self.weatherWatch,
@@ -256,7 +264,7 @@ class DeviceState:
         return data
 
     def to_device_list_entry(self) -> dict[str, Any]:
-        """Match one entry from `GET /v1/api/home/deviceList`. Extensive metadata."""
+        """Match one entry from `GET /api/device/deviceList`. Extensive metadata."""
         return {
             "id": self.devId,
             "sgSn": self.sgSn,
@@ -299,22 +307,6 @@ class DeviceState:
             "batteryType": "5.0kWh",
             "systemCapacity": f"{self.systemCapacity_kwh:.1f}kWh",
         }
-
-    def to_selling_config(self) -> dict[str, Any]:
-        """Match `GET /v1/api/home/getSellingConfig/{devId}` response shape."""
-        return {
-            "sellingEnable": self.sellingEnable,
-            "sellingPowerLimit": self.sellingPowerLimit,
-            "gridImportPowerMax": self.gridImportPowerMax,
-            "gridStandard": 11,
-            "gridStandardName": "EREC G99 Issue 1 Amendment 9(2022)",
-            "gridStandardPowerMinValue": 0.00,
-            "gridStandardPowerMaxValue": 27.60,
-            "g100EREC": 85,
-            "g100AcOutputLimit": 7.30,
-            "acExportPowerLimitEnabled": 1,
-        }
-
 
 # Two parallel lookups — devId for most endpoints, sgSn for homeDeviceInfo.
 _DEFAULT = DeviceState()

@@ -1,20 +1,30 @@
-"""Mock EP Cube cloud server.
+"""Mock EP Cube cloud server — mobile-app surface.
 
-Endpoint paths, payload shapes, and response envelopes match the real
-`monitoring-eu.epcube.com` / `cas-eu.epcube.com` contract captured on
-2026-05-20. See `<captures-private>/2026-05-20-contract-extract.md` (auth + status +
-mode) and `<captures-private>/2026-05-20-tou-extract.md` (TOU) for the source of truth.
+Mirrors the contract that `custom_components/ep_cube/api.py` and
+`custom_components/ep_cube/captcha.py` speak after the Phase 3.2 refactor:
 
-Auth is intentionally permissive — the mock accepts any credentials and any
-`JSESSIONID` cookie value (or none at all). The real cloud's slider captcha
-is out of scope here; we only need shape parity for integration dev.
+- `/api/open/common/captcha/get` + `/captcha/check` + `/login` for the
+  4-POST captcha-solver login flow (see captcha.py docstring).
+- `/api/device/deviceList` / `homeDeviceInfo` / `getSwitchMode` /
+  `switchMode` for the polling + write paths.
+
+Auth is intentionally permissive: any non-empty Bearer token is accepted,
+and the captcha images are tiny PIL-friendly placeholders that the
+template-matching solver can run on without hanging. The encrypted
+`pointJson` and `captchaVerification` are NOT validated — the mock cares
+about *shape parity* with the real cloud, not cryptographic correctness.
+
+Dev-only `/__sim__/*` endpoints (state injection + inspection) are kept
+from the original web-portal mock.
 """
 from __future__ import annotations
 
+import base64
+import io
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import FastAPI, Header, HTTPException
+from PIL import Image
 
 from .state import (
     DEVICES_BY_DEVID,
@@ -26,11 +36,20 @@ from .state import (
     _now_envelope_ts,
 )
 
-app = FastAPI(title="EP Cube Mock Cloud", version="0.1.0")
+app = FastAPI(title="EP Cube Mock Cloud", version="0.2.0")
 
-MOCK_SESSION = "mock-session"
+# Issued by /api/open/common/login. The mock accepts ANY non-empty Bearer
+# on /api/device/* so token-rotation tests aren't blocked by this value.
+MOCK_BEARER_TOKEN = "mock-bearer-token"
+# 16-byte ASCII — AES-128 key length, matches the real cloud's format.
+MOCK_CAPTCHA_SECRET = "mockmockmockmock"
+# Issued by /captcha/get, echoed back into /check + the verification blob.
+MOCK_CAPTCHA_TOKEN = "mock-captcha-token"
 
 
+# ----------------------------------------------------------------------
+# Envelope
+# ----------------------------------------------------------------------
 def envelope(data: Any = None, *, status: int = 200, message: str = "Success") -> dict[str, Any]:
     """Wrap any response in the cloud's standard envelope."""
     body: dict[str, Any] = {
@@ -57,157 +76,156 @@ def _require_sgsn(sg_sn: str):
     return dev
 
 
-# ----------------------------------------------------------------------
-# Auth — mimics the CAS shape just enough for cookie-based session handling
-# ----------------------------------------------------------------------
-@app.post("/cas/login")
-async def cas_login(request: Request):
-    """Mimic the real CAS form-login. Accepts any credentials. Returns a 302
-    that sets the `JSESSIONID` cookie on the response — mirrors the real
-    cloud's redirect-after-login behaviour so the integration's cookie-jar
-    handling can be exercised end-to-end."""
-    target = "/v1/api/login/cas?ticket=ST-mock"
-    resp = RedirectResponse(url=target, status_code=302)
-    resp.set_cookie("JSESSIONID", MOCK_SESSION, path="/")
-    return resp
+def _require_bearer(authorization: str | None) -> None:
+    """Reject /api/device/* calls without a Bearer header.
 
-
-@app.get("/v1/api/login/cas")
-async def cas_callback():
-    """Final hop of the CAS redirect chain. Real cloud lands here with a
-    `?ticket=...` param after the form POST, then redirects to /. We just
-    return success — the cookie is already set."""
-    resp = RedirectResponse(url="/", status_code=302)
-    resp.set_cookie("JSESSIONID", MOCK_SESSION, path="/")
-    return resp
+    The mock accepts any non-empty token rather than checking equality to
+    MOCK_BEARER_TOKEN — that way reauth-callback tests can rotate tokens
+    freely without us tracking them. Real cube returns 403 on bad token;
+    we mirror that path."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=403, detail="missing bearer token")
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=403, detail="empty bearer token")
 
 
 # ----------------------------------------------------------------------
-# Session / metadata
+# Captcha image generation — tiny palette-mode PNGs the solver can run on
 # ----------------------------------------------------------------------
-@app.get("/v1/api/system/user/getLoginUser")
-async def get_login_user():
-    """Liveness probe — the real cloud's first authenticated XHR."""
+def _make_placeholder_png(width: int, height: int, *, fill: int = 128) -> str:
+    """Build a single-colour palette PNG and base64-encode it.
+
+    Palette mode matches the real cube's image encoding — captcha.py
+    deliberately reads palette indices rather than RGB, so this also
+    exercises the same code path. The image is solid (no puzzle to find);
+    the solver will pick *some* x and we accept whatever it sends."""
+    img = Image.new("P", (width, height), color=fill)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+# Generated once at import — bg ≥ puzzle in both dims so the solver does
+# not return None and short-circuit the login flow.
+_PLACEHOLDER_BG_PNG = _make_placeholder_png(80, 40, fill=200)
+_PLACEHOLDER_PUZZLE_PNG = _make_placeholder_png(40, 40, fill=64)
+
+
+# ----------------------------------------------------------------------
+# Captcha + login — open endpoints, no Bearer required
+# ----------------------------------------------------------------------
+@app.post("/api/open/common/captcha/get")
+async def captcha_get(payload: dict[str, Any]):
+    """Serve a fresh captcha. `clientUid` is echoed in dev logs but not
+    enforced — multiple parallel solves would collide on the real cloud's
+    per-clientUid cache but the mock has no such cache."""
     return envelope({
-        "userId": "1",
-        "userName": "mock-user",
-        "nickName": "Mock User",
-        "email": "mock@example.com",
-        "userType": "1",
-        "uuid": "mock-uuid",
+        "repCode": "0000",
+        "repData": {
+            "secretKey": MOCK_CAPTCHA_SECRET,
+            "token": MOCK_CAPTCHA_TOKEN,
+            "originalImageBase64": _PLACEHOLDER_BG_PNG,
+            "jigsawImageBase64": _PLACEHOLDER_PUZZLE_PNG,
+        },
     })
 
 
-@app.get("/v1/api/common/getVersion")
-async def get_version():
-    return envelope("V3.5.0-mock")
+@app.post("/api/open/common/captcha/check")
+async def captcha_check(payload: dict[str, Any]):
+    """Accept any encrypted pointJson. Real cube validates the AES-decoded
+    {x,y} against the puzzle's true offset (±5 px); mock skips that —
+    `repCode:"0000"` always."""
+    return envelope({
+        "repCode": "0000",
+        "repData": {"result": True},
+    })
+
+
+@app.post("/api/open/common/login")
+async def open_login(payload: dict[str, Any]):
+    """Hand out a Bearer token. Any credentials accepted — the real cube
+    validates `userName`/`password` against the CAS DB but for shape
+    parity we only care that a token comes back."""
+    return envelope({
+        "token": MOCK_BEARER_TOKEN,
+        "userId": "1",
+        "userName": payload.get("userName", "mock-user"),
+        "nickName": "Mock User",
+    })
 
 
 # ----------------------------------------------------------------------
-# Device discovery
+# Device endpoints — Bearer-protected
 # ----------------------------------------------------------------------
-@app.get("/v1/api/home/deviceList")
-async def home_device_list():
+@app.get("/api/device/deviceList")
+async def device_list(authorization: str | None = Header(default=None)):
+    """List devices on this account. Returned as a JSON list (not paginated)
+    matching api.py `get_device_list` expectations."""
+    _require_bearer(authorization)
     return envelope([dev.to_device_list_entry() for dev in all_devices()])
 
 
-@app.get("/v1/api/device/getDeviceList")
-async def device_get_device_list(pageNum: int = 1, pageSize: int = 10):
-    entries = [dev.to_device_list_entry() for dev in all_devices()]
-    return envelope({
-        "total": len(entries),
-        "rows": entries,
-        "pageNum": pageNum,
-        "pageSize": pageSize,
-    })
-
-
-# ----------------------------------------------------------------------
-# Live status — the primary poll
-# ----------------------------------------------------------------------
-@app.get("/v1/api/home/homeDeviceInfo")
-async def home_device_info(sgSn: str):
+@app.get("/api/device/homeDeviceInfo")
+async def home_device_info(
+    sgSn: str,
+    dayMonthYearFormat: str | None = None,
+    authorization: str | None = Header(default=None),
+):
+    """Live battery + power-flow snapshot. Keyed by sgSn."""
+    _require_bearer(authorization)
     dev = _require_sgsn(sgSn)
     return envelope(dev.to_home_device_info())
 
 
-# ----------------------------------------------------------------------
-# Mode + TOU schedule read
-# ----------------------------------------------------------------------
-@app.get("/v1/api/home/getSwitchMode")
-async def get_switch_mode(devId: str):
+@app.get("/api/device/getSwitchMode")
+async def get_switch_mode(
+    devId: str,
+    authorization: str | None = Header(default=None),
+):
+    """Current mode + reserves + full TOU schedule."""
+    _require_bearer(authorization)
     dev = _require_devid(devId)
     return envelope(dev.to_switch_mode())
 
 
-# ----------------------------------------------------------------------
-# Mode + TOU schedule writes — three separate endpoints, each bundles the
-# mode switch with that mode's reserve / schedule.
-# ----------------------------------------------------------------------
-@app.post("/v1/api/home/setSelfConsumption")
-async def set_self_consumption(payload: dict[str, Any]):
-    dev = _require_devid(str(payload.get("devId", "")))
-    dev.workStatus = "1"
+@app.post("/api/device/switchMode")
+async def switch_mode(
+    payload: dict[str, Any],
+    authorization: str | None = Header(default=None),
+):
+    """Unified mode + TOU write. Replaces the web-portal trio
+    (setSelfConsumption / setBackUp / setTimOfUse). Required fields
+    (devId, workStatus, weatherWatch, onlySave, reserve SoCs, day arrays
+    as list[str], native int touType, native bool dayLightSavingTime) are
+    validated minimally — missing `weatherWatch` returns 500 to mirror
+    the real cube's `"The parameter cannot be null ：weatherWatch"`."""
+    _require_bearer(authorization)
+    dev_id = str(payload.get("devId", ""))
+    if not dev_id:
+        raise HTTPException(status_code=500, detail="The parameter cannot be null ：devId")
+    dev = _require_devid(dev_id)
+
+    for required in ("workStatus", "weatherWatch", "onlySave"):
+        if required not in payload:
+            raise HTTPException(
+                status_code=500,
+                detail=f"The parameter cannot be null ：{required}",
+            )
+
+    dev.workStatus = str(payload["workStatus"])
+    dev.weatherWatch = str(payload["weatherWatch"])
+    dev.onlySave = str(payload["onlySave"])
     if "selfConsumptioinReserveSoc" in payload:
         dev.selfConsumptioinReserveSoc = int(payload["selfConsumptioinReserveSoc"])
-    return envelope()
-
-
-@app.post("/v1/api/home/setBackUp")
-async def set_back_up(payload: dict[str, Any]):
-    dev = _require_devid(str(payload.get("devId", "")))
-    dev.workStatus = "3"
     if "backupPowerReserveSoc" in payload:
         dev.backupPowerReserveSoc = int(payload["backupPowerReserveSoc"])
-    return envelope()
-
-
-@app.post("/v1/api/home/setTimOfUse")
-async def set_tim_of_use(payload: dict[str, Any]):
-    """Switch to TOU mode AND save the schedule in one round-trip — bundled,
-    just like the real cloud. The `workStatus` in the payload is always "2"."""
-    dev = _require_devid(str(payload.get("devId", "")))
-    dev.workStatus = "2"
     if "allowChargingXiaGrid" in payload:
-        # Accept int OR string on write; the real cloud's frontend sends int.
         dev.allowChargingXiaGrid = str(payload["allowChargingXiaGrid"])
+    if "touType" in payload:
+        dev.touType = int(payload["touType"])
     dev.tou.apply_wire(payload)
     return envelope()
-
-
-@app.get("/v1/api/home/clearTouMode")
-async def clear_tou_mode(devId: str | None = None):
-    """Wipe the TOU schedule. Real cloud confirmed to expose this in the JS
-    bundle but not exercised in capture; assumed to clear all slot lists and
-    leave workStatus alone (caller switches mode separately if needed)."""
-    if devId is not None:
-        dev = _require_devid(devId)
-        targets = [dev]
-    else:
-        targets = all_devices()
-    for d in targets:
-        d.tou.peakTimeList = []
-        d.tou.midPeakTimeList = []
-        d.tou.offPeakTimeList = []
-        d.tou.peakTimeListNonWorkDay = []
-        d.tou.midPeakTimeListNonWorkDay = []
-        d.tou.offPeakTimeListNonWorkDay = []
-        d.tou.dayLightPeakTimeList = []
-        d.tou.dayLightMidPeakTimeList = []
-        d.tou.dayLightOffPeakTimeList = []
-        d.tou.dayLightPeakTimeListNonWorkDay = []
-        d.tou.dayLightMidPeakTimeListNonWorkDay = []
-        d.tou.dayLightOffPeakTimeListNonWorkDay = []
-    return envelope()
-
-
-# ----------------------------------------------------------------------
-# Selling / export config
-# ----------------------------------------------------------------------
-@app.get("/v1/api/home/getSellingConfig/{devId}")
-async def get_selling_config(devId: str):
-    dev = _require_devid(devId)
-    return envelope(dev.to_selling_config())
 
 
 # ----------------------------------------------------------------------
@@ -217,7 +235,7 @@ async def get_selling_config(devId: str):
 async def sim_inject_state(devId: str, patch: dict[str, Any]):
     """Patch arbitrary scalar fields on the DeviceState. Useful for forcing
     a battery SoC / solar / load value in tests. TOU schedule edits should
-    go through `setTimOfUse` so they exercise the real code path."""
+    go through `switchMode` so they exercise the real code path."""
     dev = _require_devid(devId)
     applied: dict[str, Any] = {}
     for key, value in patch.items():
