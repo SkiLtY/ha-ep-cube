@@ -387,20 +387,69 @@ class PredbatShim:
         }
 
     async def _revert_to_baseline(self) -> None:
-        """Restore the snapshotted baseline with one switchMode POST. The
-        baseline payload already carries workStatus + per-mode reserves + the
-        original TOU schedule, so a single mirror-write restores all state."""
+        """Restore the snapshotted baseline.
+
+        Two-write revert workaround: the cube cloud silently ignores tier-list
+        diffs on TOU→non-TOU transitions (verified 2026-05-21). To clear the
+        override slot AND switch back to the baseline mode, we have to:
+
+          1. POST the cleaned schedule with workStatus=2 (stay in TOU) — cube
+             applies the tier-list diff because there's no mode transition.
+          2. POST workStatus=baseline (the mode-only transition). Schedule
+             write is ignored on the way out of TOU, but step 1 already
+             cleaned it.
+
+        Optimisation: if baseline workStatus is already 2 (TOU), the cube
+        applies the diff in a single write — skip step 2.
+
+        See TROUBLESHOOTING.md for the cube cloud quirk; task #4 (mitmproxy
+        capture of the mobile-app's "Clear" button) may yield a one-write
+        path via a setTimeOfUse/clearTou endpoint.
+        """
         self._cancel_revert()
         if self._baseline is None:
             _LOGGER.warning("_revert_to_baseline: no baseline available — leaving cloud as-is")
             self._active_override = None
             return
-        payload = payload_from_switch_mode_read(self.client.dev_id, self._baseline)
+
+        baseline_work_status = str(self._baseline.get("workStatus", "1"))
+
+        # Step 1: write cleaned schedule with workStatus=2. If baseline already
+        # is TOU, the override dict is empty — same payload restores baseline
+        # mode + clean schedule in one write.
+        if baseline_work_status == WORK_STATUS_TOU:
+            payload = payload_from_switch_mode_read(self.client.dev_id, self._baseline)
+        else:
+            payload = payload_from_switch_mode_read(
+                self.client.dev_id, self._baseline,
+                overrides={"workStatus": WORK_STATUS_TOU},
+            )
         try:
             await self.client.switch_mode(payload)
         except EPCubeError as err:
-            _LOGGER.error("revert FAILED — battery may be stuck on override. err=%s", err)
-            # Leave _active_override so a subsequent retry can target the right state.
+            _LOGGER.error(
+                "revert step 1 (clean-in-TOU) FAILED — battery may be stuck on override. err=%s",
+                err,
+            )
+            raise
+
+        if baseline_work_status == WORK_STATUS_TOU:
+            self._active_override = None
+            return
+
+        # Step 2: mode-only transition back to baseline workStatus. Schedule
+        # write is ignored on this transition, but the schedule was cleaned in
+        # step 1 so the cube ends up in the right state regardless.
+        mode_switch_payload = payload_from_switch_mode_read(
+            self.client.dev_id, self._baseline
+        )
+        try:
+            await self.client.switch_mode(mode_switch_payload)
+        except EPCubeError as err:
+            _LOGGER.error(
+                "revert step 2 (mode-switch to %s) FAILED — cube left in TOU. err=%s",
+                baseline_work_status, err,
+            )
             raise
         self._active_override = None
 
