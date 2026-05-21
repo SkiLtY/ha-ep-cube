@@ -22,11 +22,11 @@ ha-ep-cube/
 ├── ha_config/
 │   ├── configuration.yaml       ← HA core config (loads packages/)
 │   └── packages/ep_cube.yaml    ← Riemann load_today + input_numbers Predbat writes to
-├── predbat_config/apps.yaml     ← Predbat config (Agile URLs, Solcast auto-discovery, shim service map)
+├── predbat_config/apps.yaml     ← Predbat config (BottlecapDave tariff auto-detect, Solcast auto-discovery, shim service map)
 ├── docs/
 │   ├── ARCHITECTURE.md          ← Predbat shim contract + design notes
 │   ├── <private-docs>       ← Bring-up steps for <host> (deploy key, clone, stack, pull)
-│   ├── PREDBAT.md               ← Predbat install + tariff (Agile public URL) + Solcast runbook
+│   ├── PREDBAT.md               ← Predbat install + tariff (BottlecapDave auto-detect) + Solcast runbook
 │   ├── <private-runbook>               ← Install-day runbook (mitmproxy, capture order, mock → real swap)
 │   ├── TROUBLESHOOTING.md       ← Known gotchas
 │   └── predbat_apps.yaml.example  ← Predbat custom-inverter template
