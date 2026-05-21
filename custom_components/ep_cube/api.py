@@ -106,16 +106,17 @@ class DeviceStatus:
 def _power_to_w(value: Any) -> float:
     """Coerce a power-typed value to float watts.
 
-    The mobile-app `/api/device/homeDeviceInfo` returns power fields already
-    in watts (e.g. `solarPower:93.00` ≈ 93 W at low sun on a 6.5 kWp array,
-    confirmed empirically 2026-05-21 against a 64 W reading at dusk). The
-    web-portal surface previously returned kW-as-string ("5.01kW") and an
-    earlier version of this client multiplied by 1000 — that converter was
-    correct then and wrong now; do not reintroduce. Tolerates string/number
-    input + None/empty → 0.0."""
+    The mobile-app `/api/device/homeDeviceInfo` returns power fields as a
+    fixed-point integer representing centi-kilowatts (0.01 kW units), e.g.
+    `solarPower:64` means 0.64 kW = 640 W. Confirmed empirically 2026-05-21:
+    cube returned `solarPower:64` while the EP Cube mobile app displayed
+    0.63 kW for the same poll, and `loadPower:66` displayed as 0.66 kW.
+    Multiplier to W is therefore ×10, NOT ×1000 (which was correct for the
+    web-portal's "5.01kW" string format but is a footgun on this surface).
+    Tolerates string/number input + None/empty → 0.0."""
     if value is None or value == "":
         return 0.0
-    return float(value)
+    return float(value) * 10.0
 
 
 def _kwh_str_to_float(value: Any) -> float:
