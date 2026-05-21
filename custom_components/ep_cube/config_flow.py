@@ -1,11 +1,11 @@
 """Config flow for EP Cube.
 
-User pastes a Bearer token (obtained from the mobile-app auth flow or, until
-Phase 3.2 step 4 lands, from epcube-token.streamlit.app) and the integration
-fetches the device list to resolve devId / sgSn / capacity.
-
-The captcha-based in-integration login is the eventual replacement for this
-paste flow — see docs/PHASE_3_2.md step 4.
+User enters their EP Cube mobile-app email + password. The flow runs the
+4-POST captcha login (see captcha.py) to obtain a Bearer token, then
+fetches the device list to resolve devId / sgSn / capacity. Credentials
+are stored in the config entry; HA encrypts the file at rest. The token
+is cached too but is treated as best-effort — the api layer's reauth
+callback (see __init__.py) silently re-runs the login on 403.
 """
 from __future__ import annotations
 
@@ -23,12 +23,15 @@ from .api import (
     EPCubeError,
     _capacity_string_to_kwh,
 )
+from .captcha import CaptchaSolveError, LoginError, login as captcha_login
 from .const import (
     CONF_BASE_URL,
     CONF_BEARER_TOKEN,
     CONF_CAPACITY_KWH,
     CONF_DEV_ID,
+    CONF_PASSWORD,
     CONF_SG_SN,
+    CONF_USERNAME,
     DEFAULT_BASE_URL,
     DOMAIN,
 )
@@ -37,8 +40,9 @@ _LOGGER = logging.getLogger(__name__)
 
 USER_SCHEMA = vol.Schema(
     {
+        vol.Required(CONF_USERNAME): str,
+        vol.Required(CONF_PASSWORD): str,
         vol.Required(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
-        vol.Required(CONF_BEARER_TOKEN): str,
         vol.Optional(CONF_DEV_ID, default=""): str,
         vol.Optional(CONF_SG_SN, default=""): str,
     }
@@ -46,25 +50,35 @@ USER_SCHEMA = vol.Schema(
 
 
 class EPCubeConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 3
+    VERSION = 4
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
 
         if user_input is not None:
             base_url = user_input[CONF_BASE_URL]
-            bearer_token = (user_input.get(CONF_BEARER_TOKEN) or "").strip()
-            # Strip a "Bearer " prefix if the user pasted one — the api layer
-            # adds it itself.
-            if bearer_token.lower().startswith("bearer "):
-                bearer_token = bearer_token.split(None, 1)[1]
+            username = user_input[CONF_USERNAME].strip()
+            password = user_input[CONF_PASSWORD]
             dev_id_hint = user_input.get(CONF_DEV_ID) or ""
             sg_sn_hint = user_input.get(CONF_SG_SN) or ""
+            session = async_get_clientsession(self.hass)
 
-            if not bearer_token:
-                errors["base"] = "no_auth_supplied"
-            else:
-                session = async_get_clientsession(self.hass)
+            bearer_token: str | None = None
+            try:
+                bearer_token = await captcha_login(
+                    session, base_url=base_url, username=username, password=password
+                )
+            except CaptchaSolveError as err:
+                _LOGGER.warning("config_flow captcha solve failed: %s", err)
+                errors["base"] = "captcha_failed"
+            except LoginError as err:
+                _LOGGER.warning("config_flow login rejected: %s", err)
+                errors["base"] = "invalid_auth"
+            except aiohttp.ClientError as err:
+                _LOGGER.warning("config_flow network error: %s", err)
+                errors["base"] = "cannot_connect"
+
+            if bearer_token:
                 client = EPCubeClient(
                     session=session,
                     base_url=base_url,
@@ -75,7 +89,7 @@ class EPCubeConfigFlow(ConfigFlow, domain=DOMAIN):
                 try:
                     devices = await client.get_device_list()
                 except AuthError as err:
-                    _LOGGER.warning("config_flow auth failed: %s", err)
+                    _LOGGER.warning("config_flow fresh-token rejected on deviceList: %s", err)
                     errors["base"] = "invalid_auth"
                 except aiohttp.ClientError as err:
                     _LOGGER.warning("config_flow network error: %s", err)
@@ -100,6 +114,8 @@ class EPCubeConfigFlow(ConfigFlow, domain=DOMAIN):
 
                             entry_data = {
                                 CONF_BASE_URL: base_url,
+                                CONF_USERNAME: username,
+                                CONF_PASSWORD: password,
                                 CONF_BEARER_TOKEN: bearer_token,
                                 CONF_DEV_ID: dev_id,
                                 CONF_SG_SN: sg_sn,

@@ -7,7 +7,9 @@ DOMAIN = "ep_cube"
 CONF_BASE_URL = "base_url"           # e.g. https://monitoring-eu.epcube.com — data + auth host (mobile API)
 CONF_DEV_ID = "dev_id"               # e.g. "5613" — small int, used by most endpoints
 CONF_SG_SN = "sg_sn"                 # 21-digit serial, used by homeDeviceInfo
-CONF_BEARER_TOKEN = "bearer_token"   # Bearer token for /api/device/* (no "Bearer " prefix)
+CONF_USERNAME = "username"           # email used to log into EP Cube mobile app
+CONF_PASSWORD = "password"           # password used to log into EP Cube mobile app (stored encrypted at rest by HA)
+CONF_BEARER_TOKEN = "bearer_token"   # cached Bearer token; refreshed in-memory via captcha login on 403
 CONF_CAPACITY_KWH = "capacity_kwh"   # cached fallback; primary source is batteryPackNum × EP_CUBE_PACK_KWH
 
 # Per-pack capacity. EP Cube is a single-module product line; all packs are
