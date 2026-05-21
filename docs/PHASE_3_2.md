@@ -54,7 +54,14 @@ After login, every subsequent request to `/api/device/*` carries `Authorization:
 - Vendor a tiny single-file template-matcher (numpy-only — feasible because it's just normalized cross-correlation on two small base64-decoded PNGs)
 - Add `numpy` + `opencv-python-headless` to manifest (HA already ships numpy; opencv adds ~30 MB)
 
-Lean toward the vendored single-file approach if we can get it down to a few hundred lines.
+**Resolved 2026-05-21 (numpy-only feasibility spike):** Pure-numpy port is bit-exact with `cv2.matchTemplate(..., TM_CCOEFF_NORMED)` and hits the same 80% cube-acceptance rate as Bobsilvio's cv2 implementation. ~85 LOC including helpers. See [spikes/captcha_spike.py](../spikes/captcha_spike.py) and the spike-results section below.
+
+Dependencies for the final integration:
+- `numpy` — already an HA runtime dep, no manifest change
+- `Pillow` — already an HA runtime dep, no manifest change
+- `pycryptodome` — new dep, ~1.8 MB, widely used by other HA integrations (`hue`, `roborock`, etc.)
+
+Total new footprint: pycryptodome only. Opencv-headless avoided.
 
 ## Endpoint map: what we do now vs what we'd do
 
@@ -123,13 +130,61 @@ Captures run against `/api/device/*` with Bearer token issued by [epcube-token.s
 - **Cube normalizes `activeWeek` on read** — writes require list[str] (`["1","2","3","4","5"]`), reads return list[int] (`[1,2,3,4,5]`). Validates the session-6 `str()` coercion fix in `build_tou_payload`.
 - **`weatherWatch` is a forecast-driven pre-charge feature** — when `"1"`, cube pulls weather forecast and pre-charges ahead of predicted storms. Conflicts with Predbat's economic optimization; we must always send `weatherWatch:"0"` on writes.
 
+## Captcha-solver feasibility spike (2026-05-21)
+
+Goal: confirm we can implement the puzzle-piece locator in pure numpy (already an HA dep) and avoid the ~30 MB `opencv-python-headless` dependency.
+
+**Verdict: GO, pure-numpy is bit-exact with cv2 and matches the same 80% accept rate.**
+
+Algorithm shape (~50 LOC for the core matcher, ~85 LOC including decoder helpers):
+- `cv2.matchTemplate(..., TM_CCOEFF_NORMED)` becomes integral-image-based windowed sum/sum-of-squares + FFT-based cross-correlation. Standard textbook implementation.
+- `cv2.minMaxLoc` is `np.unravel_index(arr.argmax(), arr.shape)`.
+
+Validation:
+- **Synthetic** (paste a known patch into noise): exact recovery, score 1.000, 5–9 ms.
+- **Side-by-side vs cv2 on 10 live captchas**: numpy x === cv2 x in 8/8 trials that ran clean; scores agree to 3 decimal places. (2 trials hit an unrelated dimension-mismatch crash, fixed below.)
+- **Live cube acceptance (20 trials)**: 16/20 = 80% success, ~28–31 ms per match. Identical rate to Bobsilvio's cv2 reference.
+
+Two findings that *aren't* obvious from Bobsilvio's source and matter for our implementation:
+
+1. **Don't `convert("L")` the background.** The EP Cube background PNG is in PIL "P" (palette) mode. The slot's contrast pattern lives in **palette-index space**, not in true-luminance space. Doing the textbook-correct `pil.convert("L")` (which looks up RGB through the palette and applies ITU-R 601 luminance) gives mean=142 and scores ~0.2–0.3 → 0% cube acceptance. Doing `np.array(pil)` directly returns raw palette indices (mean=44) and scores ~0.4–0.8 → 80% acceptance. Bobsilvio's code accidentally hits the right path because `cv2.cvtColor(palette_arr, COLOR_GRAY2BGR)` then `BGR2GRAY` round-trips palette indices unchanged. Our numpy port replicates this on purpose (with a comment explaining why) — see `decode_b64_image_grey` in [captcha_spike.py](../spikes/captcha_spike.py).
+
+2. **Background sometimes 2 px shorter than puzzle.** ~40% of captchas come back with `bg=(350, 612)` and `piece=(352, 94)` — the cube renders bg without the slider track included. Bobsilvio's "swap them if piece bigger" workaround crashes cv2 because after the swap the new "piece" is wider than the new "bg" in the other axis. Fix: pad the bg with its mean value (top + bottom) when the height delta is ≤ 4. Match accuracy is preserved because the added rows align with the puzzle's transparent (black-after-decode) regions.
+
+Performance for production (per attempt):
+- Captcha fetch: ~200 ms (network)
+- Decode + match: ~30 ms (CPU)
+- Encrypt + check: ~150 ms (network)
+- Total per attempt: ~400 ms
+- With 80% per-attempt success and up to 3 retries, effective success ≈ 99.2%, worst-case login latency ≈ 1.2 s.
+
+Final `match_template_ccoeff_normed`:
+```python
+def match_template_ccoeff_normed(image, template):
+    image = image.astype(np.float64); template = template.astype(np.float64)
+    H, W = image.shape; h, w = template.shape; n = h * w
+    t_zm = template - template.mean()
+    t_norm_sq = float((t_zm ** 2).sum())
+    integral = np.zeros((H+1, W+1)); integral[1:, 1:] = image.cumsum(0).cumsum(1)
+    integral_sq = np.zeros((H+1, W+1)); integral_sq[1:, 1:] = (image**2).cumsum(0).cumsum(1)
+    win_sum = integral[h:, w:] - integral[:-h, w:] - integral[h:, :-w] + integral[:-h, :-w]
+    win_sq  = integral_sq[h:, w:] - integral_sq[:-h, w:] - integral_sq[h:, :-w] + integral_sq[:-h, :-w]
+    win_var_n = np.maximum(win_sq - (win_sum**2) / n, 0.0)
+    fft_shape = (H + h - 1, W + w - 1)
+    F_I = np.fft.rfft2(image, s=fft_shape)
+    F_T = np.fft.rfft2(t_zm[::-1, ::-1], s=fft_shape)
+    numerator = np.fft.irfft2(F_I * F_T, s=fft_shape)[h-1:H, w-1:W]
+    denom = np.sqrt(t_norm_sq * win_var_n)
+    return np.where(denom > 1e-10, numerator / denom, 0.0)
+```
+
 ## Open questions (to resolve before code starts)
 
 1. **What's the actual 401/403/expiry behaviour?** Need to:
    - Note the timestamp on a fresh token, leave it alone for 24h, retry — does it 401?
    - Try to deliberately invalidate by opening the mobile app, then probe a read and a write — confirm reads keep working and writes 403.
    - Document the response body of a *genuine* write-revocation (vs the misleading 403 from typing errors).
-2. **Can captcha-solving be done with numpy alone?** Worth a 30-minute spike — if yes, no manifest change. If no, accept opencv-headless dependency.
+2. ~~**Can captcha-solving be done with numpy alone?**~~ ✅ Resolved 2026-05-21 — yes, see spike section above.
 3. **Token storage strategy in HA**: store password in `entry.data` (encrypted at rest by HA) and re-auth on demand, or store token + refresh on 403 by re-prompting user? Decision affects UX significantly.
 
 ## Recommendation
