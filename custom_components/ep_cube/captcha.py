@@ -104,8 +104,10 @@ async def login(
                 "pointJson": point_json,
             },
         )
-        verification = _extract_captcha_verification(check)
-        if verification:
+        if _check_succeeded(check):
+            verification = _build_captcha_verification(
+                captcha["token"], x, _CAPTCHA_REPORT_Y, captcha["secretKey"]
+            )
             return await _do_login(
                 session,
                 base,
@@ -283,16 +285,40 @@ def _decode_b64_image_grey(b64: str) -> np.ndarray:
 
 def _encrypt_point(x: float, y: float, secret_key: str) -> str:
     """AES-ECB(secret_key) of `{"x":<x>,"y":<y>}` JSON, base64-encoded.
+    This is the pointJson sent to /captcha/check.
 
     `pycryptodome` is imported lazily so a missing dep only blows up when
     a login is actually attempted (not on module import / passive sensor
     polling)."""
+    body = json.dumps({"x": float(x), "y": float(y)}, separators=(",", ":")).encode("utf-8")
+    return _aes_ecb_base64(body, secret_key)
+
+
+def _build_captcha_verification(
+    token: str, x: float, y: float, secret_key: str
+) -> str:
+    """Construct the `captchaVerification` string passed to /login.
+
+    Crucially this is NOT `token + "---" + pointJson` (that was my first
+    incorrect guess and the cube responds "captcha is overdue"). The real
+    format is:
+        AES_ECB(secret_key, f"{token}---{json({x,y})}")  base64-encoded
+    i.e. AES-encrypt the whole literal `token---plaintext_json` string,
+    not just the {x,y} point. Same `secret_key` as used for pointJson.
+    Source: Bobsilvio/epcube-token app.py `generate_captcha_verification`,
+    confirmed against the live cube 2026-05-21."""
+    json_point = json.dumps({"x": float(x), "y": float(y)}, separators=(",", ":"))
+    raw = f"{token}---{json_point}".encode("utf-8")
+    return _aes_ecb_base64(raw, secret_key)
+
+
+def _aes_ecb_base64(plaintext: bytes, key: str) -> str:
+    """AES-ECB encrypt with PKCS7 padding, base64-encoded output."""
     from Crypto.Cipher import AES
     from Crypto.Util.Padding import pad
 
-    body = json.dumps({"x": float(x), "y": float(y)}, separators=(",", ":")).encode("utf-8")
-    cipher = AES.new(secret_key.encode("utf-8"), AES.MODE_ECB)
-    return base64.b64encode(cipher.encrypt(pad(body, AES.block_size))).decode("utf-8")
+    cipher = AES.new(key.encode("utf-8"), AES.MODE_ECB)
+    return base64.b64encode(cipher.encrypt(pad(plaintext, AES.block_size))).decode("utf-8")
 
 
 # ----------------------------------------------------------------------
@@ -316,11 +342,27 @@ async def _fetch_captcha(
     return rep_data
 
 
-def _extract_captcha_verification(check_response: dict[str, Any]) -> str | None:
-    """Pull `captchaVerification` from the /captcha/check response."""
-    unwrapped = _unwrap(check_response)
-    rep_data = unwrapped.get("repData") or unwrapped
-    return rep_data.get("captchaVerification") if isinstance(rep_data, dict) else None
+def _check_succeeded(check_response: dict[str, Any]) -> bool:
+    """Did /api/open/common/captcha/check accept our solution?
+
+    Important: the outer envelope `message` is `"Success"` even when the
+    captcha verification failed — that just means the HTTP envelope was OK.
+    The real success indicator is at the inner aj-captcha layer:
+      - `data.repData.result == true` (aj-captcha convention)
+      - `data.repCode == "0000"` (this firmware's idiom — failure is "6111"
+        with `repMsg` "验证失败" / verification failed; observed 2026-05-21)
+    Do NOT add a `message == "Success"` fallback — that's exactly the bug
+    that lets a failed captcha proceed to /login and trigger the misleading
+    "captcha is overdue" error."""
+    if not isinstance(check_response, dict):
+        return False
+    data = check_response.get("data")
+    if not isinstance(data, dict):
+        return False
+    rep_data = data.get("repData")
+    if isinstance(rep_data, dict) and rep_data.get("result") is True:
+        return True
+    return data.get("repCode") == "0000"
 
 
 async def _do_login(
