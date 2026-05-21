@@ -8,7 +8,7 @@ Known gotchas hit during bring-up and dev. Grouped by area.
 |---|---|---|
 | HA integration form rejects with `cannot_connect` | `https://mock:8765` (default before fix) — mock is plain HTTP | Use `http://mock:8765`. Default in `const.py` is now correct. |
 | Only 3 of 9 sensors visible after first install | Missing `translations/en.json` and no `DeviceInfo` — entities fell back to device-class labels | Both fixed in commit `911f584`. Delete + re-add integration to refresh entity registry. |
-| HA service call returns `Unknown error` after `charge_start` | Shim's `get_tou_schedule()` 405s because mock wasn't rebuilt | `sudo docker compose up -d --build mock` (not `restart`). |
+| HA service call returns `Unknown error` after `charge_start` | Shim's `get_tou_schedule()` 405s because mock wasn't rebuilt | `docker compose up -d --build mock` (not `restart`). |
 
 ## Synology / deploy
 

@@ -85,8 +85,8 @@ cd /volume1/docker/ha-ep-cube
 git pull
 cp predbat_config/secrets.yaml.example predbat_config/secrets.yaml
 # edit predbat_config/secrets.yaml — paste the token
-sudo docker compose up -d
-sudo docker compose logs -f predbat
+docker compose up -d
+docker compose logs -f predbat
 ```
 
 Watch for:
@@ -105,7 +105,7 @@ curl -X POST http://localhost:8765/__sim__/device/ep_cube_test_01/state \
   -d '{"soc_pct": 20, "soc_kwh": 2.0}'
 ```
 
-Watch HA logs for `ep_cube.charge_start` being called by Predbat (HA UI → Settings → System → Logs, or `sudo docker compose logs homeassistant | grep ep_cube`).
+Watch HA logs for `ep_cube.charge_start` being called by Predbat (HA UI → Settings → System → Logs, or `docker compose logs homeassistant | grep ep_cube`).
 
 Then inspect what landed on the mock:
 
@@ -119,10 +119,10 @@ Expect a TOU schedule with one or more `_predbat_override: true` slots covering 
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Predbat log: `Authentication failed` / `401` | Wrong token or expired | Regenerate token, update `secrets.yaml`, `sudo docker compose restart predbat` |
-| Predbat: `Cannot connect to HA at http://homeassistant:8123` | Network/DNS mismatch | All services must be in the same compose project; check `sudo docker compose ps` |
+| Predbat log: `Authentication failed` / `401` | Wrong token or expired | Regenerate token, update `secrets.yaml`, `docker compose restart predbat` |
+| Predbat: `Cannot connect to HA at http://homeassistant:8123` | Network/DNS mismatch | All services must be in the same compose project; check `docker compose ps` |
 | Predbat: sensor values `unknown` or `Inverter not found` | Entity IDs in `apps.yaml` don't match reality | Cross-check entity IDs in HA Developer Tools → States. Format is `sensor.ep_cube_<device_id>_<key>` |
-| Predbat: `service ep_cube.charge_start not found` | Services not registered after pulling Phase 2a code | `sudo docker compose restart homeassistant`, then HA Developer Tools → Actions → type `ep_cube` and verify the 9 services |
+| Predbat: `service ep_cube.charge_start not found` | Services not registered after pulling Phase 2a code | `docker compose restart homeassistant`, then HA Developer Tools → Actions → type `ep_cube` and verify the 9 services |
 | Predbat plans correctly but no service calls fire | Predbat in "predict only" mode | In `apps.yaml` set `set_charge_window: True` and `set_discharge_window: True` |
 | Predbat keeps re-issuing identical plans | Expected — shim's `_matches_active` idempotency returns no-op | Working as designed; check HA log for `idempotent no-op` debug messages |
 
