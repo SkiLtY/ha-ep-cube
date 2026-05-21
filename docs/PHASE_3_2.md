@@ -97,22 +97,37 @@ Documented via [Bobsilvio/epcube#24](https://github.com/Bobsilvio/epcube/issues/
 
 Our current [build_tou_payload](../custom_components/ep_cube/api.py) is mostly aligned but uses `int` for `activeWeek`/`activeWeekNonWorkDay` — that's a latent bug to fix in any case. (`workStatus` field on `setSelfConsumption`/`setBackUp` is already a string, good.)
 
-## The risk we have to plan for: write-revocation on mobile-app open
+## The risk we planned for: write-revocation on mobile-app open — NOT REPRODUCED
 
 From [Bobsilvio/epcube#24 comments](https://github.com/Bobsilvio/epcube/issues/24):
 
 > "If the EP Cube server detects a secondary login (like opening the official mobile app), it instantly revokes 'Write' privileges for the Home Assistant token, but allows 'Read' privileges to continue working. This means sensor data keeps updating, but mode changes fail. Furthermore, simply clicking 'Reload' on the integration in Home Assistant does not clear the cached token. To properly test a fresh token, the integration must be completely deleted and re-added."
 
-**Why this matters specifically for us**: Predbat issues overrides via the shim throughout the day. If the user opens the mobile app to glance at SoC, the shim's *next* write silently 403s — but the read side keeps working, so our coordinator polling shows fine, and Predbat thinks the cloud is in the override state when the cloud actually isn't. Sticky drift between planned and actual.
+**Why this would matter if true**: Predbat issues overrides via the shim throughout the day. If the user opens the mobile app to glance at SoC and the shim's *next* write silently 403s — while reads keep working, masking the failure to the coordinator — Predbat thinks the cloud is in the override state when the cloud actually isn't. Sticky drift between planned and actual.
 
-**Required mitigations** (none are optional for production):
+### Probes (2026-05-21): hypothesis rejected across four scenarios
 
-1. **Post-write read-back** in [services.py](../custom_components/ep_cube/services.py) — after every `switchMode` POST, re-read `getSwitchMode` once and verify `workStatus` matches the intended target. If it doesn't, treat as a write-failure and surface to the user.
-2. **Auto re-auth on write 403** — store the password (or a derived encrypted form) at config-flow time so the integration can run the 3-step captcha+login flow when writes start failing.
-3. **HA notification** when re-auth fires or repeatedly fails — user needs to know if the mobile app is squatting on the write privilege.
-4. **Predbat-side back-off** — if writes have failed N times in a row, the shim should set its `Predbat Active` state to a degraded value so Predbat itself stops issuing further overrides until the situation is resolved.
+Two scripts in [spikes/](../spikes/), four scenarios in total. Every read and every no-op write returned `HTTP 200 / inner status 200 / message "Success"`. Full request/response bodies in `<captures-private>/2026-05-21-revocation-probe.log` and `<captures-private>/2026-05-21-revocation-probe-v2.log` (both gitignored).
 
-This is more work than just swapping the auth header. But the alternative (writes-failing-silently-until-user-notices) is unacceptable for an automation that controls a £15k battery.
+| Scenario | Operator action | Result |
+|---|---|---|
+| v1: app open + passive view | open app, log in, wait for live SoC, ~2 s window | read OK, write OK |
+| v2-A: **app-initiated write** | app toggled mode → workStatus=3 (backup); we then wrote workStatus=3 back | read OK, write OK |
+| v2-B: sustained app session | app kept open + active, 90 s window with navigation | read OK, write OK |
+| v2-C: post-close recovery | app swipe-killed, 5 s settle | read OK, write OK |
+
+The killer test is v2-A: the cube saw *both* sessions writing in sequence (app → ours) and accepted both. Whatever revocation logic Bobsilvio's reporter encountered, it does not fire for our account / region (`monitoring-eu`) / firmware (`02160239021920260323`) under any combination of operator actions we could realistically construct.
+
+### Implication for the implementation plan
+
+The four original mitigations drop from "load-bearing production safety" to "good defensive engineering":
+
+1. **Post-write read-back** in [services.py](../custom_components/ep_cube/services.py) — still wise. Catches any write-failure cause (typing bugs, transient cloud, future revocation behaviour). Keep as the core write-correctness mechanism. Cheap.
+2. **Auto re-auth on 403/401** at the `_request` layer — still needed for normal token expiry (days-to-weeks per Bobsilvio's empirical claim). Cheap once the captcha-solve path exists.
+3. **HA notification** on repeated re-auth failure — keep.
+4. **Predbat-side back-off** — **deferred**. Was the most invasive mitigation; not load-bearing now. Revisit only if production writes start 403-ing in correlation with mobile-app activity.
+
+**If we ever see production write 403s**: re-run [revocation_probe_v2.py](../spikes/revocation_probe_v2.py) to characterise the trigger, then decide whether back-off is needed.
 
 ## Captured findings (2026-05-21 capture session)
 
