@@ -496,9 +496,18 @@ class EPCubeClient:
             msg = body.get("message", "unknown error")
             raise EPCubeError(f"{method} {path} envelope error status={envelope_status}: {msg}")
         data = body.get("data")
+        # Double-wrapped errors: outer status:200 but inner data.status is an
+        # HTTP-shaped code (e.g. 404 on missing-endpoint paths). We deliberately
+        # only flag 4xx/5xx-shaped inner codes because `data.status` is also
+        # used by some payloads (e.g. homeDeviceInfo) as a domain field
+        # ("1" = online) — see PHASE_3_2.md.
         if isinstance(data, dict):
             inner_status = data.get("status")
-            if inner_status not in (None, 200, "200"):
+            try:
+                inner_code = int(inner_status) if inner_status is not None else 0
+            except (TypeError, ValueError):
+                inner_code = 0
+            if inner_code >= 400:
                 inner_msg = data.get("message") or data.get("msg") or "unknown inner error"
                 raise EPCubeError(
                     f"{method} {path} inner envelope error status={inner_status}: {inner_msg}"
