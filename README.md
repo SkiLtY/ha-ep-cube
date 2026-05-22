@@ -103,8 +103,12 @@ All shim services accept only an optional `device_id`. Window/SoC parameters are
 
 | Service | Purpose |
 |---|---|
-| `ep_cube.set_operating_mode` | Switch self-consumption / time-of-use / backup |
 | `ep_cube.set_tou_schedule` | Replace the full TOU schedule |
+
+Mode switching + reserve-SoC writes are exposed as entities, not services:
+`select.ep_cube_operating_mode`, `switch.ep_cube_allow_grid_charge`,
+`number.ep_cube_self_consumption_reserve`, `number.ep_cube_backup_reserve`.
+Call `select.select_option` / `number.set_value` from automations.
 
 ### Sensors (read)
 

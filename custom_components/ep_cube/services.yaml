@@ -1,26 +1,10 @@
 # Native services — 1:1 with cloud API
-set_operating_mode:
-  name: Set operating mode
-  description: Switch the EP Cube between self-consumption, time-of-use, or backup modes.
-  fields:
-    mode:
-      name: Mode
-      required: true
-      selector:
-        select:
-          options:
-            - self_consumption
-            - time_of_use
-            - backup
-    reserve_soc_pct:
-      name: Reserve SoC (%)
-      required: false
-      selector:
-        number:
-          min: 0
-          max: 100
-          unit_of_measurement: "%"
-
+#
+# Mode switching is exposed as select.ep_cube_operating_mode; reserve SoC
+# as number.ep_cube_self_consumption_reserve / number.ep_cube_backup_reserve
+# (mode-aware available, write pre-check). A native set_operating_mode
+# service would just re-invent those writes — call select.select_option /
+# number.set_value from automations instead.
 set_tou_schedule:
   name: Set TOU schedule
   description: Replace the time-of-use schedule. Advanced — prefer the Predbat shim services for tariff control.
