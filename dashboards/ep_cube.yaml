@@ -53,7 +53,7 @@ views:
       # Live power flow
       # ───────────────────────────────────────────────────────────────
       - type: custom:power-flow-card-plus
-        title: Live power
+        title: Energy Flow
         clickable_entities: true
         display_zero_lines:
           mode: show
