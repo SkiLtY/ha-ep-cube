@@ -1,0 +1,176 @@
+# EP Cube dashboard
+#
+# Drop-in Lovelace YAML for the Canadian Solar EP Cube. Mirrors the
+# layout of the EP Cube mobile app:
+#
+#   - Live power-flow visualisation (solar / battery / grid / home)
+#   - Battery status summary
+#   - Operating-mode picker (the "header switch" that swaps the
+#     manual-control card below)
+#   - Mode-specific controls in conditional cards
+#
+# Install
+# -------
+# 1. Install power-flow-card-plus via HACS:
+#      HACS → Frontend → "Power Flow Card Plus" by flixlix → Install
+#      then restart HA so the new resource is picked up.
+# 2. Settings → Dashboards → Add Dashboard → From YAML.
+#    Title: "EP Cube"  Icon: mdi:home-battery
+# 3. Edit the new dashboard → "Raw configuration editor" (top-right
+#    three-dot menu) → paste the contents of this file → Save.
+#
+# Assumed entity IDs
+# ------------------
+# This file references the default IDs the EP Cube integration creates
+# on a fresh install (device name "EP Cube"). If you renamed the device
+# or have multiple cubes, edit the IDs to suit (HA will auto-append
+# `_2`, `_3`, ... to disambiguate).
+#
+#   sensor.ep_cube_battery_soc            sensor.ep_cube_battery_power
+#   sensor.ep_cube_battery_soc_kwh        sensor.ep_cube_grid_power
+#   sensor.ep_cube_battery_capacity_kwh   sensor.ep_cube_solar_power
+#   sensor.ep_cube_reserve_soc            sensor.ep_cube_load_power
+#   sensor.ep_cube_operating_mode
+#   select.ep_cube_operating_mode
+#   number.ep_cube_self_consumption_reserve
+#   number.ep_cube_backup_reserve
+#   switch.ep_cube_allow_grid_charge
+#   switch.ep_cube_daylight_saving_time
+
+title: EP Cube
+views:
+  - title: Overview
+    path: overview
+    icon: mdi:home-battery
+    cards:
+      # ───────────────────────────────────────────────────────────────
+      # Live power flow
+      # ───────────────────────────────────────────────────────────────
+      - type: custom:power-flow-card-plus
+        title: Live power
+        clickable_entities: true
+        display_zero_lines:
+          mode: show
+          transparency: 50
+          grey_color:
+            - 189
+            - 189
+            - 189
+        use_new_flow_rate_model: true
+        w_decimals: 0
+        kw_decimals: 2
+        min_flow_rate: 0.75
+        max_flow_rate: 6
+        max_expected_power: 6500   # 6.51 kWp array — clamps line speed at full output
+        min_expected_power: 0.01
+        watt_threshold: 1000
+        transparency_zero_lines: 0
+        entities:
+          battery:
+            entity: sensor.ep_cube_battery_power
+            state_of_charge: sensor.ep_cube_battery_soc
+            invert_state: false   # integration convention: +ve = charging
+            name: Battery
+            icon: mdi:battery
+            display_state: two_way
+            color_circle: true
+          grid:
+            entity: sensor.ep_cube_grid_power
+            name: Grid
+            icon: mdi:transmission-tower
+            color_circle: true
+          solar:
+            entity: sensor.ep_cube_solar_power
+            name: Solar
+            icon: mdi:solar-power
+            color_value: true
+            color_icon: true
+            display_zero_state: true
+          home:
+            entity: sensor.ep_cube_load_power
+            name: Home
+            icon: mdi:home
+            color_icon: true
+
+      # ───────────────────────────────────────────────────────────────
+      # Battery status
+      # ───────────────────────────────────────────────────────────────
+      - type: entities
+        title: Battery
+        show_header_toggle: false
+        entities:
+          - entity: sensor.ep_cube_battery_soc
+            name: State of charge
+          - entity: sensor.ep_cube_battery_soc_kwh
+            name: Energy stored
+          - entity: sensor.ep_cube_battery_capacity_kwh
+            name: Usable capacity
+          - entity: sensor.ep_cube_reserve_soc
+            name: Active reserve
+
+      # ───────────────────────────────────────────────────────────────
+      # Operating-mode picker (always visible — drives the cards below)
+      # ───────────────────────────────────────────────────────────────
+      - type: entities
+        title: Operating mode
+        show_header_toggle: false
+        entities:
+          - entity: select.ep_cube_operating_mode
+            name: Mode
+
+      # ───────────────────────────────────────────────────────────────
+      # Self-consumption mode controls
+      # ───────────────────────────────────────────────────────────────
+      - type: conditional
+        conditions:
+          - entity: select.ep_cube_operating_mode
+            state: Self-consumption
+        card:
+          type: entities
+          title: Self-consumption settings
+          show_header_toggle: false
+          entities:
+            - entity: number.ep_cube_self_consumption_reserve
+              name: Reserve SoC
+
+      # ───────────────────────────────────────────────────────────────
+      # Backup mode controls
+      # ───────────────────────────────────────────────────────────────
+      - type: conditional
+        conditions:
+          - entity: select.ep_cube_operating_mode
+            state: Backup
+        card:
+          type: entities
+          title: Backup settings
+          show_header_toggle: false
+          entities:
+            - entity: number.ep_cube_backup_reserve
+              name: Reserve SoC
+
+      # ───────────────────────────────────────────────────────────────
+      # Time-of-use mode controls
+      # ───────────────────────────────────────────────────────────────
+      # TOU shares the self-consumption reserve as its outside-window
+      # fallback (see custom_components/ep_cube/api.py::_reserve_for_mode).
+      # Cube acceptance of that write in TOU mode is provisional — the
+      # number entity is permissively available in TOU; if the cube
+      # rejects it the WriteVerificationError will surface in the HA log.
+      - type: conditional
+        conditions:
+          - entity: select.ep_cube_operating_mode
+            state: Time of use
+        card:
+          type: entities
+          title: Time-of-use settings
+          show_header_toggle: false
+          entities:
+            - entity: number.ep_cube_self_consumption_reserve
+              name: Outside-window reserve SoC
+            - entity: switch.ep_cube_allow_grid_charge
+              name: Allow charging from grid
+            - entity: switch.ep_cube_daylight_saving_time
+              name: Daylight saving time
+            # TODO Phase 3.4 (f): TOU schedule editor goes here once
+            # set_tou_schedule service ships (DST + workday/weekend +
+            # per-slot prices, bypasses shim).

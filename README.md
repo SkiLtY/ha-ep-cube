@@ -23,6 +23,8 @@ ha-ep-cube/
 │   ├── configuration.yaml       ← HA core config (loads packages/)
 │   └── packages/ep_cube.yaml    ← Riemann load_today + input_numbers Predbat writes to
 ├── predbat_config/apps.yaml     ← Predbat config (BottlecapDave tariff auto-detect, Solcast auto-discovery, shim service map)
+├── dashboards/
+│   └── ep_cube.yaml             ← Lovelace dashboard (animated power flow + mode-aware controls)
 ├── docs/
 │   ├── ARCHITECTURE.md          ← Predbat shim contract + design notes
 │   ├── <private-docs>       ← Bring-up steps for <host> (deploy key, clone, stack, pull)
@@ -60,7 +62,7 @@ Production deployment to Synology: see [<private-docs>](<private-docs>).
 - [x] **Phase 3** — Hardware reconciliation: capture real cloud API contract, rewrite mock + integration, switch to live endpoint *(all complete 2026-05-20 — two HAR captures, full mock + integration rewrite, JSESSIONID paste config-flow, first real-cloud poll green with all 9 sensors populating; capacity-from-`batteryPackNum` fix in [`c50e65a`](https://github.com/SkiLtY/ha-ep-cube/commit/c50e65a) handled a parallel-pack edge case the captures had missed)*
 - [x] **Phase 3.1** — Cleanup: `charge_freeze` now uses a mid-peak TOU slot (genuinely idle per vendor docs); force-export gap documented as a known limitation (no native cloud equivalent — `discharge_start → peak` drains to loads + refuses imports, surplus exports only if `sellingEnable` permits); stable `EP Cube` device name so entity IDs are `sensor.ep_cube_<key>` regardless of devId *(landed 2026-05-21, commits [`61ab1bb`](https://github.com/SkiLtY/ha-ep-cube/commit/61ab1bb) + [`d4aae05`](https://github.com/SkiLtY/ha-ep-cube/commit/d4aae05))*
 - [x] **Phase 3.2** — Mobile-app Bearer-token auth replaces JSESSIONID-cookie paste *(all 7 steps landed 2026-05-21 — config flow now asks for the user's EP Cube account email + password, runs the 4-POST captcha login flow on submit, silently re-logs-in on token expiry, mock-server speaks the new `/api/device/*` + `/api/open/common/*` surface, wire-level gotchas captured in [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md); full discovery notes in [docs/PHASE_3_2.md](docs/PHASE_3_2.md))*
-- [ ] **Phase 3.3** — Animated power-flow Lovelace dashboard YAML (built on the [`power-flow-card-plus`](https://github.com/flixlix/power-flow-card-plus) HACS card) shipping in `dashboards/ep_cube.yaml` + README install steps, so users get an EP-Cube-app-style live view without needing to look at Predbat.
+- [x] **Phase 3.3** — Animated power-flow Lovelace dashboard YAML (built on the [`power-flow-card-plus`](https://github.com/flixlix/power-flow-card-plus) HACS card) shipping in [`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) + README install steps, so users get an EP-Cube-app-style live view without needing to look at Predbat. Layout per the session-16 design call: power flow at top, battery status, operating-mode picker, then conditional cards keyed off `select.ep_cube_operating_mode` (Self Consumption / Backup / TOU). TOU card has a slot reserved for the Phase 3.4 (f) schedule editor.
 - [ ] **Phase 3.4** — Feature-parity catch-up vs [Bobsilvio/epcube](https://github.com/Bobsilvio/epcube) before HACS publication. **In progress** — manual-control surface landed 2026-05-22 ([`d982aec`](https://github.com/SkiLtY/ha-ep-cube/commit/d982aec), [`0abc91c`](https://github.com/SkiLtY/ha-ep-cube/commit/0abc91c), [`4b2a856`](https://github.com/SkiLtY/ha-ep-cube/commit/4b2a856), [`c58fe50`](https://github.com/SkiLtY/ha-ep-cube/commit/c58fe50)): (c) `select.ep_cube_operating_mode`, (d) `switch.ep_cube_allow_grid_charge`, (e) `number.ep_cube_self_consumption_reserve` + `number.ep_cube_backup_reserve`, plus bonus `switch.ep_cube_daylight_saving_time`. All mode-aware via dynamic `available` + write pre-check (cube silently ignores cross-mode writes — see [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)). Remaining backlog: (a) multi-region (US/JP) endpoints in config flow; (b) `EntityCategory.CONFIG`/`DIAGNOSTIC` tagging on existing sensors; (f) `set_tou_schedule` service; (g) `set_operating_mode` service (largely superseded by select); (h) full i18n / it translations; (i) daily/monthly/annual energy sensors.
 - [ ] **Phase 4** — HACS distribution, light test scaffolding, GitHub Actions
 - [ ] **Phase 4+** — BottlecapDave's [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) integration. Strict upgrade — the public Agile URL keeps working either way. Adds:
@@ -96,6 +98,20 @@ All shim services accept only an optional `device_id`. Window/SoC parameters are
 ### Sensors (read)
 
 `battery_soc`, `battery_soc_kwh` (energy), `battery_capacity_kwh`, `battery_power`, `grid_power`, `solar_power`, `load_power`, `operating_mode`, `reserve_soc`. All grouped under one device per EP Cube.
+
+## Dashboard
+
+[`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) is a drop-in Lovelace dashboard that mirrors the EP Cube mobile app: live animated power flow at the top, battery status, an operating-mode picker, and mode-specific control cards (self-consumption / backup / time-of-use) that swap automatically when you change mode.
+
+**Install:**
+
+1. **Install the power-flow card via HACS** — HACS → Frontend → search "Power Flow Card Plus" by [flixlix](https://github.com/flixlix/power-flow-card-plus) → Install. Restart HA so the resource registers.
+2. **Add a new dashboard** — Settings → Dashboards → Add Dashboard → "New dashboard from scratch" (title: *EP Cube*, icon: `mdi:home-battery`).
+3. **Paste the YAML** — open the new dashboard → Edit → three-dot menu → *Raw configuration editor* → replace the contents with [`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) → Save.
+
+Entity IDs in the YAML assume the integration's default device name (`EP Cube`). If you renamed the device, or have multiple cubes, edit the YAML to match (HA auto-appends `_2`, `_3`, ... to disambiguate).
+
+The TOU card has a slot reserved for a per-tier schedule editor — that ships with Phase 3.4 (f) (`set_tou_schedule` service).
 
 ## HA install type
 
