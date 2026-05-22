@@ -1,0 +1,65 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "username": "Email account EP Cube",
+          "password": "Password account EP Cube",
+          "region": "Regione",
+          "base_url": "URL di base personalizzato (usato solo quando Regione = Altro)",
+          "api_prefix": "Prefisso del percorso API personalizzato (usato solo quando Regione = Altro; predefinito /api)",
+          "dev_id": "ID dispositivo (opzionale — selezionato automaticamente se l'account ha un solo dispositivo)",
+          "sg_sn": "Numero di serie sgSn (opzionale — selezionato automaticamente se l'account ha un solo dispositivo)"
+        },
+        "data_description": {
+          "username": "L'indirizzo email che usi per accedere all'app mobile EP Cube",
+          "password": "Salvata cifrata da Home Assistant. Usata in background per rinnovare silenziosamente la sessione cloud alla scadenza del token.",
+          "region": "Seleziona la regione cloud EP Cube corrispondente al tuo account: EU (monitoring-eu.epcube.com — verificata), US (epcube-monitoring.com — sperimentale, host e percorso ricavati da fonti pubbliche ma non ancora testati dal vivo), JP (monitoring-jp.epcube.com — non testata). Australia, Canada e altri mercati: seleziona Altro e fornisci l'host cloud del tuo account (ricavato dal traffico dell'app mobile EP Cube)."
+        }
+      }
+    },
+    "error": {
+      "captcha_failed": "Risoluzione del captcha fallita dopo 3 tentativi — riprova",
+      "invalid_auth": "Email o password rifiutate dal cloud EP Cube",
+      "cannot_connect": "Impossibile raggiungere l'API cloud all'URL di base indicato",
+      "no_devices": "Account raggiungibile, ma nessun dispositivo registrato",
+      "multiple_devices": "Trovati più dispositivi — specifica dev_id o sg_sn per disambiguare",
+      "base_url_required": "La regione \"Altro\" richiede un URL di base personalizzato",
+      "unknown": "Errore imprevisto — controlla il registro di Home Assistant"
+    },
+    "abort": {
+      "already_configured": "Questo dispositivo è già configurato"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery_soc": {"name": "Stato di carica batteria"},
+      "battery_soc_kwh": {"name": "Energia batteria"},
+      "battery_capacity_kwh": {"name": "Capacità batteria"},
+      "battery_power": {"name": "Potenza batteria"},
+      "grid_power": {"name": "Potenza rete"},
+      "solar_power": {"name": "Potenza solare"},
+      "load_power": {"name": "Potenza carico"},
+      "operating_mode": {"name": "Modalità operativa"},
+      "reserve_soc": {"name": "Riserva di carica"}
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Modalità operativa",
+        "state": {
+          "self_consumption": "Autoconsumo",
+          "time_of_use": "Tariffa oraria",
+          "backup": "Backup"
+        }
+      }
+    },
+    "switch": {
+      "allow_grid_charge": {"name": "Consenti ricarica da rete"},
+      "daylight_saving_time": {"name": "Ora legale"}
+    },
+    "number": {
+      "self_consumption_reserve": {"name": "Riserva autoconsumo"},
+      "backup_reserve": {"name": "Riserva backup"}
+    }
+  }
+}

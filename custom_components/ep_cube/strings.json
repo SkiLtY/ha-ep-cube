@@ -14,7 +14,7 @@
         "data_description": {
           "username": "The email address you use to log into the EP Cube mobile app",
           "password": "Stored encrypted at rest by Home Assistant. Used silently in the background to refresh the cloud session when the access token expires.",
-          "region": "Pick the EP Cube cloud region matching your account: EU (monitoring-eu.epcube.com), US (epcube-monitoring.com), JP (monitoring-jp.epcube.com). Use Other to point at a custom endpoint (mock server / dev fork)."
+          "region": "Pick the EP Cube cloud region matching your account: EU (monitoring-eu.epcube.com — verified), US (epcube-monitoring.com — experimental, host + path derived from public sources but not yet live-tested), JP (monitoring-jp.epcube.com — untested). Australia, Canada and any other market: pick Other and supply your account's cloud host (capture from the EP Cube mobile app)."
         }
       }
     },

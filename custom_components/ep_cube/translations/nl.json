@@ -1,0 +1,65 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "username": "EP Cube account-e-mail",
+          "password": "EP Cube accountwachtwoord",
+          "region": "Regio",
+          "base_url": "Eigen basis-URL (alleen gebruikt wanneer Regio = Anders)",
+          "api_prefix": "Eigen API-padprefix (alleen gebruikt wanneer Regio = Anders; standaard /api)",
+          "dev_id": "Apparaat-ID (optioneel — automatisch gekozen wanneer het account één apparaat heeft)",
+          "sg_sn": "Apparaatserienummer sgSn (optioneel — automatisch gekozen wanneer het account één apparaat heeft)"
+        },
+        "data_description": {
+          "username": "Het e-mailadres dat je gebruikt om in te loggen op de EP Cube mobiele app",
+          "password": "Versleuteld opgeslagen door Home Assistant. Wordt op de achtergrond gebruikt om de cloudsessie stil te vernieuwen wanneer het token verloopt.",
+          "region": "Kies de EP Cube cloudregio die past bij je account: EU (monitoring-eu.epcube.com — geverifieerd), US (epcube-monitoring.com — experimenteel, host en pad afgeleid uit publieke bronnen maar nog niet live getest), JP (monitoring-jp.epcube.com — ongetest). Australië, Canada en andere markten: kies Anders en geef de cloudhost van je account op (uit het netwerkverkeer van de EP Cube mobiele app)."
+        }
+      }
+    },
+    "error": {
+      "captcha_failed": "Captcha-oplossing mislukt na 3 pogingen — probeer het opnieuw",
+      "invalid_auth": "E-mail of wachtwoord geweigerd door de EP Cube cloud",
+      "cannot_connect": "Kan de cloud-API op het opgegeven basis-URL niet bereiken",
+      "no_devices": "Account is bereikbaar maar er zijn geen apparaten geregistreerd",
+      "multiple_devices": "Meerdere apparaten gevonden — geef dev_id of sg_sn op om te kiezen",
+      "base_url_required": "Regio \"Anders\" vereist een eigen basis-URL",
+      "unknown": "Onverwachte fout — controleer het Home Assistant logboek"
+    },
+    "abort": {
+      "already_configured": "Dit apparaat is al geconfigureerd"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery_soc": {"name": "Batterij-laadtoestand"},
+      "battery_soc_kwh": {"name": "Batterij-energie"},
+      "battery_capacity_kwh": {"name": "Batterijcapaciteit"},
+      "battery_power": {"name": "Batterijvermogen"},
+      "grid_power": {"name": "Netvermogen"},
+      "solar_power": {"name": "Zonnevermogen"},
+      "load_power": {"name": "Verbruiksvermogen"},
+      "operating_mode": {"name": "Bedrijfsmodus"},
+      "reserve_soc": {"name": "Reserve-laadtoestand"}
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Bedrijfsmodus",
+        "state": {
+          "self_consumption": "Zelfverbruik",
+          "time_of_use": "Tijdgebonden tarief",
+          "backup": "Back-up"
+        }
+      }
+    },
+    "switch": {
+      "allow_grid_charge": {"name": "Laden vanaf het net toestaan"},
+      "daylight_saving_time": {"name": "Zomertijd"}
+    },
+    "number": {
+      "self_consumption_reserve": {"name": "Zelfverbruik-reserve"},
+      "backup_reserve": {"name": "Back-up-reserve"}
+    }
+  }
+}

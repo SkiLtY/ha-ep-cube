@@ -4,6 +4,17 @@ Home Assistant custom integration for the **Canadian Solar EP Cube** residential
 
 > **Status:** pre-alpha. Integration is live against the real `monitoring-eu.epcube.com` cloud — all 9 sensors populating with verified values, Predbat plans against live Octopus Agile rates + Solcast PV forecasts and fires shim services that translate to `switchMode` writes. Phase 3.2 fully landed 2026-05-21: one-time email + password replaces the JSESSIONID-paste-every-hour UX, captcha-solving in pure numpy, silent re-auth on token expiry, mock-server realigned to the mobile-app surface, wire-level gotchas documented in TROUBLESHOOTING. APIs and entity shapes will still change before HACS distribution (Phase 4).
 
+## Supported regions
+
+The EP Cube cloud runs region-specific hosts. The config flow exposes a region picker; pick the one that matches the cloud your mobile app talks to.
+
+| Region | Host | Status |
+|---|---|---|
+| **EU** | `monitoring-eu.epcube.com` | ✅ Verified live (UK + most of Europe — installer's default for DE / IT / NL / FR / ES / etc.) |
+| **US** | `epcube-monitoring.com` (path prefix `/app-api`) | 🧪 **Experimental.** Host + path derived from public sources; not yet live-tested. Please open an issue with the result if you try it. |
+| **JP** | `monitoring-jp.epcube.com` | Untested. |
+| **Other** | user-supplied | Escape hatch for Australia, Canada, custom mocks, or any market where the host above is wrong. Capture the host from your EP Cube mobile app's network traffic and paste it in. |
+
 ## Why
 
 The EP Cube has no documented local API (no Modbus, no MQTT). All control today goes through Canadian Solar's cloud via mobile-app endpoints. There is one existing community integration ([Bobsilvio/epcube](https://github.com/Bobsilvio/epcube)) — but no licence file, so we cannot legally fork it. This is a clean-room build.

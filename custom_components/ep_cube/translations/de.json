@@ -1,0 +1,65 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "username": "EP Cube Konto-E-Mail",
+          "password": "EP Cube Konto-Passwort",
+          "region": "Region",
+          "base_url": "Eigene Basis-URL (nur bei Region = Andere)",
+          "api_prefix": "Eigener API-Pfad-Präfix (nur bei Region = Andere; Standard /api)",
+          "dev_id": "Geräte-ID (optional — wird automatisch gewählt, wenn das Konto nur ein Gerät hat)",
+          "sg_sn": "Geräteseriennummer sgSn (optional — wird automatisch gewählt, wenn das Konto nur ein Gerät hat)"
+        },
+        "data_description": {
+          "username": "Die E-Mail-Adresse, mit der Sie sich in der EP Cube Mobile-App anmelden",
+          "password": "Wird von Home Assistant verschlüsselt gespeichert. Wird im Hintergrund verwendet, um die Cloud-Sitzung beim Ablauf des Tokens stillschweigend zu erneuern.",
+          "region": "Wählen Sie die EP-Cube-Cloud-Region passend zu Ihrem Konto: EU (monitoring-eu.epcube.com — verifiziert), US (epcube-monitoring.com — experimentell, Host und Pfad aus öffentlichen Quellen abgeleitet, aber noch nicht live getestet), JP (monitoring-jp.epcube.com — ungetestet). Australien, Kanada und andere Märkte: wählen Sie Andere und geben Sie den Cloud-Host Ihres Kontos an (aus der EP Cube Mobile-App ermittelt)."
+        }
+      }
+    },
+    "error": {
+      "captcha_failed": "Captcha-Lösung nach 3 Versuchen fehlgeschlagen — bitte erneut versuchen",
+      "invalid_auth": "E-Mail oder Passwort von der EP-Cube-Cloud abgelehnt",
+      "cannot_connect": "Cloud-API unter der angegebenen Basis-URL nicht erreichbar",
+      "no_devices": "Konto erreichbar, aber keine Geräte registriert",
+      "multiple_devices": "Mehrere Geräte gefunden — bitte dev_id oder sg_sn angeben, um eindeutig zu wählen",
+      "base_url_required": "Region „Andere\" erfordert eine eigene Basis-URL",
+      "unknown": "Unerwarteter Fehler — bitte Home-Assistant-Protokoll prüfen"
+    },
+    "abort": {
+      "already_configured": "Dieses Gerät ist bereits konfiguriert"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery_soc": {"name": "Batterie-Ladezustand"},
+      "battery_soc_kwh": {"name": "Batterieenergie"},
+      "battery_capacity_kwh": {"name": "Batteriekapazität"},
+      "battery_power": {"name": "Batterieleistung"},
+      "grid_power": {"name": "Netzleistung"},
+      "solar_power": {"name": "Solarleistung"},
+      "load_power": {"name": "Verbrauchsleistung"},
+      "operating_mode": {"name": "Betriebsmodus"},
+      "reserve_soc": {"name": "Reserve-Ladezustand"}
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Betriebsmodus",
+        "state": {
+          "self_consumption": "Eigenverbrauch",
+          "time_of_use": "Zeitabhängiger Tarif",
+          "backup": "Notstrom"
+        }
+      }
+    },
+    "switch": {
+      "allow_grid_charge": {"name": "Laden aus dem Netz erlauben"},
+      "daylight_saving_time": {"name": "Sommerzeit"}
+    },
+    "number": {
+      "self_consumption_reserve": {"name": "Eigenverbrauchsreserve"},
+      "backup_reserve": {"name": "Notstromreserve"}
+    }
+  }
+}
