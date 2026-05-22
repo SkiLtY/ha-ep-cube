@@ -17,7 +17,7 @@ ha-ep-cube/
 ├── CLAUDE.md                    ← Primary context for AI-assisted dev
 ├── custom_components/ep_cube/   ← The HA integration (HACS-installable later)
 │   ├── services.py              ← Predbat shim service handlers (Phase 2b.1 contract)
-│   └── predbat_state.py         ← Reads sensor.predbat_<inv>_* entities Predbat publishes
+│   └── predbat_state.py         ← Reads predbat.best_charge_* / best_export_* entities
 ├── mock_server/                 ← FastAPI mock of the EP Cube cloud, for dev without hardware
 ├── ha_config/
 │   ├── configuration.yaml       ← HA core config (loads packages/)
@@ -54,7 +54,7 @@ Production deployment to Synology: see [<private-docs>](<private-docs>).
 - [x] **Phase 1** — Mock cloud + HA integration skeleton + 9 sensors + DeviceInfo *(verified on <host>, 2026-05-03)*
 - [x] **Phase 2a** — Predbat shim: 7 services, baseline snapshot, idempotency, auto-revert timer *(verified, 2026-05-04)*
 - [x] **Phase 2b** — Predbat running as `nipar44/predbat_addon` Docker container, plan loop validated, fires shim service calls *(verified, 2026-05-05)*
-- [x] **Phase 2b.1** — Shim consumes the dummy entities Predbat publishes (`sensor.predbat_<inv>_*`) instead of expecting parameters in service-call args. New `predbat_state.py` is the single Predbat-aware module *(verified, 2026-05-07)*
+- [x] **Phase 2b.1** — Shim consumes the entities Predbat publishes (`predbat.best_charge_*` / `predbat.best_export_*`) instead of expecting parameters in service-call args. New `predbat_state.py` is the single Predbat-aware module *(verified 2026-05-07; entity contract corrected to upstream 2026-05-22)*
 - [x] **Phase 2c** — Live Octopus Agile rates via the public REST API (region L), no Octopus account required *(verified, 2026-05-07)*
 - [x] **Phase 2c+** — Solcast PV forecast wired in (split E/W array). Predbat plan now schedules charges around forecast solar generation *(verified, 2026-05-07)*
 - [x] **Phase 3** — Hardware reconciliation: capture real cloud API contract, rewrite mock + integration, switch to live endpoint *(all complete 2026-05-20 — two HAR captures, full mock + integration rewrite, JSESSIONID paste config-flow, first real-cloud poll green with all 9 sensors populating; capacity-from-`batteryPackNum` fix in [`c50e65a`](https://github.com/SkiLtY/ha-ep-cube/commit/c50e65a) handled a parallel-pack edge case the captures had missed)*
@@ -73,16 +73,16 @@ Production deployment to Synology: see [<private-docs>](<private-docs>).
 
 ### Predbat shim (`services.py`)
 
-All shim services accept only an optional `device_id`. Window/SoC/rate parameters are read from the dummy entities Predbat publishes (`sensor.predbat_<inv>_*`) — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full contract.
+All shim services accept only an optional `device_id`. Window/SoC parameters are read from the entities Predbat publishes (`predbat.best_charge_*` / `predbat.best_export_*`) — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full contract.
 
 | Service | Purpose |
 |---|---|
-| `ep_cube.charge_start` | Force grid charge until end of Predbat's planned charge window, target SoC from `charge_limit` |
+| `ep_cube.charge_start` | Force grid charge until end of Predbat's planned charge window, target SoC from `best_charge_limit` |
 | `ep_cube.charge_stop` | Cancel active charge override, restore baseline |
-| `ep_cube.discharge_start` | Force discharge until end of planned discharge window, target SoC from `discharge_target_soc` |
+| `ep_cube.discharge_start` | Force discharge until end of planned export window, target SoC from `best_export_limit` |
 | `ep_cube.discharge_stop` | Cancel active discharge override |
 | `ep_cube.charge_freeze` | Hold battery at current SoC until end of charge window |
-| `ep_cube.discharge_freeze` | Alias for charge_freeze, end-time taken from discharge window |
+| `ep_cube.discharge_freeze` | Alias for charge_freeze, end-time taken from export window |
 | `ep_cube.idle` | Restore baseline TOU schedule |
 
 ### Native (1:1 with cloud API)

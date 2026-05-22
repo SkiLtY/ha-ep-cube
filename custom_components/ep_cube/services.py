@@ -480,7 +480,7 @@ class PredbatShim:
 async def async_register_services(hass: HomeAssistant) -> None:
     """Register the Predbat shim services on the HA service bus.
 
-    Handlers read the planned window from `sensor.predbat_<inv>_*` entities via
+    Handlers read the planned window from `predbat.best_*` entities via
     predbat_state.read_plan. Service-call args are ignored beyond `device_id`.
     """
 

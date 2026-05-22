@@ -7,7 +7,7 @@
 │ Predbat (nipar44/predbat_addon Docker container — Phase 2b ✅)   │
 │   - reads Octopus Agile prices via public REST API (Phase 2c)    │
 │   - reads Solcast PV forecast (split E/W array, Phase 2c+)       │
-│   - publishes plan to sensor.predbat_<inv>_* dummy entities      │
+│   - publishes plan to predbat.best_charge_* / best_export_*     │
 │   - calls integration services to schedule charge/discharge      │
 └────────────────────────────────┬─────────────────────────────────┘
                                  │  HA service calls (REST/WebSocket)
@@ -45,31 +45,24 @@ Predbat ([docs](https://springfall2008.github.io/batpred/inverter-setup/)) drive
 
 ### How Predbat publishes its plan (Phase 2b.1)
 
-For `has_service_api: True` inverters, Predbat writes the planned window to its own dummy `sensor.*` entities **before** firing the matching service call. Service calls themselves carry empty `data {}` (apps.yaml has no template `data:` keys), so the shim ignores call args and reads the plan from the entities.
+For `has_service_api: True` inverters, Predbat writes the planned window to entities under the `predbat.*` domain **before** firing the matching service call. Service calls themselves carry empty `data {}` (apps.yaml has no template `data:` keys), so the shim ignores call args and reads the plan from the entities.
 
-Naming pattern:
-
-```
-sensor.{prefix}_{inverter_type}_{index}_{name}
-       └─ predbat ┘ └─ EP_CUBE ┘ └─ 0 ┘ └─ varies ─┘
-```
+Entity IDs are bare names (no `inverter_type` / `index` prefix — the `EP_CUBE` / `0` apps.yaml settings do not decorate these). We read the **"best" plan** Predbat has chosen, never the unprefixed `predbat.charge_*` baseline (which is the predicted no-action future).
 
 Entities consumed by the shim (parsed in [predbat_state.py](../custom_components/ep_cube/predbat_state.py)):
 
-| Entity name | Format | Meaning |
+| Entity ID | Source | Meaning |
 |---|---|---|
-| `scheduled_charge_enable` | `"on"` / `"off"` | Charge plan active |
-| `charge_start_time` / `charge_end_time` | `"HH:MM:SS"` | Planned charge window |
-| `charge_limit` | int 0–100 | Target SoC for charge |
-| `scheduled_discharge_enable` | `"on"` / `"off"` | Discharge plan active |
-| `discharge_start_time` / `discharge_end_time` | `"HH:MM:SS"` | Planned discharge window |
-| `discharge_target_soc` | int 0–100 | Discharge floor |
-| `idle_start_time` / `idle_end_time` | `"HH:MM:SS"` | Demand-only window (read but not yet acted on) |
-| `reserve` | int 0–100 | Battery reserve |
+| `predbat.best_charge_start` / `predbat.best_charge_end` | `attributes.timestamp` (ISO `%Y-%m-%dT%H:%M:%S%z`) | Planned charge window |
+| `predbat.best_charge_limit` | `state` (int 0–100) | Target SoC for charge |
+| `predbat.best_export_start` / `predbat.best_export_end` | `attributes.timestamp` (ISO) | Planned export/discharge window |
+| `predbat.best_export_limit` | `state` (int 0–100) | Export-stop SoC floor (0 = full discharge, 100 = no export) |
 
-`"23:59:00"` for both ends of a window is Predbat's "no plan" sentinel. Times resolve to today's local datetime; if the time has already passed, predbat_state assumes tomorrow (Predbat publishes upcoming windows). Windows where `end <= start` are treated as midnight-spanning and end is rolled forward by one day.
+No-plan sentinel: upstream sets `state=""` and `attributes.timestamp=None` when no charge/export is planned within the forecast horizon (`apps/predbat/output.py:2273-2276 / 2102-2105`). The shim treats either as `PredbatWindow=None` and the corresponding `*_enabled` flag as False.
 
-Single-device assumption — `inverter_type=EP_CUBE`, `index=0` — is hardcoded in `const.py`. Multi-device support is deferred to Phase 4.
+Idle window and reserve SoC are not exposed as published entities upstream and are not acted on by the shim. Charge-active / export-active flags (`scheduled_charge_enable` etc.) likewise don't exist as window-scoped entities — the shim derives `charge_enabled` / `discharge_enabled` from whether the corresponding `best_*_start` has a non-empty timestamp.
+
+Single-device assumption holds at the apps.yaml layer (`num_inverters: 1`); the published entity IDs themselves carry no device discriminator, so multi-device support is deferred to Phase 4.
 
 ### Services exposed to Predbat
 
@@ -77,15 +70,15 @@ All shim services accept only an optional `device_id`. The window/SoC parameters
 
 | Service | Plan inputs read | Shim translation | Status |
 |---|---|---|---|
-| `ep_cube.charge_start` | `charge_*_time`, `charge_limit`, `scheduled_charge_enable` | Set mode=TOU. Insert grid-charge slot covering now → charge_end_time, target SoC = charge_limit. Charge rate not in TOU surface. | ✅ verified on mock (Phase 2a flow) |
+| `ep_cube.charge_start` | `best_charge_start`/`_end`, `best_charge_limit` | Set mode=TOU. Insert grid-charge slot covering now → best_charge_end, target SoC = best_charge_limit. Charge rate not in TOU surface. | ✅ verified on mock (Phase 2a flow) |
 | `ep_cube.charge_stop` | — | Restore baseline mode + schedule. Cancel revert timer. | ✅ verified on mock |
-| `ep_cube.discharge_start` | `discharge_*_time`, `discharge_target_soc`, `scheduled_discharge_enable` | TOU peak slot covering now → discharge_end_time. Vendor-confirmed peak = "drain to loads, refuse grid import" — **NOT** active export. Best-effort approximation of Predbat's force-export intent. See "Known limitation: force-export" below. | ⚠️ semantic gap documented |
+| `ep_cube.discharge_start` | `best_export_start`/`_end`, `best_export_limit` | TOU peak slot covering now → best_export_end. Vendor-confirmed peak = "drain to loads, refuse grid import" — **NOT** active export. Best-effort approximation of Predbat's force-export intent. See "Known limitation: force-export" below. | ⚠️ semantic gap documented |
 | `ep_cube.discharge_stop` | — | Same as charge_stop. | ✅ verified on mock |
-| `ep_cube.charge_freeze` | `charge_*_time` | TOU mid-peak slot covering now → charge_end_time. Vendor-confirmed mid-peak = "not charging, not supporting loads" — genuinely idle (no solar → battery either). | ✅ verified on mock |
-| `ep_cube.discharge_freeze` | `discharge_*_time` | Alias for charge_freeze, end-time taken from discharge window. | ✅ verified on mock |
+| `ep_cube.charge_freeze` | `best_charge_start`/`_end` | TOU mid-peak slot covering now → best_charge_end. Vendor-confirmed mid-peak = "not charging, not supporting loads" — genuinely idle (no solar → battery either). | ✅ verified on mock |
+| `ep_cube.discharge_freeze` | `best_export_start`/`_end` | Alias for charge_freeze, end-time taken from export window. | ✅ verified on mock |
 | `ep_cube.idle` | — | Restore baseline. Equivalent to `*_stop` for any active override. | ✅ verified on mock |
 
-If `*_start` or `*_freeze` fires while Predbat reports no plan (`enable=off` or sentinel window), the handler logs a warning and no-ops. This guards against stale fires during shutdown / config errors.
+If `*_start` or `*_freeze` fires while Predbat reports no plan (empty-state / null timestamp on the relevant `best_*` entities), the handler logs a warning and no-ops. This guards against stale fires during shutdown / config errors.
 
 ### State the shim holds (per device)
 
@@ -206,7 +199,7 @@ Both `strings.json` (source) and `translations/en.json` (runtime) must exist. HA
 | **1. Mock + skeleton** | Mock server live, HA integration loads, config flow works, sensors populated from mock | ✅ done |
 | **2a. Predbat shim** | Shim services callable, idempotency + revert logic, Predbat custom-inverter template | ✅ done |
 | **2b. Predbat install** | `nipar44/predbat_addon` Docker container running Predbat, plans against hardcoded test prices, fires shim service calls | ✅ done |
-| **2b.1. Shim contract redesign** | Read params from `sensor.predbat_<inv>_*` entities instead of service-call args | ✅ done |
+| **2b.1. Shim contract redesign** | Read params from `predbat.best_*` entities (was `sensor.predbat_<inv>_*` — corrected to upstream contract in session 14) instead of service-call args | ✅ done |
 | **2c. Octopus prices** | Predbat fetches Agile import + export rates from the public REST API (region L). No account required. | ✅ done |
 | **4+. Octopus consumption upgrade** | Install BottlecapDave's HACS integration → real half-hourly consumption sensors replace Riemann `load_today` (better Predbat load forecast). IOG dispatch info also picked up if relevant later. Agile rate path stays on the public URL either way. | ⏸️ account live, gated on Phase 3 verified |
 | **3. Hardware reconciliation** | Capture real cloud API traffic via mitmproxy, reconcile mock contract, switch to live endpoint, fix what breaks | ⏸️ install booked 2026-05-19 |

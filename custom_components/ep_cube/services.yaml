@@ -34,16 +34,16 @@ set_tou_schedule:
 # Predbat shim services
 #
 # Phase 2b.1 contract: these services take no parameters beyond an optional
-# device_id. The planned window, target SoC, and enable flags are read from
-# Predbat's dummy entities (sensor.predbat_<inv>_*) by the handler. Predbat
-# itself fires these services with empty data {}.
+# device_id. The planned window and target SoC are read from Predbat's
+# published entities (predbat.best_charge_* / predbat.best_export_*) by the
+# handler. Predbat itself fires these services with empty data {}.
 #
 # Manual invocation from Developer Tools is for diagnostics only — without
 # Predbat publishing a plan first, the start/freeze handlers will warn-and-skip.
 
 charge_start:
   name: Predbat — start charging
-  description: Force grid charge until the end of Predbat's planned charge window. Reads start/end and target SoC from sensor.predbat_<inv>_charge_*.
+  description: Force grid charge until the end of Predbat's planned charge window. Reads start/end and target SoC from predbat.best_charge_*.
 
 charge_stop:
   name: Predbat — stop charging
@@ -51,7 +51,7 @@ charge_stop:
 
 discharge_start:
   name: Predbat — start discharging
-  description: Force grid discharge until the end of Predbat's planned discharge window. Reads start/end and target SoC from sensor.predbat_<inv>_discharge_*.
+  description: Force grid discharge until the end of Predbat's planned export window. Reads start/end and target SoC from predbat.best_export_*.
 
 discharge_stop:
   name: Predbat — stop discharging

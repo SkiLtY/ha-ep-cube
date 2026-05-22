@@ -40,18 +40,6 @@ WORK_STATUS_TO_OPERATING_MODE: dict[str, str] = {
     v: k for k, v in OPERATING_MODE_TO_WORK_STATUS.items()
 }
 
-# Predbat publishes its planned window to entities of the form
-#   sensor.{PREDBAT_ENTITY_PREFIX}_{PREDBAT_INVERTER_TYPE}_{index}_{name}
-# These must match the values configured in predbat_config/apps.yaml
-# (`inverter_type` + `ge_inverter` index). Single-device assumption; multi-device
-# support is deferred to Phase 4.
-PREDBAT_ENTITY_PREFIX = "predbat"
-PREDBAT_INVERTER_TYPE = "EP_CUBE"
-PREDBAT_INVERTER_INDEX = 0
-
-# Predbat writes "23:59:00" / "23:59:00" to a window pair to mean "no plan".
-PREDBAT_NO_PLAN_TIME = "23:59:00"
-
 # Synthetic prices for the shim's tier translation. The real cloud's TOU is
 # price-tier based — we tell it "off-peak" / "mid-peak" / "peak" with prices,
 # and the inverter optimises. Predbat's mental model is "charge/hold/discharge"
