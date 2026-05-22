@@ -376,6 +376,28 @@ class EPCubeClient:
             self._get(f"/api/device/getSwitchMode?devId={self._dev_id}"),
         )
 
+        # Dump the raw response so we can verify field names + scaling
+        # against what the EP Cube mobile app shows. Enable via:
+        #   logger:
+        #     logs:
+        #       custom_components.ep_cube.api: debug
+        # in configuration.yaml. Cheap (one log line per poll, gated at
+        # debug level) but invaluable when load/solar/grid numbers don't
+        # match the app — the mobile endpoint shape was reverse-engineered
+        # piecemeal and we have no saved HAR to cross-check against.
+        _LOGGER.debug(
+            "homeDeviceInfo raw: solarPower=%r gridPower=%r "
+            "backUpPower=%r nonBackUpPower=%r loadPower=%r "
+            "backUpFlowPower=%r nonBackUpFlowPower=%r "
+            "batterySoc=%r batteryCurrentElectricity=%r workStatus=%r",
+            info.get("solarPower"), info.get("gridPower"),
+            info.get("backUpPower"), info.get("nonBackUpPower"),
+            info.get("loadPower"),
+            info.get("backUpFlowPower"), info.get("nonBackUpFlowPower"),
+            info.get("batterySoc"), info.get("batteryCurrentElectricity"),
+            info.get("workStatus"),
+        )
+
         solar_w = _power_to_w(info.get("solarPower"))
         backup_w = _power_to_w(info.get("backUpPower"))
         nonbackup_w = _power_to_w(info.get("nonBackUpPower"))
