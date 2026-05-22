@@ -27,15 +27,21 @@
 # `_2`, `_3`, ... to disambiguate).
 #
 #   sensor.ep_cube_battery_soc            sensor.ep_cube_battery_power
-#   sensor.ep_cube_battery_soc_kwh        sensor.ep_cube_grid_power
-#   sensor.ep_cube_battery_capacity_kwh   sensor.ep_cube_solar_power
+#   sensor.ep_cube_battery_energy         sensor.ep_cube_grid_power
+#   sensor.ep_cube_battery_capacity       sensor.ep_cube_solar_power
 #   sensor.ep_cube_reserve_soc            sensor.ep_cube_load_power
 #   sensor.ep_cube_operating_mode
 #   select.ep_cube_operating_mode
 #   number.ep_cube_self_consumption_reserve
 #   number.ep_cube_backup_reserve
-#   switch.ep_cube_allow_grid_charge
+#   switch.ep_cube_allow_charging_from_grid
 #   switch.ep_cube_daylight_saving_time
+#
+# Note: HA derives entity-ID slugs from each entity's **display name**, not
+# the integration's internal translation_key — so e.g. the sensor with
+# translation_key=battery_soc_kwh ships as `sensor.ep_cube_battery_energy`
+# (display name "Battery energy"). The IDs above are what a fresh install
+# produces; if you renamed any of them HA will preserve your override.
 
 title: EP Cube
 views:
@@ -101,9 +107,9 @@ views:
         entities:
           - entity: sensor.ep_cube_battery_soc
             name: State of charge
-          - entity: sensor.ep_cube_battery_soc_kwh
+          - entity: sensor.ep_cube_battery_energy
             name: Energy stored
-          - entity: sensor.ep_cube_battery_capacity_kwh
+          - entity: sensor.ep_cube_battery_capacity
             name: Usable capacity
           - entity: sensor.ep_cube_reserve_soc
             name: Active reserve
@@ -121,10 +127,13 @@ views:
       # ───────────────────────────────────────────────────────────────
       # Self-consumption mode controls
       # ───────────────────────────────────────────────────────────────
+      # Conditional state values are the select's raw option keys
+      # (self_consumption / time_of_use / backup), not the localized
+      # display strings — `select` entities expose the key, not the label.
       - type: conditional
         conditions:
           - entity: select.ep_cube_operating_mode
-            state: Self-consumption
+            state: self_consumption
         card:
           type: entities
           title: Self-consumption settings
@@ -139,7 +148,7 @@ views:
       - type: conditional
         conditions:
           - entity: select.ep_cube_operating_mode
-            state: Backup
+            state: backup
         card:
           type: entities
           title: Backup settings
@@ -159,7 +168,7 @@ views:
       - type: conditional
         conditions:
           - entity: select.ep_cube_operating_mode
-            state: Time of use
+            state: time_of_use
         card:
           type: entities
           title: Time-of-use settings
@@ -167,7 +176,7 @@ views:
           entities:
             - entity: number.ep_cube_self_consumption_reserve
               name: Outside-window reserve SoC
-            - entity: switch.ep_cube_allow_grid_charge
+            - entity: switch.ep_cube_allow_charging_from_grid
               name: Allow charging from grid
             - entity: switch.ep_cube_daylight_saving_time
               name: Daylight saving time
