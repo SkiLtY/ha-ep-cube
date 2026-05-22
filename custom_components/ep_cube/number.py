@@ -10,10 +10,20 @@ auto-revert at end_time honours the user's new ground truth. The active
 override window itself is not disturbed.
 
 Ranges: cube documentation does not publish hard limits. Empirically the
-EP Cube app accepts 5-100 for self-consumption and 10-100 for backup;
-defaults observed on this account are 20 and 100 respectively. Widening
-the lower bound to 5 / 10 keeps the slider permissive without offering
-clearly-rejected values.
+EP Cube app enforces 5-100 for self-consumption and **50-100 for backup**
+(observed 2026-05-22: cube accepts lower wire values but the app refuses
+to let users select below 50, presumably because going lower defeats the
+purpose of backup-reserve). We match the app's bounds rather than the
+cube's permissive wire behaviour to prevent users from stranding the
+battery below a usable backup threshold via the HA slider.
+
+Cube quirk (2026-05-22): `switchMode` silently ignores reserve-SoC fields
+that don't match the active `workStatus`. Setting `backupPowerReserveSoc`
+while in self-consumption mode writes 200 OK but the readback shows the
+old value — i.e. the cube discards the change. We pre-check the active
+mode before each write and refuse with a clear message if it doesn't
+match. The user must switch to the corresponding mode (via the
+operating-mode select) before tweaking that reserve.
 """
 from __future__ import annotations
 
@@ -35,7 +45,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import DeviceStatus, EPCubeClient, EPCubeError, payload_from_switch_mode_read
-from .const import DOMAIN
+from .const import DOMAIN, OPERATING_MODE_BACKUP, OPERATING_MODE_SELF_CONSUMPTION
 from .coordinator import EPCubeCoordinator
 from .services import PredbatShim
 
@@ -46,6 +56,7 @@ _LOGGER = logging.getLogger(__name__)
 class EPCubeReserveDescription(NumberEntityDescription):
     value_fn: Callable[[DeviceStatus], float]
     wire_field: str
+    required_mode: str  # cube silently ignores writes for non-active-mode reserves
 
 
 RESERVES: tuple[EPCubeReserveDescription, ...] = (
@@ -59,17 +70,19 @@ RESERVES: tuple[EPCubeReserveDescription, ...] = (
         mode=NumberMode.SLIDER,
         value_fn=lambda s: s.self_consumption_reserve_pct,
         wire_field="selfConsumptioinReserveSoc",
+        required_mode=OPERATING_MODE_SELF_CONSUMPTION,
     ),
     EPCubeReserveDescription(
         key="backup_reserve",
         translation_key="backup_reserve",
         native_unit_of_measurement=PERCENTAGE,
-        native_min_value=10,
+        native_min_value=50,
         native_max_value=100,
         native_step=1,
         mode=NumberMode.SLIDER,
         value_fn=lambda s: s.backup_reserve_pct,
         wire_field="backupPowerReserveSoc",
+        required_mode=OPERATING_MODE_BACKUP,
     ),
 )
 
@@ -118,6 +131,23 @@ class EPCubeReserveNumber(CoordinatorEntity[EPCubeCoordinator], NumberEntity):
         )
 
     @property
+    def available(self) -> bool:
+        """Slider is only available when the cube is in the matching mode.
+
+        Cube silently ignores reserve writes that don't match the active
+        workStatus (see TROUBLESHOOTING.md), so we surface the constraint
+        at the UI level — the slider greys out on the device card when
+        in the wrong mode. The pre-check in async_set_native_value remains
+        as a defensive backstop for direct service calls.
+        """
+        if not super().available or self.coordinator.data is None:
+            return False
+        return (
+            self.coordinator.data.operating_mode
+            == self.entity_description.required_mode
+        )
+
+    @property
     def native_value(self) -> float | None:
         if self.coordinator.data is None:
             return None
@@ -126,6 +156,17 @@ class EPCubeReserveNumber(CoordinatorEntity[EPCubeCoordinator], NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         wire_value = str(int(value))
         field = self.entity_description.wire_field
+        required_mode = self.entity_description.required_mode
+        current_mode = (
+            self.coordinator.data.operating_mode if self.coordinator.data else None
+        )
+        if current_mode != required_mode:
+            raise HomeAssistantError(
+                f"cannot adjust {self.entity_description.key} while operating "
+                f"mode is {current_mode!r} — cube silently ignores reserve "
+                f"writes outside the matching mode. Switch the operating-mode "
+                f"select to {required_mode!r} first."
+            )
         try:
             live = await self._client.get_switch_mode()
             payload = payload_from_switch_mode_read(
