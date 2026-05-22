@@ -45,7 +45,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import DeviceStatus, EPCubeClient, EPCubeError, payload_from_switch_mode_read
-from .const import DOMAIN, OPERATING_MODE_BACKUP, OPERATING_MODE_SELF_CONSUMPTION
+from .const import (
+    DOMAIN,
+    OPERATING_MODE_BACKUP,
+    OPERATING_MODE_SELF_CONSUMPTION,
+    OPERATING_MODE_TOU,
+)
 from .coordinator import EPCubeCoordinator
 from .services import PredbatShim
 
@@ -56,7 +61,10 @@ _LOGGER = logging.getLogger(__name__)
 class EPCubeReserveDescription(NumberEntityDescription):
     value_fn: Callable[[DeviceStatus], float]
     wire_field: str
-    required_mode: str  # cube silently ignores writes for non-active-mode reserves
+    # Operating modes in which the cube actually accepts writes for this
+    # reserve. Anything outside this set is rejected (silently — cube
+    # returns 200 OK but readback shows the old value, see TROUBLESHOOTING).
+    allowed_modes: tuple[str, ...]
 
 
 RESERVES: tuple[EPCubeReserveDescription, ...] = (
@@ -64,13 +72,17 @@ RESERVES: tuple[EPCubeReserveDescription, ...] = (
         key="self_consumption_reserve",
         translation_key="self_consumption_reserve",
         native_unit_of_measurement=PERCENTAGE,
-        native_min_value=5,
+        native_min_value=0,
         native_max_value=100,
         native_step=1,
         mode=NumberMode.SLIDER,
         value_fn=lambda s: s.self_consumption_reserve_pct,
         wire_field="selfConsumptioinReserveSoc",
-        required_mode=OPERATING_MODE_SELF_CONSUMPTION,
+        # TOU shares the self-consumption reserve as its "outside-window"
+        # fallback (see api.py::_reserve_for_mode). Permissive availability
+        # in TOU mode is provisional — if the cube rejects the write the
+        # pre-check + WriteVerificationError will surface that empirically.
+        allowed_modes=(OPERATING_MODE_SELF_CONSUMPTION, OPERATING_MODE_TOU),
     ),
     EPCubeReserveDescription(
         key="backup_reserve",
@@ -82,7 +94,7 @@ RESERVES: tuple[EPCubeReserveDescription, ...] = (
         mode=NumberMode.SLIDER,
         value_fn=lambda s: s.backup_reserve_pct,
         wire_field="backupPowerReserveSoc",
-        required_mode=OPERATING_MODE_BACKUP,
+        allowed_modes=(OPERATING_MODE_BACKUP,),
     ),
 )
 
@@ -144,7 +156,7 @@ class EPCubeReserveNumber(CoordinatorEntity[EPCubeCoordinator], NumberEntity):
             return False
         return (
             self.coordinator.data.operating_mode
-            == self.entity_description.required_mode
+            in self.entity_description.allowed_modes
         )
 
     @property
@@ -156,16 +168,16 @@ class EPCubeReserveNumber(CoordinatorEntity[EPCubeCoordinator], NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         wire_value = str(int(value))
         field = self.entity_description.wire_field
-        required_mode = self.entity_description.required_mode
+        allowed_modes = self.entity_description.allowed_modes
         current_mode = (
             self.coordinator.data.operating_mode if self.coordinator.data else None
         )
-        if current_mode != required_mode:
+        if current_mode not in allowed_modes:
             raise HomeAssistantError(
                 f"cannot adjust {self.entity_description.key} while operating "
                 f"mode is {current_mode!r} — cube silently ignores reserve "
                 f"writes outside the matching mode. Switch the operating-mode "
-                f"select to {required_mode!r} first."
+                f"select to one of {allowed_modes!r} first."
             )
         try:
             live = await self._client.get_switch_mode()

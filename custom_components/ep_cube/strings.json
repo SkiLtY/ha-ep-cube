@@ -50,7 +50,8 @@
       }
     },
     "switch": {
-      "allow_grid_charge": {"name": "Allow charging from grid"}
+      "allow_grid_charge": {"name": "Allow charging from grid"},
+      "daylight_saving_time": {"name": "Daylight saving time"}
     },
     "number": {
       "self_consumption_reserve": {"name": "Self-consumption reserve"},

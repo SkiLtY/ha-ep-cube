@@ -101,6 +101,7 @@ class DeviceStatus:
     allow_grid_charge: bool  # mirrors cube's allowChargingXiaGrid
     self_consumption_reserve_pct: float  # always-on self-consumption mode reserve
     backup_reserve_pct: float            # always-on backup mode reserve
+    dst_active: bool                     # mirrors cube's dayLightSavingTime
 
 
 # ----------------------------------------------------------------------
@@ -393,6 +394,7 @@ class EPCubeClient:
         self_reserve = float(mode.get("selfConsumptioinReserveSoc", 0) or 0)
         backup_reserve = float(mode.get("backupPowerReserveSoc", 0) or 0)
         allow_grid_charge = str(mode.get("allowChargingXiaGrid", "1")) == "1"
+        dst_active = bool(mode.get("dayLightSavingTime", False))
 
         return DeviceStatus(
             soc_pct=float(info.get("batterySoc", 0)),
@@ -407,6 +409,7 @@ class EPCubeClient:
             allow_grid_charge=allow_grid_charge,
             self_consumption_reserve_pct=self_reserve,
             backup_reserve_pct=backup_reserve,
+            dst_active=dst_active,
         )
 
     async def get_switch_mode(self) -> dict[str, Any]:

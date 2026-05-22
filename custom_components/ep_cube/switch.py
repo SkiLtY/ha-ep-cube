@@ -1,20 +1,27 @@
 """EP Cube switch entities.
 
-`switch.ep_cube_allow_grid_charge` mirrors the cube's `allowChargingXiaGrid`
-flag (the EP Cube app's "Allow charging from grid" toggle). Reads from the
-coordinator; writes go through `client.switch_mode` with the field
-overridden via `payload_from_switch_mode_read`.
+Two switches both restricted to TOU mode (the EP Cube app only surfaces
+them there, and empirically the cube cloud silently ignores writes for
+these fields outside TOU — same constraint pattern as the reserve numbers,
+see TROUBLESHOOTING.md):
 
-Shim interaction: unlike the operating-mode select which abandons any
-active shim override (mode-switch is a big semantic move), a grid-charge
-toggle just patches the captured baseline so the shim's eventual revert
-matches the user's new ground truth. No mid-window disruption.
+- `switch.ep_cube_allow_grid_charge` mirrors `allowChargingXiaGrid` —
+  wire-typed as string ("1"/"0").
+- `switch.ep_cube_daylight_saving_time` mirrors `dayLightSavingTime` —
+  wire-typed as native bool.
+
+Shim interaction: writes patch the shim's captured baseline so an active
+override's auto-revert honours the user's new ground truth (no mid-window
+disruption — same model as the reserve numbers).
 """
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -22,12 +29,43 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import EPCubeClient, EPCubeError, payload_from_switch_mode_read
-from .const import DOMAIN
+from .api import DeviceStatus, EPCubeClient, EPCubeError, payload_from_switch_mode_read
+from .const import DOMAIN, OPERATING_MODE_TOU
 from .coordinator import EPCubeCoordinator
 from .services import PredbatShim
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EPCubeSwitchDescription(SwitchEntityDescription):
+    value_fn: Callable[[DeviceStatus], bool]
+    wire_field: str
+    wire_on: Any   # "1" for string-typed fields, True for bool-typed fields
+    wire_off: Any  # "0" / False respectively
+    allowed_modes: tuple[str, ...]
+
+
+SWITCHES: tuple[EPCubeSwitchDescription, ...] = (
+    EPCubeSwitchDescription(
+        key="allow_grid_charge",
+        translation_key="allow_grid_charge",
+        value_fn=lambda s: s.allow_grid_charge,
+        wire_field="allowChargingXiaGrid",
+        wire_on="1",
+        wire_off="0",
+        allowed_modes=(OPERATING_MODE_TOU,),
+    ),
+    EPCubeSwitchDescription(
+        key="daylight_saving_time",
+        translation_key="daylight_saving_time",
+        value_fn=lambda s: s.dst_active,
+        wire_field="dayLightSavingTime",
+        wire_on=True,
+        wire_off=False,
+        allowed_modes=(OPERATING_MODE_TOU,),
+    ),
+)
 
 
 async def async_setup_entry(
@@ -37,18 +75,20 @@ async def async_setup_entry(
 ) -> None:
     data = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
-        [EPCubeAllowGridChargeSwitch(
+        EPCubeSwitch(
             coordinator=data["coordinator"],
             client=data["client"],
             shim=data["shim"],
             entry_id=entry.entry_id,
-        )]
+            description=desc,
+        )
+        for desc in SWITCHES
     )
 
 
-class EPCubeAllowGridChargeSwitch(CoordinatorEntity[EPCubeCoordinator], SwitchEntity):
+class EPCubeSwitch(CoordinatorEntity[EPCubeCoordinator], SwitchEntity):
     _attr_has_entity_name = True
-    _attr_translation_key = "allow_grid_charge"
+    entity_description: EPCubeSwitchDescription
 
     def __init__(
         self,
@@ -57,11 +97,13 @@ class EPCubeAllowGridChargeSwitch(CoordinatorEntity[EPCubeCoordinator], SwitchEn
         client: EPCubeClient,
         shim: PredbatShim,
         entry_id: str,
+        description: EPCubeSwitchDescription,
     ) -> None:
         super().__init__(coordinator)
+        self.entity_description = description
         self._client = client
         self._shim = shim
-        self._attr_unique_id = f"{entry_id}_allow_grid_charge"
+        self._attr_unique_id = f"{entry_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry_id)},
             name="EP Cube",
@@ -70,31 +112,53 @@ class EPCubeAllowGridChargeSwitch(CoordinatorEntity[EPCubeCoordinator], SwitchEn
         )
 
     @property
+    def available(self) -> bool:
+        """Only available in modes that actually accept the write — see
+        module docstring for the constraint origin."""
+        if not super().available or self.coordinator.data is None:
+            return False
+        return (
+            self.coordinator.data.operating_mode
+            in self.entity_description.allowed_modes
+        )
+
+    @property
     def is_on(self) -> bool | None:
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.allow_grid_charge
+        return self.entity_description.value_fn(self.coordinator.data)
 
     async def async_turn_on(self, **kwargs) -> None:
-        await self._write(True)
+        await self._write(self.entity_description.wire_on)
 
     async def async_turn_off(self, **kwargs) -> None:
-        await self._write(False)
+        await self._write(self.entity_description.wire_off)
 
-    async def _write(self, allow: bool) -> None:
-        wire_value = "1" if allow else "0"
+    async def _write(self, wire_value: Any) -> None:
+        field = self.entity_description.wire_field
+        allowed_modes = self.entity_description.allowed_modes
+        current_mode = (
+            self.coordinator.data.operating_mode if self.coordinator.data else None
+        )
+        if current_mode not in allowed_modes:
+            raise HomeAssistantError(
+                f"cannot toggle {self.entity_description.key} while operating "
+                f"mode is {current_mode!r} — cube silently ignores writes for "
+                f"this field outside {allowed_modes!r}. Switch the operating-mode "
+                f"select first."
+            )
         try:
             live = await self._client.get_switch_mode()
             payload = payload_from_switch_mode_read(
                 self._client.dev_id,
                 live,
-                overrides={"allowChargingXiaGrid": wire_value},
+                overrides={field: wire_value},
             )
-            await self._client.switch_mode(
-                payload, verify_keys=("allowChargingXiaGrid",),
-            )
+            await self._client.switch_mode(payload, verify_keys=(field,))
         except EPCubeError as err:
-            raise HomeAssistantError(f"failed to set allow_grid_charge={allow}: {err}") from err
+            raise HomeAssistantError(
+                f"failed to set {self.entity_description.key}={wire_value}: {err}"
+            ) from err
 
-        self._shim.patch_baseline("allowChargingXiaGrid", wire_value)
+        self._shim.patch_baseline(field, wire_value)
         await self.coordinator.async_request_refresh()
