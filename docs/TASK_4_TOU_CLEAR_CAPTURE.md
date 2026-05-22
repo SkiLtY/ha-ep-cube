@@ -122,6 +122,75 @@ Assuming we find a one-write path, the change is small:
 - Update [`docs/TROUBLESHOOTING.md`](TROUBLESHOOTING.md)'s "Cube ignores
   tier-list diffs on TOU→non-TOU" row to note the new clean path.
 
+---
+
+## Resolution (2026-05-22, session 14)
+
+### What we found
+
+**iPad mitmproxy route is dead** — the EP Cube iOS app cert-pins, so
+TLS handshakes fail under mitmproxy regardless of OS trust store
+config. Pixel 10 Pro would compound this with Android's user-CA
+hostility, so we fell back to a HAR capture from the web portal at
+`monitoring-eu.epcube.com`. Captured as
+`<captures-private>/2026-05-22-tou-clear.har` (local-only — `.har` is gitignored
+because the file contains auth cookies).
+
+**The "Clear" button is purely client-side.** The HAR showed no
+endpoint hits for the Clear action — it just resets the browser
+form fields. Canadian Solar's data model doesn't have a server-side
+clear concept.
+
+**The web portal uses a per-mode endpoint family** with vastly smaller
+payloads than the unified `/api/device/switchMode`:
+
+```
+POST /v1/api/home/setSelfConsumption
+body: {"devId":"5613","workStatus":"1","selfConsumptioinReserveSoc":20}
+→ 200 {"status":200, "message":"Success"}
+```
+
+**But the mobile-app surface doesn't mirror it.** Blind probe via
+[`spikes/per_mode_endpoint_probe.py`](../spikes/per_mode_endpoint_probe.py):
+
+```
+POST /api/device/setSelfConsumption (Bearer auth)
+→ 404 {"message":"[/device/setSelfConsumption] Not Found"}
+```
+
+So the per-mode family is web-portal-only. We can't reach it from the
+mobile-app surface our integration uses, and we don't want to re-add
+the JSESSIONID web-portal auth path that Phase 3.2 just removed.
+
+### What we shipped
+
+**Drop step 1 of the revert.** The cleanup write that scrubbed
+shim-signature slots from the cube's TOU memory was always cosmetic —
+[`services.py::_snapshot_baseline()`](../custom_components/ep_cube/services.py)
+already strips stale shim slots on the next override's baseline
+capture (session 13's `_strip_shim_slots`). Functionally, dropping
+step 1 changes nothing: the cube ends up in the right mode, and the
+leftover slots get cleaned on the next Predbat activation.
+
+Cosmetic cost: a user who opens the EP Cube app between override
+sessions will see TOU memory slots at synthetic prices (£0.01, £0.20,
+or £1.00). User-facing constraint already documented in
+TROUBLESHOOTING.md — don't manually configure those prices.
+
+Cloud-write budget impact: revert is now 1 write instead of 2.
+≤12/day target effectively doubles to ≤24/day capacity, or — more
+realistically — drops actual usage to half its previous level.
+
+### Open follow-up
+
+`mock_server/main.py` does not currently simulate the
+TOU→non-TOU tier-list quirk (mock applies all writes faithfully).
+Live verification via `ep_cube.debug_freeze` is the only true test.
+Mock regression remains valid for the broader override→revert flow,
+just blind to this specific quirk. Documented as known mock gap;
+not adding mock coverage because the quirk's only consequence (stale
+shim slots in TOU memory) is now intentional rather than a bug.
+
 Total change should be ≤100 LOC across integration + mock.
 
 ## Deliverable

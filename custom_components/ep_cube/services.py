@@ -389,22 +389,30 @@ class PredbatShim:
     async def _revert_to_baseline(self) -> None:
         """Restore the snapshotted baseline.
 
-        Two-write revert workaround: the cube cloud silently ignores tier-list
-        diffs on TOU→non-TOU transitions (verified 2026-05-21). To clear the
-        override slot AND switch back to the baseline mode, we have to:
+        Single-write revert: POST `switchMode` with the captured baseline
+        payload (mode + reserves + the clean tier-list from snapshot time).
 
-          1. POST the cleaned schedule with workStatus=2 (stay in TOU) — cube
-             applies the tier-list diff because there's no mode transition.
-          2. POST workStatus=baseline (the mode-only transition). Schedule
-             write is ignored on the way out of TOU, but step 1 already
-             cleaned it.
+        - If baseline workStatus is TOU (`"2"`), no mode transition — cube
+          applies both the mode value and the tier-list diff in one go.
+        - If baseline workStatus is non-TOU (`"1"`/`"3"`), the cube switches
+          mode but silently drops the tier-list write (TOU→non-TOU transition
+          quirk verified 2026-05-21). The override's shim-signature slots
+          (£0.01 / £0.20 / £1.00 prices) stay in the cube's TOU memory until
+          the next override fires — `_snapshot_baseline()` strips them via
+          `_strip_shim_slots()` on capture, so they never compound and never
+          leak into a future baseline.
 
-        Optimisation: if baseline workStatus is already 2 (TOU), the cube
-        applies the diff in a single write — skip step 2.
+        Task #4 (2026-05-22) ruled out a single-call clean-revert path:
+          - Web portal HAR showed the "Clear" button is purely client-side.
+          - Web portal has per-mode endpoints (`/v1/api/home/setSelfConsumption`
+            etc.) with minimal payloads, but probing `/api/device/setSelfConsumption`
+            on the mobile-app surface returned 404 — the per-mode family is
+            web-portal-only.
 
-        See TROUBLESHOOTING.md for the cube cloud quirk; task #4 (mitmproxy
-        capture of the mobile-app's "Clear" button) may yield a one-write
-        path via a setTimeOfUse/clearTou endpoint.
+        Cosmetic cost: a user who opens the EP Cube app between override
+        sessions will see shim-signature TOU slots in the cube's stored
+        schedule (cleaned on the next Predbat activation). Functionally,
+        the cube is in the correct mode and behaves correctly.
         """
         self._cancel_revert()
         if self._baseline is None:
@@ -412,43 +420,13 @@ class PredbatShim:
             self._active_override = None
             return
 
-        baseline_work_status = str(self._baseline.get("workStatus", "1"))
-
-        # Step 1: write cleaned schedule with workStatus=2. If baseline already
-        # is TOU, the override dict is empty — same payload restores baseline
-        # mode + clean schedule in one write.
-        if baseline_work_status == WORK_STATUS_TOU:
-            payload = payload_from_switch_mode_read(self.client.dev_id, self._baseline)
-        else:
-            payload = payload_from_switch_mode_read(
-                self.client.dev_id, self._baseline,
-                overrides={"workStatus": WORK_STATUS_TOU},
-            )
+        payload = payload_from_switch_mode_read(self.client.dev_id, self._baseline)
         try:
             await self.client.switch_mode(payload)
         except EPCubeError as err:
             _LOGGER.error(
-                "revert step 1 (clean-in-TOU) FAILED — battery may be stuck on override. err=%s",
+                "revert FAILED — battery may be stuck on override. err=%s",
                 err,
-            )
-            raise
-
-        if baseline_work_status == WORK_STATUS_TOU:
-            self._active_override = None
-            return
-
-        # Step 2: mode-only transition back to baseline workStatus. Schedule
-        # write is ignored on this transition, but the schedule was cleaned in
-        # step 1 so the cube ends up in the right state regardless.
-        mode_switch_payload = payload_from_switch_mode_read(
-            self.client.dev_id, self._baseline
-        )
-        try:
-            await self.client.switch_mode(mode_switch_payload)
-        except EPCubeError as err:
-            _LOGGER.error(
-                "revert step 2 (mode-switch to %s) FAILED — cube left in TOU. err=%s",
-                baseline_work_status, err,
             )
             raise
         self._active_override = None
