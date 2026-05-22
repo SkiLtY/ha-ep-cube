@@ -63,13 +63,18 @@ views:
             - 189
             - 189
         use_new_flow_rate_model: true
-        w_decimals: 0
-        kw_decimals: 2
+        # Precision options use the card's `base_decimals` / `kilo_decimals`
+        # / `kilo_threshold` keys (NOT the w_decimals / kw_decimals /
+        # watt_threshold names that show up in older community examples —
+        # those are silently ignored and the card falls back to 1dp for
+        # kW). The two-dp kW format matches the EP Cube app's display.
+        base_decimals: 0       # watts: "810 W"
+        kilo_decimals: 2       # kilowatts: "2.36 kW"
+        kilo_threshold: 1000   # switch to kW above 1 kW
         min_flow_rate: 0.75
         max_flow_rate: 6
         max_expected_power: 6500   # 6.51 kWp array — clamps line speed at full output
         min_expected_power: 0.01
-        watt_threshold: 1000
         transparency_zero_lines: 0
         entities:
           battery:
