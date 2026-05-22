@@ -99,6 +99,17 @@ views:
             display_zero_state: true
           home:
             entity: sensor.ep_cube_load_power
+            # Without override_state the card derives home consumption
+            # from energy balance (solar + battery_out + grid_in -
+            # battery_in - grid_out) and uses `entity` only for the
+            # click-through "More info" dialog. Its derivation clamped
+            # to 0 on the EP Cube on first live render even though the
+            # entity itself read ~800 W (verified 2026-05-22 via
+            # Developer Tools → States). Bypass the derivation and use
+            # the integration's `load_power_w` directly — it's already
+            # backUpPower + nonBackUpPower from the cube, which is what
+            # the EP Cube mobile app shows as "Load".
+            override_state: true
             name: Home
             icon: mdi:home
             color_icon: true
