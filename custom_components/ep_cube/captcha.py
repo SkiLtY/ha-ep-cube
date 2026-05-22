@@ -73,6 +73,7 @@ async def login(
     base_url: str,
     username: str,
     password: str,
+    api_prefix: str = "/api",
     max_attempts: int = 3,
 ) -> str:
     """Run the full 4-POST login flow and return a Bearer token.
@@ -81,7 +82,7 @@ async def login(
     `LoginError` if the credentials are rejected. Network errors propagate
     as `aiohttp.ClientError`.
     """
-    base = base_url.rstrip("/")
+    base = base_url.rstrip("/") + "/" + api_prefix.strip("/")
 
     last_check_msg: str | None = None
     for attempt in range(1, max_attempts + 1):
@@ -97,7 +98,7 @@ async def login(
         point_json = _encrypt_point(x, _CAPTCHA_REPORT_Y, captcha["secretKey"])
         check = await _post_json(
             session,
-            f"{base}/api/open/common/captcha/check",
+            f"{base}/open/common/captcha/check",
             {
                 "clientUid": client_uid,
                 "token": captcha["token"],
@@ -132,6 +133,7 @@ def make_reauth_callback(
     base_url: str,
     username: str,
     password: str,
+    api_prefix: str = "/api",
 ):
     """Build a callable suitable for `EPCubeClient(reauth_callback=...)`.
 
@@ -150,6 +152,7 @@ def make_reauth_callback(
                     base_url=base_url,
                     username=username,
                     password=password,
+                    api_prefix=api_prefix,
                 )
             except (CaptchaSolveError, LoginError, aiohttp.ClientError) as err:
                 _LOGGER.warning("re-auth failed: %s", err)
@@ -329,7 +332,7 @@ async def _fetch_captcha(
 ) -> dict[str, Any]:
     body = await _post_json(
         session,
-        f"{base}/api/open/common/captcha/get",
+        f"{base}/open/common/captcha/get",
         {"clientUid": client_uid},
     )
     rep = _unwrap(body)
@@ -376,7 +379,7 @@ async def _do_login(
     """POST /api/open/common/login. Returns the Bearer token."""
     body = await _post_json(
         session,
-        f"{base}/api/open/common/login",
+        f"{base}/open/common/login",
         {
             "userName": username,
             "password": password,

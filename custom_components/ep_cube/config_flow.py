@@ -1,11 +1,18 @@
 """Config flow for EP Cube.
 
-User enters their EP Cube mobile-app email + password. The flow runs the
-4-POST captcha login (see captcha.py) to obtain a Bearer token, then
-fetches the device list to resolve devId / sgSn / capacity. Credentials
-are stored in the config entry; HA encrypts the file at rest. The token
-is cached too but is treated as best-effort — the api layer's reauth
-callback (see __init__.py) silently re-runs the login on 403.
+User picks their region (EU / US / JP) and enters EP Cube mobile-app
+email + password. The flow runs the 4-POST captcha login (see captcha.py)
+to obtain a Bearer token, then fetches the device list to resolve devId /
+sgSn / capacity. Credentials are stored in the config entry; HA encrypts
+the file at rest. The token is cached too but is treated as best-effort
+— the api layer's reauth callback (see __init__.py) silently re-runs the
+login on 403.
+
+Region maps to a (base_url, api_prefix) pair from const.REGIONS. The US
+region uses a different host AND path prefix ("/app-api" instead of
+"/api"), so both are stored on the entry and threaded through api.py +
+captcha.py. Picking "Other" lets advanced users supply a custom host +
+prefix (mock servers, dev forks).
 """
 from __future__ import annotations
 
@@ -25,24 +32,33 @@ from .api import (
 )
 from .captcha import CaptchaSolveError, LoginError, login as captcha_login
 from .const import (
+    CONF_API_PREFIX,
     CONF_BASE_URL,
     CONF_BEARER_TOKEN,
     CONF_CAPACITY_KWH,
     CONF_DEV_ID,
     CONF_PASSWORD,
+    CONF_REGION,
     CONF_SG_SN,
     CONF_USERNAME,
-    DEFAULT_BASE_URL,
+    DEFAULT_API_PREFIX,
+    DEFAULT_REGION,
     DOMAIN,
+    REGION_OTHER,
+    REGIONS,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+REGION_OPTIONS = [*REGIONS.keys(), REGION_OTHER]
 
 USER_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_USERNAME): str,
         vol.Required(CONF_PASSWORD): str,
-        vol.Required(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
+        vol.Required(CONF_REGION, default=DEFAULT_REGION): vol.In(REGION_OPTIONS),
+        vol.Optional(CONF_BASE_URL, default=""): str,
+        vol.Optional(CONF_API_PREFIX, default=""): str,
         vol.Optional(CONF_DEV_ID, default=""): str,
         vol.Optional(CONF_SG_SN, default=""): str,
     }
@@ -50,13 +66,22 @@ USER_SCHEMA = vol.Schema(
 
 
 class EPCubeConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 4
+    VERSION = 5
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            base_url = user_input[CONF_BASE_URL]
+            region = user_input[CONF_REGION]
+            if region == REGION_OTHER:
+                base_url = (user_input.get(CONF_BASE_URL) or "").strip()
+                api_prefix = (user_input.get(CONF_API_PREFIX) or "").strip() or DEFAULT_API_PREFIX
+                if not base_url:
+                    errors["base"] = "base_url_required"
+            else:
+                base_url = REGIONS[region]["base_url"]
+                api_prefix = REGIONS[region]["api_prefix"]
+
             username = user_input[CONF_USERNAME].strip()
             password = user_input[CONF_PASSWORD]
             dev_id_hint = user_input.get(CONF_DEV_ID) or ""
@@ -64,24 +89,30 @@ class EPCubeConfigFlow(ConfigFlow, domain=DOMAIN):
             session = async_get_clientsession(self.hass)
 
             bearer_token: str | None = None
-            try:
-                bearer_token = await captcha_login(
-                    session, base_url=base_url, username=username, password=password
-                )
-            except CaptchaSolveError as err:
-                _LOGGER.warning("config_flow captcha solve failed: %s", err)
-                errors["base"] = "captcha_failed"
-            except LoginError as err:
-                _LOGGER.warning("config_flow login rejected: %s", err)
-                errors["base"] = "invalid_auth"
-            except aiohttp.ClientError as err:
-                _LOGGER.warning("config_flow network error: %s", err)
-                errors["base"] = "cannot_connect"
+            if not errors:
+                try:
+                    bearer_token = await captcha_login(
+                        session,
+                        base_url=base_url,
+                        username=username,
+                        password=password,
+                        api_prefix=api_prefix,
+                    )
+                except CaptchaSolveError as err:
+                    _LOGGER.warning("config_flow captcha solve failed: %s", err)
+                    errors["base"] = "captcha_failed"
+                except LoginError as err:
+                    _LOGGER.warning("config_flow login rejected: %s", err)
+                    errors["base"] = "invalid_auth"
+                except aiohttp.ClientError as err:
+                    _LOGGER.warning("config_flow network error: %s", err)
+                    errors["base"] = "cannot_connect"
 
             if bearer_token:
                 client = EPCubeClient(
                     session=session,
                     base_url=base_url,
+                    api_prefix=api_prefix,
                     dev_id=dev_id_hint or "0",
                     sg_sn=sg_sn_hint or "0",
                     bearer_token=bearer_token,
@@ -113,7 +144,9 @@ class EPCubeConfigFlow(ConfigFlow, domain=DOMAIN):
                             self._abort_if_unique_id_configured()
 
                             entry_data = {
+                                CONF_REGION: region,
                                 CONF_BASE_URL: base_url,
+                                CONF_API_PREFIX: api_prefix,
                                 CONF_USERNAME: username,
                                 CONF_PASSWORD: password,
                                 CONF_BEARER_TOKEN: bearer_token,

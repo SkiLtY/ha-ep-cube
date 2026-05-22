@@ -5,13 +5,16 @@
         "data": {
           "username": "EP Cube account email",
           "password": "EP Cube account password",
-          "base_url": "Cloud API base URL (default: https://monitoring-eu.epcube.com)",
+          "region": "Region",
+          "base_url": "Custom base URL (only used when Region = Other)",
+          "api_prefix": "Custom API path prefix (only used when Region = Other; default /api)",
           "dev_id": "Device ID (optional — auto-picked if account has one device)",
           "sg_sn": "Device serial sgSn (optional — auto-picked if account has one device)"
         },
         "data_description": {
           "username": "The email address you use to log into the EP Cube mobile app",
-          "password": "Stored encrypted at rest by Home Assistant. Used silently in the background to refresh the cloud session when the access token expires."
+          "password": "Stored encrypted at rest by Home Assistant. Used silently in the background to refresh the cloud session when the access token expires.",
+          "region": "Pick the EP Cube cloud region matching your account: EU (monitoring-eu.epcube.com), US (epcube-monitoring.com), JP (monitoring-jp.epcube.com). Use Other to point at a custom endpoint (mock server / dev fork)."
         }
       }
     },
@@ -21,6 +24,7 @@
       "cannot_connect": "Cannot reach the cloud API at the supplied base URL",
       "no_devices": "Account is reachable but no devices are registered",
       "multiple_devices": "Multiple devices found — supply dev_id or sg_sn to disambiguate",
+      "base_url_required": "Region 'Other' requires a custom base URL",
       "unknown": "Unexpected error — check Home Assistant log"
     },
     "abort": {

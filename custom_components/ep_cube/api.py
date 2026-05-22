@@ -298,9 +298,14 @@ class EPCubeClient:
         bearer_token: str | None = None,
         capacity_kwh: float = 0.0,
         reauth_callback: ReauthCallback | None = None,
+        api_prefix: str = "/api",
     ) -> None:
         self._session = session
         self._base_url = base_url.rstrip("/")
+        # Path prefix the cloud expects. EU/JP use "/api"; US uses "/app-api".
+        # Stored without a trailing slash so the f-string call sites stay
+        # symmetric: f"{prefix}/device/..." regardless of region.
+        self._api_prefix = "/" + api_prefix.strip("/")
         self._dev_id = dev_id
         self._sg_sn = sg_sn
         self._bearer_token = bearer_token
@@ -371,9 +376,9 @@ class EPCubeClient:
         snapshot into a single DeviceStatus."""
         info, mode = await asyncio.gather(
             self._get(
-                f"/api/device/homeDeviceInfo?sgSn={self._sg_sn}&dayMonthYearFormat=YYYY-MM-DD"
+                f"{self._api_prefix}/device/homeDeviceInfo?sgSn={self._sg_sn}&dayMonthYearFormat=YYYY-MM-DD"
             ),
-            self._get(f"/api/device/getSwitchMode?devId={self._dev_id}"),
+            self._get(f"{self._api_prefix}/device/getSwitchMode?devId={self._dev_id}"),
         )
 
         solar_w = _power_to_w(info.get("solarPower"))
@@ -430,7 +435,7 @@ class EPCubeClient:
 
     async def get_switch_mode(self) -> dict[str, Any]:
         """Raw getSwitchMode — used by the shim for baseline snapshot."""
-        return await self._get(f"/api/device/getSwitchMode?devId={self._dev_id}")
+        return await self._get(f"{self._api_prefix}/device/getSwitchMode?devId={self._dev_id}")
 
     async def get_tou_schedule(self) -> dict[str, Any]:
         """Backwards-compat alias — getSwitchMode contains all schedule fields."""
@@ -438,7 +443,7 @@ class EPCubeClient:
 
     async def get_device_list(self) -> list[dict[str, Any]]:
         """Returns the array of devices on the account."""
-        data = await self._get("/api/device/deviceList")
+        data = await self._get(f"{self._api_prefix}/device/deviceList")
         if isinstance(data, list):
             return data
         return []
@@ -466,7 +471,7 @@ class EPCubeClient:
         """
         # Ensure devId is present.
         body = {**payload, "devId": str(self._dev_id)}
-        await self._post("/api/device/switchMode", json=body)
+        await self._post(f"{self._api_prefix}/device/switchMode", json=body)
         readback = await self.get_switch_mode()
         _verify_write(body, readback, verify_keys)
         return readback
