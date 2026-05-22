@@ -93,7 +93,7 @@ class DeviceStatus:
     soc_kwh: float
     capacity_kwh: float
     battery_power_w: float   # derived: solar + grid - load; >0 charging, <0 discharging
-    grid_power_w: float      # working assumption: >0 import, <0 export (unverified)
+    grid_power_w: float      # >0 import, <0 export (verified 2026-05-22: cube returned gridPower:"-17" → -170 W matched EP Cube app's export reading)
     solar_power_w: float
     load_power_w: float      # backUpPower + nonBackUpPower
     operating_mode: str      # "self_consumption" | "time_of_use" | "backup"
