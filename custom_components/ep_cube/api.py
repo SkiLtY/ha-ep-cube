@@ -98,6 +98,9 @@ class DeviceStatus:
     load_power_w: float      # backUpPower + nonBackUpPower
     operating_mode: str      # "self_consumption" | "time_of_use" | "backup"
     reserve_soc_pct: float   # per-mode reserve matching current workStatus
+    allow_grid_charge: bool  # mirrors cube's allowChargingXiaGrid
+    self_consumption_reserve_pct: float  # always-on self-consumption mode reserve
+    backup_reserve_pct: float            # always-on backup mode reserve
 
 
 # ----------------------------------------------------------------------
@@ -387,6 +390,9 @@ class EPCubeClient:
         work_status = str(info.get("workStatus", mode.get("workStatus", "1")))
         operating_mode = WORK_STATUS_TO_OPERATING_MODE.get(work_status, "unknown")
         reserve = _reserve_for_mode(operating_mode, mode)
+        self_reserve = float(mode.get("selfConsumptioinReserveSoc", 0) or 0)
+        backup_reserve = float(mode.get("backupPowerReserveSoc", 0) or 0)
+        allow_grid_charge = str(mode.get("allowChargingXiaGrid", "1")) == "1"
 
         return DeviceStatus(
             soc_pct=float(info.get("batterySoc", 0)),
@@ -398,6 +404,9 @@ class EPCubeClient:
             load_power_w=load_w,
             operating_mode=operating_mode,
             reserve_soc_pct=reserve,
+            allow_grid_charge=allow_grid_charge,
+            self_consumption_reserve_pct=self_reserve,
+            backup_reserve_pct=backup_reserve,
         )
 
     async def get_switch_mode(self) -> dict[str, Any]:

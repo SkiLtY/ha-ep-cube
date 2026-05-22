@@ -258,6 +258,19 @@ class PredbatShim:
         """Public cancel — used during integration teardown."""
         self._cancel_revert()
 
+    def patch_baseline(self, field: str, value: Any) -> None:
+        """Update a single field in the captured baseline.
+
+        Used when the user manually changes a switchMode field via switch
+        or number entities while a shim override is active — keeps the
+        baseline in sync with the user's new ground truth so the auto-revert
+        at end_time doesn't undo their change. No-op if no baseline is held
+        (in which case the next override will snapshot fresh and pick up
+        the new value naturally).
+        """
+        if self._baseline is not None:
+            self._baseline[field] = value
+
     def abandon_override(self) -> None:
         """Drop any active override without writing to the cube.
 
