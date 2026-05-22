@@ -80,7 +80,16 @@ views:
           battery:
             entity: sensor.ep_cube_battery_power
             state_of_charge: sensor.ep_cube_battery_soc
-            invert_state: false   # integration convention: +ve = charging
+            # The card's NATIVE convention (without invert) is
+            # negative=charging / positive=discharging — verified in
+            # power-flow-card-plus.js where toBattery = |min(value,0)|
+            # and fromBattery = max(value,0). Our integration uses the
+            # opposite (positive=charging, negative=discharging — see
+            # api.py DeviceStatus.battery_power_w), so we MUST invert
+            # the state for the card. Without this the flow dots
+            # animate Solar→Battery during discharge and Battery is
+            # mislabelled (↓ shown for charging instead of discharging).
+            invert_state: true
             name: Battery
             icon: mdi:battery
             display_state: two_way
