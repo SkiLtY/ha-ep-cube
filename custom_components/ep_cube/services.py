@@ -258,6 +258,19 @@ class PredbatShim:
         """Public cancel — used during integration teardown."""
         self._cancel_revert()
 
+    def abandon_override(self) -> None:
+        """Drop any active override without writing to the cube.
+
+        Used when a user takes manual control (e.g. via the operating-mode
+        select entity) while a shim window is still scheduled to revert.
+        Cancels the pending revert timer and clears override + baseline
+        state so the next Predbat call re-snapshots from the user's new
+        ground truth rather than overwriting it.
+        """
+        self._cancel_revert()
+        self._active_override = None
+        self._baseline = None
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------

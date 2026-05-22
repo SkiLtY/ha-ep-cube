@@ -38,6 +38,16 @@
       "load_power": {"name": "Load power"},
       "operating_mode": {"name": "Operating mode"},
       "reserve_soc": {"name": "Reserve SoC"}
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Operating mode",
+        "state": {
+          "self_consumption": "Self-consumption",
+          "time_of_use": "Time of use",
+          "backup": "Backup"
+        }
+      }
     }
   }
 }
