@@ -115,71 +115,74 @@ views:
             name: Active reserve
 
       # ───────────────────────────────────────────────────────────────
-      # Operating-mode picker (always visible — drives the cards below)
+      # Operating-mode picker + mode-specific controls
       # ───────────────────────────────────────────────────────────────
-      - type: entities
-        title: Operating mode
-        show_header_toggle: false
-        entities:
-          - entity: select.ep_cube_operating_mode
-            name: Mode
-
-      # ───────────────────────────────────────────────────────────────
-      # Self-consumption mode controls
-      # ───────────────────────────────────────────────────────────────
+      # Wrapped in a vertical-stack so HA's masonry treats them as a
+      # single unit. Without this, at wider window widths the masonry
+      # pushes the conditional settings card into its own column instead
+      # of sitting it directly below "Operating mode" — the active
+      # settings card now always lives immediately under the picker
+      # regardless of viewport.
+      #
       # Conditional state values are the select's raw option keys
       # (self_consumption / time_of_use / backup), not the localized
       # display strings — `select` entities expose the key, not the label.
-      - type: conditional
-        conditions:
-          - entity: select.ep_cube_operating_mode
-            state: self_consumption
-        card:
-          type: entities
-          title: Self-consumption settings
-          show_header_toggle: false
-          entities:
-            - entity: number.ep_cube_self_consumption_reserve
-              name: Reserve SoC
+      - type: vertical-stack
+        cards:
+          - type: entities
+            title: Operating mode
+            show_header_toggle: false
+            entities:
+              - entity: select.ep_cube_operating_mode
+                name: Mode
 
-      # ───────────────────────────────────────────────────────────────
-      # Backup mode controls
-      # ───────────────────────────────────────────────────────────────
-      - type: conditional
-        conditions:
-          - entity: select.ep_cube_operating_mode
-            state: backup
-        card:
-          type: entities
-          title: Backup settings
-          show_header_toggle: false
-          entities:
-            - entity: number.ep_cube_backup_reserve
-              name: Reserve SoC
+          # ───────── Self-consumption mode ─────────
+          - type: conditional
+            conditions:
+              - entity: select.ep_cube_operating_mode
+                state: self_consumption
+            card:
+              type: entities
+              title: Self-consumption settings
+              show_header_toggle: false
+              entities:
+                - entity: number.ep_cube_self_consumption_reserve
+                  name: Reserve SoC
 
-      # ───────────────────────────────────────────────────────────────
-      # Time-of-use mode controls
-      # ───────────────────────────────────────────────────────────────
-      # TOU shares the self-consumption reserve as its outside-window
-      # fallback (see custom_components/ep_cube/api.py::_reserve_for_mode).
-      # Cube acceptance of that write in TOU mode is provisional — the
-      # number entity is permissively available in TOU; if the cube
-      # rejects it the WriteVerificationError will surface in the HA log.
-      - type: conditional
-        conditions:
-          - entity: select.ep_cube_operating_mode
-            state: time_of_use
-        card:
-          type: entities
-          title: Time-of-use settings
-          show_header_toggle: false
-          entities:
-            - entity: number.ep_cube_self_consumption_reserve
-              name: Outside-window reserve SoC
-            - entity: switch.ep_cube_allow_charging_from_grid
-              name: Allow charging from grid
-            - entity: switch.ep_cube_daylight_saving_time
-              name: Daylight saving time
+          # ───────── Backup mode ─────────
+          - type: conditional
+            conditions:
+              - entity: select.ep_cube_operating_mode
+                state: backup
+            card:
+              type: entities
+              title: Backup settings
+              show_header_toggle: false
+              entities:
+                - entity: number.ep_cube_backup_reserve
+                  name: Reserve SoC
+
+          # ───────── Time-of-use mode ─────────
+          # TOU shares the self-consumption reserve as its outside-window
+          # fallback (see api.py::_reserve_for_mode). Cube acceptance of
+          # that write in TOU mode is provisional — the number entity is
+          # permissively available in TOU; if the cube rejects it the
+          # WriteVerificationError will surface in the HA log.
+          - type: conditional
+            conditions:
+              - entity: select.ep_cube_operating_mode
+                state: time_of_use
+            card:
+              type: entities
+              title: Time-of-use settings
+              show_header_toggle: false
+              entities:
+                - entity: number.ep_cube_self_consumption_reserve
+                  name: Outside-window reserve SoC
+                - entity: switch.ep_cube_allow_charging_from_grid
+                  name: Allow charging from grid
+                - entity: switch.ep_cube_daylight_saving_time
+                  name: Daylight saving time
             # TODO Phase 3.4 (f): TOU schedule editor goes here once
             # set_tou_schedule service ships (DST + workday/weekend +
             # per-slot prices, bypasses shim).

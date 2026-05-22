@@ -42,12 +42,20 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY_STORAGE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        # Cube reports SoC as integer percent, so kWh resolution is
+        # ~capacity/100 (≈0.2 kWh on a 20 kWh stack). 1dp is plenty;
+        # default 2dp implies misleading 10 Wh precision.
+        suggested_display_precision=1,
         value_fn=lambda s: s.soc_kwh,
     ),
     EPCubeSensorDescription(
         key="battery_capacity_kwh",
         translation_key="battery_capacity_kwh",
+        device_class=SensorDeviceClass.ENERGY_STORAGE,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        # Always batteryPackNum × 5.0 (integer pack count, fixed pack
+        # capacity). 1dp matches battery_soc_kwh for dashboard consistency.
+        suggested_display_precision=1,
         value_fn=lambda s: s.capacity_kwh,
     ),
     EPCubeSensorDescription(
