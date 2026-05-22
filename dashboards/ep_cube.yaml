@@ -178,7 +178,7 @@ views:
               show_header_toggle: false
               entities:
                 - entity: number.ep_cube_self_consumption_reserve
-                  name: Outside-window reserve SoC
+                  name: Reserve SoC
                 - entity: switch.ep_cube_allow_charging_from_grid
                   name: Allow charging from grid
                 - entity: switch.ep_cube_daylight_saving_time

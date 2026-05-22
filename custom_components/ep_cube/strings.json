@@ -44,7 +44,7 @@
         "name": "Operating mode",
         "state": {
           "self_consumption": "Self-consumption",
-          "time_of_use": "Time of use",
+          "time_of_use": "Time of Use",
           "backup": "Backup"
         }
       }
