@@ -16,6 +16,7 @@ import logging
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -62,6 +63,7 @@ class EPCubeOperatingModeSelect(CoordinatorEntity[EPCubeCoordinator], SelectEnti
     _attr_has_entity_name = True
     _attr_translation_key = "operating_mode"
     _attr_options = OPERATING_MODE_OPTIONS
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,

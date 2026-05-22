@@ -37,7 +37,7 @@ from homeassistant.components.number import (
     NumberMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE
+from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -71,6 +71,7 @@ RESERVES: tuple[EPCubeReserveDescription, ...] = (
     EPCubeReserveDescription(
         key="self_consumption_reserve",
         translation_key="self_consumption_reserve",
+        entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=PERCENTAGE,
         native_min_value=0,
         native_max_value=100,
@@ -87,6 +88,7 @@ RESERVES: tuple[EPCubeReserveDescription, ...] = (
     EPCubeReserveDescription(
         key="backup_reserve",
         translation_key="backup_reserve",
+        entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=PERCENTAGE,
         native_min_value=50,
         native_max_value=100,

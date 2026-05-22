@@ -23,6 +23,7 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -50,6 +51,7 @@ SWITCHES: tuple[EPCubeSwitchDescription, ...] = (
     EPCubeSwitchDescription(
         key="allow_grid_charge",
         translation_key="allow_grid_charge",
+        entity_category=EntityCategory.CONFIG,
         value_fn=lambda s: s.allow_grid_charge,
         wire_field="allowChargingXiaGrid",
         wire_on="1",
@@ -59,6 +61,7 @@ SWITCHES: tuple[EPCubeSwitchDescription, ...] = (
     EPCubeSwitchDescription(
         key="daylight_saving_time",
         translation_key="daylight_saving_time",
+        entity_category=EntityCategory.CONFIG,
         value_fn=lambda s: s.dst_active,
         wire_field="dayLightSavingTime",
         wire_on=True,

@@ -11,7 +11,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -56,6 +56,9 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         # Always batteryPackNum × 5.0 (integer pack count, fixed pack
         # capacity). 1dp matches battery_soc_kwh for dashboard consistency.
         suggested_display_precision=1,
+        # Static device spec, not a live metric — keep it off the primary
+        # dashboard surface.
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda s: s.capacity_kwh,
     ),
     EPCubeSensorDescription(
@@ -93,12 +96,20 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
     EPCubeSensorDescription(
         key="operating_mode",
         translation_key="operating_mode",
+        # Duplicated by select.ep_cube_operating_mode since session 16; kept
+        # as DIAGNOSTIC for read-only templates / automations referencing the
+        # mode string without going through the select.
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda s: s.operating_mode,
     ),
     EPCubeSensorDescription(
         key="reserve_soc",
         translation_key="reserve_soc",
         native_unit_of_measurement=PERCENTAGE,
+        # Duplicated by number.ep_cube_{self_consumption,backup}_reserve since
+        # session 16; this sensor reports whichever reserve the current
+        # operating mode uses, so it's still useful as a read-only summary.
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda s: s.reserve_soc_pct,
     ),
 )
