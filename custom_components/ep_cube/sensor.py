@@ -5,8 +5,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
-    SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
@@ -212,7 +212,18 @@ async def async_setup_entry(
     )
 
 
-class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], SensorEntity):
+class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], RestoreSensor):
+    """EP Cube sensor with persisted last value across HA restarts.
+
+    RestoreSensor: HA's recorder briefly shows the last-known state at
+    restart, but our sensor would otherwise override that with `None`
+    until the first coordinator poll lands (~30-60s), causing a flicker
+    where users see either "Unavailable" or a value that doesn't match
+    the cube. Persisting native_value via async_get_last_sensor_data()
+    keeps the displayed value stable across restarts until fresh data
+    arrives.
+    """
+
     _attr_has_entity_name = True
     entity_description: EPCubeSensorDescription
 
@@ -225,6 +236,7 @@ class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], SensorEntity):
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{entry_id}_{description.key}"
+        self._restored_value: float | str | None = None
         # Device name is intentionally stable across devIds so downstream
         # consumers (Predbat apps.yaml, ha_config/packages/ep_cube.yaml) can
         # reference entity IDs like `sensor.ep_cube_battery_soc` without
@@ -238,8 +250,13 @@ class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], SensorEntity):
             model="EP Cube",
         )
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_sensor_data()) is not None:
+            self._restored_value = last.native_value
+
     @property
     def native_value(self) -> float | str | None:
         if self.coordinator.data is None:
-            return None
+            return self._restored_value
         return self.entity_description.value_fn(self.coordinator.data)
