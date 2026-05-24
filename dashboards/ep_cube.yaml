@@ -208,6 +208,8 @@ views:
                   name: Allow charging from grid
                 - entity: switch.ep_cube_daylight_saving_time
                   name: Daylight saving time
-            # TODO Phase 3.4 (f): TOU schedule editor goes here once
-            # set_tou_schedule service ships (DST + workday/weekend +
-            # per-slot prices, bypasses shim).
+            # TODO Phase 4.1: TOU schedule editor goes here once
+            # set_tou_schedule service + Lovelace editor card ship
+            # (DST + workday/weekend + per-slot prices, bypasses shim).
+            # Bundled with a custom card so distribution goes via
+            # HACS-frontend.
