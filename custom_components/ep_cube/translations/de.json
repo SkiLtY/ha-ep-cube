@@ -41,7 +41,15 @@
       "solar_power": {"name": "Solarleistung"},
       "load_power": {"name": "Verbrauchsleistung"},
       "operating_mode": {"name": "Betriebsmodus"},
-      "reserve_soc": {"name": "Reserve-Ladezustand"}
+      "reserve_soc": {"name": "Reserve-Ladezustand"},
+      "solar_today": {"name": "Solar heute"},
+      "grid_today": {"name": "Netz heute"},
+      "backup_today": {"name": "Notstromverbraucher heute"},
+      "nonbackup_today": {"name": "Normalverbraucher heute"},
+      "self_consumption_pct": {"name": "Eigenverbrauchsquote"},
+      "solar_dc_today": {"name": "Solar DC heute"},
+      "solar_ac_today": {"name": "Solar AC heute"},
+      "winter_protect": {"name": "Winter-Schutz-Ladezustand"}
     },
     "select": {
       "operating_mode": {

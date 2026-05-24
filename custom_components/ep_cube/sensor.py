@@ -112,6 +112,92 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda s: s.reserve_soc_pct,
     ),
+    # ------------------------------------------------------------------
+    # Daily kWh counters from homeDeviceInfo (Phase 3.4 (i)).
+    # Cube's onboard accounting — matches the EP Cube mobile app's daily
+    # totals. TOTAL_INCREASING handles the midnight reset. Layered into
+    # monthly + yearly rollups via utility_meter in ha_config/packages/.
+    # ------------------------------------------------------------------
+    EPCubeSensorDescription(
+        key="solar_today",
+        translation_key="solar_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda s: s.solar_today_kwh,
+    ),
+    EPCubeSensorDescription(
+        key="grid_today",
+        translation_key="grid_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda s: s.grid_today_kwh,
+    ),
+    EPCubeSensorDescription(
+        key="backup_today",
+        translation_key="backup_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda s: s.backup_today_kwh,
+    ),
+    EPCubeSensorDescription(
+        key="nonbackup_today",
+        translation_key="nonbackup_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda s: s.nonbackup_today_kwh,
+    ),
+    EPCubeSensorDescription(
+        key="self_consumption_pct",
+        translation_key="self_consumption_pct",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=1,
+        value_fn=lambda s: s.self_consumption_pct,
+    ),
+    # Pre-/post-inverter daily kWh — exposes inverter losses over time.
+    # DIAGNOSTIC because solar_today already covers the headline number;
+    # most users don't need DC/AC split.
+    EPCubeSensorDescription(
+        key="solar_dc_today",
+        translation_key="solar_dc_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.solar_dc_today_kwh,
+    ),
+    EPCubeSensorDescription(
+        key="solar_ac_today",
+        translation_key="solar_ac_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.solar_ac_today_kwh,
+    ),
+    # Read-only DIAGNOSTIC for now — winterProtect appears in homeDeviceInfo
+    # but is NOT in getSwitchMode payload, so the write path is unconfirmed.
+    # Revisit promoting to a writable number entity after a future capture
+    # session reveals the write endpoint.
+    EPCubeSensorDescription(
+        key="winter_protect",
+        translation_key="winter_protect",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.winter_protect_pct,
+    ),
 )
 
 

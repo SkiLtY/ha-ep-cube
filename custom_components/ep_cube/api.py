@@ -102,6 +102,23 @@ class DeviceStatus:
     self_consumption_reserve_pct: float  # always-on self-consumption mode reserve
     backup_reserve_pct: float            # always-on backup mode reserve
     dst_active: bool                     # mirrors cube's dayLightSavingTime
+    # Daily kWh counters from homeDeviceInfo. Cube's onboard accounting,
+    # resets at midnight cube-local. Independent of HA's Riemann-integrated
+    # *_today sensors (which exist for Predbat) — these match the EP Cube
+    # mobile app's daily totals. Sign convention on grid_today_kwh is
+    # UNVERIFIED (cube returns a single number, not from/to split); compare
+    # against gridElectricity vs the app's "import today" / "export today"
+    # values during first-day live verification — if it's net, may need
+    # splitting based on sign. solar_dc / solar_ac are pre-/post-inverter
+    # for diagnostic surface only.
+    solar_today_kwh: float
+    grid_today_kwh: float
+    backup_today_kwh: float
+    nonbackup_today_kwh: float
+    solar_dc_today_kwh: float
+    solar_ac_today_kwh: float
+    self_consumption_pct: float   # cube's selfHelpRate — self-consumption KPI
+    winter_protect_pct: float     # winter SoC floor; read-only (write path unconfirmed)
 
 
 # ----------------------------------------------------------------------
@@ -431,6 +448,14 @@ class EPCubeClient:
             self_consumption_reserve_pct=self_reserve,
             backup_reserve_pct=backup_reserve,
             dst_active=dst_active,
+            solar_today_kwh=_kwh_str_to_float(info.get("solarElectricity")),
+            grid_today_kwh=_kwh_str_to_float(info.get("gridElectricity")),
+            backup_today_kwh=_kwh_str_to_float(info.get("backUpElectricity")),
+            nonbackup_today_kwh=_kwh_str_to_float(info.get("nonBackUpElectricity")),
+            solar_dc_today_kwh=_kwh_str_to_float(info.get("solarDcElectricity")),
+            solar_ac_today_kwh=_kwh_str_to_float(info.get("solarAcElectricity")),
+            self_consumption_pct=float(info.get("selfHelpRate", 0) or 0),
+            winter_protect_pct=float(info.get("winterProtect", 0) or 0),
         )
 
     async def get_switch_mode(self) -> dict[str, Any]:

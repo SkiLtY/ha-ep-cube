@@ -41,7 +41,15 @@
       "solar_power": {"name": "Solar power"},
       "load_power": {"name": "Load power"},
       "operating_mode": {"name": "Operating mode"},
-      "reserve_soc": {"name": "Reserve SoC"}
+      "reserve_soc": {"name": "Reserve SoC"},
+      "solar_today": {"name": "Solar today"},
+      "grid_today": {"name": "Grid today"},
+      "backup_today": {"name": "Backup loads today"},
+      "nonbackup_today": {"name": "Non-backup loads today"},
+      "self_consumption_pct": {"name": "Self-consumption"},
+      "solar_dc_today": {"name": "Solar DC today"},
+      "solar_ac_today": {"name": "Solar AC today"},
+      "winter_protect": {"name": "Winter protect SoC"}
     },
     "select": {
       "operating_mode": {

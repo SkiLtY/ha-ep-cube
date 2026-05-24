@@ -153,11 +153,14 @@ class DeviceState:
 
     # Energy today (kWh)
     solarElectricity: float = 0.35
+    solarDcElectricity: float = 0.36  # pre-inverter; slightly > AC
+    solarAcElectricity: float = 0.34  # post-inverter; slightly < DC
     backUpElectricity: float = 1.26
     nonBackUpElectricity: float = 0.00
     gridElectricity: float = 0.85
     generatorElectricity: float = 0.00
     evElectricity: float = 0.00
+    selfHelpRate: float = 65.0  # self-consumption KPI %
 
     # Mode + reserves (workStatus: "1"=self_consumption, "2"=tou, "3"=backup)
     workStatus: str = "1"
@@ -209,7 +212,9 @@ class DeviceState:
             "nonBackUpElectricity": self.nonBackUpElectricity,
             "backUpPower": _ckw(self.backUpPower),
             "backUpElectricity": self.backUpElectricity,
-            "selfHelpRate": 0.0,
+            "solarDcElectricity": self.solarDcElectricity,
+            "solarAcElectricity": self.solarAcElectricity,
+            "selfHelpRate": self.selfHelpRate,
             "isAlert": self.isAlert,
             "isFault": self.isFault,
             "defCreateTime": _now_envelope_ts(),

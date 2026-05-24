@@ -129,6 +129,16 @@ Entity IDs in the YAML assume the integration's default device name (`EP Cube`).
 
 The TOU card has a slot reserved for a per-tier schedule editor — that ships with Phase 4.1 (`set_tou_schedule` service + Lovelace editor card, post-HACS).
 
+## Energy dashboard
+
+The integration ships four daily kWh sensors that mirror the cube's onboard counters (`sensor.ep_cube_solar_today`, `..._grid_today`, `..._backup_today`, `..._nonbackup_today`) plus a self-consumption KPI (`sensor.ep_cube_self_consumption`). Monthly + yearly rollups are layered on these via `utility_meter` in [`ha_config/packages/ep_cube.yaml`](ha_config/packages/ep_cube.yaml) (entity IDs `sensor.ep_cube_{solar,grid,backup,nonbackup}_{month,year}`).
+
+To wire them into HA's built-in **Energy dashboard** (Settings → Dashboards → Energy):
+
+- **Solar production** → `sensor.ep_cube_solar_today`
+- **Grid consumption** → `sensor.ep_cube_grid_today` *(first-day check: the cube returns a single `gridElectricity` value with no documented sign split. If your number looks like net import-minus-export rather than gross import, file an issue — we may need to add a sign-aware split sensor.)*
+- **Home battery** → use the existing `sensor.ep_cube_battery_soc_kwh` for state-of-charge and the integrated Riemann `sensor.ep_cube_grid_import_energy` / `..._export_energy` for energy in/out if you want monotonic import/export totals.
+
 ## HA install type
 
 This stack uses **HA Container** (lightweight, no Supervisor). HA Container can't install add-ons — Predbat runs as a sibling **`nipar44/predbat_addon` Docker container** (the upstream-recommended replacement for the now-deprecated AppDaemon install path). See [docs/PREDBAT.md](docs/PREDBAT.md).

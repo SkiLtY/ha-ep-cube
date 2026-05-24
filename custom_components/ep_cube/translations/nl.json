@@ -41,7 +41,15 @@
       "solar_power": {"name": "Zonnevermogen"},
       "load_power": {"name": "Verbruiksvermogen"},
       "operating_mode": {"name": "Bedrijfsmodus"},
-      "reserve_soc": {"name": "Reserve-laadtoestand"}
+      "reserve_soc": {"name": "Reserve-laadtoestand"},
+      "solar_today": {"name": "Zon vandaag"},
+      "grid_today": {"name": "Net vandaag"},
+      "backup_today": {"name": "Back-up-verbruikers vandaag"},
+      "nonbackup_today": {"name": "Niet-back-up-verbruikers vandaag"},
+      "self_consumption_pct": {"name": "Zelfverbruik"},
+      "solar_dc_today": {"name": "Zon DC vandaag"},
+      "solar_ac_today": {"name": "Zon AC vandaag"},
+      "winter_protect": {"name": "Winterbescherming-laadtoestand"}
     },
     "select": {
       "operating_mode": {

@@ -41,7 +41,15 @@
       "solar_power": {"name": "Potenza solare"},
       "load_power": {"name": "Potenza carico"},
       "operating_mode": {"name": "Modalità operativa"},
-      "reserve_soc": {"name": "Riserva di carica"}
+      "reserve_soc": {"name": "Riserva di carica"},
+      "solar_today": {"name": "Solare oggi"},
+      "grid_today": {"name": "Rete oggi"},
+      "backup_today": {"name": "Carichi backup oggi"},
+      "nonbackup_today": {"name": "Carichi non-backup oggi"},
+      "self_consumption_pct": {"name": "Autoconsumo"},
+      "solar_dc_today": {"name": "Solare DC oggi"},
+      "solar_ac_today": {"name": "Solare AC oggi"},
+      "winter_protect": {"name": "Riserva protezione invernale"}
     },
     "select": {
       "operating_mode": {
