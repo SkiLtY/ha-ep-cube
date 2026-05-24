@@ -43,7 +43,7 @@
       "operating_mode": {"name": "Modalità operativa"},
       "reserve_soc": {"name": "Riserva di carica"},
       "solar_today": {"name": "Solare oggi"},
-      "grid_today": {"name": "Rete oggi"},
+      "grid_today": {"name": "Energia rete oggi (netta)"},
       "backup_today": {"name": "Carichi backup oggi"},
       "nonbackup_today": {"name": "Carichi non-backup oggi"},
       "self_consumption_pct": {"name": "Autoconsumo"},

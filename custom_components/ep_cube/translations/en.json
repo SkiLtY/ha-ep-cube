@@ -43,7 +43,7 @@
       "operating_mode": {"name": "Operating mode"},
       "reserve_soc": {"name": "Reserve SoC"},
       "solar_today": {"name": "Solar today"},
-      "grid_today": {"name": "Grid today"},
+      "grid_today": {"name": "Grid energy today (net)"},
       "backup_today": {"name": "Backup loads today"},
       "nonbackup_today": {"name": "Non-backup loads today"},
       "self_consumption_pct": {"name": "Self-consumption"},

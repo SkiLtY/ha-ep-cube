@@ -136,8 +136,11 @@ The integration ships four daily kWh sensors that mirror the cube's onboard coun
 To wire them into HA's built-in **Energy dashboard** (Settings → Dashboards → Energy):
 
 - **Solar production** → `sensor.ep_cube_solar_today`
-- **Grid consumption** → `sensor.ep_cube_grid_today` *(first-day check: the cube returns a single `gridElectricity` value with no documented sign split. If your number looks like net import-minus-export rather than gross import, file an issue — we may need to add a sign-aware split sensor.)*
-- **Home battery** → use the existing `sensor.ep_cube_battery_soc_kwh` for state-of-charge and the integrated Riemann `sensor.ep_cube_grid_import_energy` / `..._export_energy` for energy in/out if you want monotonic import/export totals.
+- **Grid consumption** → `sensor.ep_cube_import_today` (Riemann-integrated, monotonic import; resets daily)
+- **Return to grid** → `sensor.ep_cube_export_today` (Riemann-integrated, monotonic export; resets daily)
+- **Home battery** → use `sensor.ep_cube_battery_soc_kwh` for state-of-charge
+
+`sensor.ep_cube_grid_today` (the cube-native counter) reports total grid throughput as a single direction-ambiguous magnitude — on a pure-export day it equals export, on a pure-import day it equals import, on mixed days direction is hidden. Verified 2026-05-24 against log math. Useful as a "matches what the EP Cube app shows" reference, but NOT what you want in the Energy Dashboard — the Riemann sensors above have clean signed direction.
 
 ## HA install type
 

@@ -43,7 +43,7 @@
       "operating_mode": {"name": "Bedrijfsmodus"},
       "reserve_soc": {"name": "Reserve-laadtoestand"},
       "solar_today": {"name": "Zon vandaag"},
-      "grid_today": {"name": "Net vandaag"},
+      "grid_today": {"name": "Netenergie vandaag (netto)"},
       "backup_today": {"name": "Back-up-verbruikers vandaag"},
       "nonbackup_today": {"name": "Niet-back-up-verbruikers vandaag"},
       "self_consumption_pct": {"name": "Zelfverbruik"},

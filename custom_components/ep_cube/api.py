@@ -105,12 +105,15 @@ class DeviceStatus:
     # Daily kWh counters from homeDeviceInfo. Cube's onboard accounting,
     # resets at midnight cube-local. Independent of HA's Riemann-integrated
     # *_today sensors (which exist for Predbat) — these match the EP Cube
-    # mobile app's daily totals. Sign convention on grid_today_kwh is
-    # UNVERIFIED (cube returns a single number, not from/to split); compare
-    # against gridElectricity vs the app's "import today" / "export today"
-    # values during first-day live verification — if it's net, may need
-    # splitting based on sign. solar_dc / solar_ac are pre-/post-inverter
-    # for diagnostic surface only.
+    # mobile app's daily totals. grid_today_kwh is DIRECTION-AMBIGUOUS:
+    # verified 2026-05-24 against the log math (gridElectricity grew by
+    # 0.37 kWh over 8.5 min while gridPower held at ~-265W sustained
+    # export, matching the ~0.38 kWh export expected from a power integral).
+    # So on an export-heavy day it equals export, on an import-heavy day it
+    # equals import. For HA's Energy Dashboard (which needs clean import vs
+    # export split), use the Riemann-derived sensor.ep_cube_grid_import_energy
+    # / ..._export_energy in ha_config/packages/ep_cube.yaml.
+    # solar_dc / solar_ac are pre-/post-inverter for diagnostic surface only.
     solar_today_kwh: float
     grid_today_kwh: float
     backup_today_kwh: float
@@ -420,6 +423,19 @@ class EPCubeClient:
             "backup_w=%.0f nonbackup_w=%.0f load_w=%.0f battery_w=%.0f",
             {k: v for k, v in info.items() if not isinstance(v, (dict, list))},
             solar_w, grid_w, backup_w, nonbackup_w, load_w, battery_w,
+        )
+        # Companion dump of the getSwitchMode fields that DeviceStatus depends
+        # on (reserves + mode + grid-charge flag). homeDeviceInfo doesn't carry
+        # these, so without this line a reserve-side bug is invisible in logs.
+        _LOGGER.debug(
+            "getSwitchMode reserves: workStatus=%s self=%s backup=%s "
+            "evCharger=%s allowChargingXiaGrid=%s dst=%s",
+            mode.get("workStatus"),
+            mode.get("selfConsumptioinReserveSoc"),
+            mode.get("backupPowerReserveSoc"),
+            mode.get("evChargerReserveSoc"),
+            mode.get("allowChargingXiaGrid"),
+            mode.get("dayLightSavingTime"),
         )
 
         pack_num = info.get("batteryPackNum")

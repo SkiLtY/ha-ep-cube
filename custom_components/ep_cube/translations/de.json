@@ -43,7 +43,7 @@
       "operating_mode": {"name": "Betriebsmodus"},
       "reserve_soc": {"name": "Reserve-Ladezustand"},
       "solar_today": {"name": "Solar heute"},
-      "grid_today": {"name": "Netz heute"},
+      "grid_today": {"name": "Netzenergie heute (netto)"},
       "backup_today": {"name": "Notstromverbraucher heute"},
       "nonbackup_today": {"name": "Normalverbraucher heute"},
       "self_consumption_pct": {"name": "Eigenverbrauchsquote"},
