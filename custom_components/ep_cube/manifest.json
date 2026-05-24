@@ -1,12 +1,12 @@
 {
   "domain": "ep_cube",
   "name": "Canadian Solar EP Cube",
-  "version": "0.0.1",
-  "documentation": "https://github.com/SkiLtY/ha-ep-cube",
-  "issue_tracker": "https://github.com/SkiLtY/ha-ep-cube/issues",
   "codeowners": ["@SkiLtY"],
   "config_flow": true,
-  "iot_class": "cloud_polling",
+  "documentation": "https://github.com/SkiLtY/ha-ep-cube",
   "integration_type": "device",
-  "requirements": ["aiohttp>=3.9.0", "pycryptodome>=3.20.0"]
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/SkiLtY/ha-ep-cube/issues",
+  "requirements": ["aiohttp>=3.9.0", "pycryptodome>=3.20.0"],
+  "version": "0.0.1"
 }

@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0)"
+        required: true
+
+jobs:
+  release:
+    name: Build & attach release zip
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Verify manifest version matches tag
+        run: |
+          TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          TAG_VERSION="${TAG#v}"
+          MANIFEST_VERSION=$(python -c "import json; print(json.load(open('custom_components/ep_cube/manifest.json'))['version'])")
+          echo "Tag version:      ${TAG_VERSION}"
+          echo "Manifest version: ${MANIFEST_VERSION}"
+          if [ "${TAG_VERSION}" != "${MANIFEST_VERSION}" ]; then
+            echo "::error::Tag ${TAG} does not match manifest.json version ${MANIFEST_VERSION}. Bump the manifest before tagging."
+            exit 1
+          fi
+
+      - name: Build zip
+        run: |
+          cd custom_components/ep_cube
+          zip -r ../../ep_cube.zip . -x "__pycache__/*" "*/__pycache__/*" "*.pyc"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: ep_cube.zip
