@@ -49,7 +49,12 @@
       "self_consumption_pct": {"name": "Self-consumption"},
       "solar_dc_today": {"name": "Solar DC today"},
       "solar_ac_today": {"name": "Solar AC today"},
-      "winter_protect": {"name": "Winter protect SoC"}
+      "winter_protect": {"name": "Winter protect SoC"},
+      "earning_yesterday": {"name": "Earnings yesterday"},
+      "grid_outage_count": {"name": "Grid outages (lifetime)"},
+      "off_grid_seconds": {"name": "Off-grid runtime (lifetime)"},
+      "battery_charge_today": {"name": "Battery charged today"},
+      "battery_discharge_today": {"name": "Battery discharged today"}
     },
     "select": {
       "operating_mode": {

@@ -11,7 +11,13 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOfPower
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfEnergy,
+    UnitOfPower,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -197,6 +203,78 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         suggested_display_precision=0,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda s: s.winter_protect_pct,
+    ),
+    # ------------------------------------------------------------------
+    # Phase 3.5 — Bobsilvio-parity metric additions. All read-only, all
+    # piggybacking the existing homeDeviceInfo poll except battery_*_today
+    # which are computed client-side (cube doesn't expose signed flow).
+    # ------------------------------------------------------------------
+    # Yesterday's revenue per cube's own accounting. Currency-typed (£ on EU
+    # firmware via unitDefault). Most users on Predbat will get richer data
+    # via BottlecapDave's Octopus integration anyway — this is for users
+    # who configured tariff prices directly in the EP Cube app.
+    EPCubeSensorDescription(
+        key="earning_yesterday",
+        translation_key="earning_yesterday",
+        device_class=SensorDeviceClass.MONETARY,
+        # GBP hard-coded for now — non-EU users (US/JP/Other) will need a
+        # locale-aware unit. Deferred; cube returns the unit string in
+        # `unitDefault` on the same payload, but currency-class sensors
+        # don't tolerate runtime unit changes well in HA. Revisit when a
+        # non-GBP user files an issue.
+        native_unit_of_measurement="GBP",
+        state_class=SensorStateClass.TOTAL,
+        suggested_display_precision=2,
+        value_fn=lambda s: s.earning_yesterday,
+    ),
+    # Lifetime count of grid power failures the cube has observed. Useful
+    # for "how often is my grid actually going down?" automations. Diagnostic
+    # because it's a lifetime monotonic counter, not a live metric.
+    EPCubeSensorDescription(
+        key="grid_outage_count",
+        translation_key="grid_outage_count",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.grid_outage_count,
+    ),
+    # Lifetime seconds the cube has spent supplying backup loads off-grid.
+    # Duration-typed so HA can format as "X days Y hours" in the UI.
+    EPCubeSensorDescription(
+        key="off_grid_seconds",
+        translation_key="off_grid_seconds",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.off_grid_seconds,
+    ),
+    # Client-side delta-tracker on batteryCurrentElectricity. Cube doesn't
+    # expose signed battery flow — these are computed in EPCubeClient via
+    # successive-poll deltas above a 0.05 kWh jitter threshold. Resets at
+    # local midnight. Pair with utility_meter in ha_config/packages/ for
+    # monthly/yearly rollups (see Phase 3.5 commit). Note: lifetime totals
+    # are intentionally not surfaced — they would only persist across HA
+    # restarts via RestoreSensor + state seeding, which we'd implement in
+    # Phase 4.2 alongside the queryDataElectricityV2 capture work.
+    EPCubeSensorDescription(
+        key="battery_charge_today",
+        translation_key="battery_charge_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda s: s.battery_charge_today_kwh,
+    ),
+    EPCubeSensorDescription(
+        key="battery_discharge_today",
+        translation_key="battery_discharge_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda s: s.battery_discharge_today_kwh,
     ),
 )
 

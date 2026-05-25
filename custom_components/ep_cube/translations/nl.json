@@ -49,7 +49,12 @@
       "self_consumption_pct": {"name": "Zelfverbruik"},
       "solar_dc_today": {"name": "Zon DC vandaag"},
       "solar_ac_today": {"name": "Zon AC vandaag"},
-      "winter_protect": {"name": "Winterbescherming-laadtoestand"}
+      "winter_protect": {"name": "Winterbescherming-laadtoestand"},
+      "earning_yesterday": {"name": "Inkomsten gisteren"},
+      "grid_outage_count": {"name": "Stroomonderbrekingen (totaal)"},
+      "off_grid_seconds": {"name": "Off-grid tijd (totaal)"},
+      "battery_charge_today": {"name": "Batterij vandaag geladen"},
+      "battery_discharge_today": {"name": "Batterij vandaag ontladen"}
     },
     "select": {
       "operating_mode": {

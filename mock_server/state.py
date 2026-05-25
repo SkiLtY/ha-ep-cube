@@ -247,6 +247,14 @@ class DeviceState:
             "winterProtect": 85,
             "winterMode": 0,
             "off_ON_Grid_Hint": "Mock cloud — current behaviour explanation goes here.",
+            # Phase 3.5 — Bobsilvio-parity fields. gridPowerFailureNum +
+            # offGridPowerSupplyTime are above (lines 201-202); earning fields
+            # added here. unitDefault/unitSmallest/unitMulti included for
+            # forward-compat with the eventual currency-locale work.
+            "earningYesterday": 1.23,
+            "unitDefault": "£",
+            "unitSmallest": "p",
+            "unitMulti": "100",
         }
 
     def to_switch_mode(self) -> dict[str, Any]:

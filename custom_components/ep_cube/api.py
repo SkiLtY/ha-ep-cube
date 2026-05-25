@@ -31,6 +31,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import aiohttp
@@ -122,6 +123,18 @@ class DeviceStatus:
     solar_ac_today_kwh: float
     self_consumption_pct: float   # cube's selfHelpRate — self-consumption KPI
     winter_protect_pct: float     # winter SoC floor; read-only (write path unconfirmed)
+    # Bobsilvio-parity additions (Phase 3.5). Three direct-from-cloud fields
+    # piggyback on the existing homeDeviceInfo poll, plus two client-side
+    # accumulators that delta-track batteryCurrentElectricity between polls
+    # (Bobsilvio uses the same approach in their state.py — the cloud doesn't
+    # expose pre-split battery flow on this endpoint). Lifetime totals are
+    # NOT added here — they need the queryDataElectricityV2 endpoint we have
+    # not yet captured (deferred to Phase 4.2 / 5).
+    earning_yesterday: float       # £ — cube's own revenue accounting (currency from unitDefault)
+    grid_outage_count: int         # gridPowerFailureNum — diagnostic; lifetime count
+    off_grid_seconds: int          # offGridPowerSupplyTime — diagnostic; lifetime seconds on backup
+    battery_charge_today_kwh: float    # client-side delta-tracker; resets at midnight local
+    battery_discharge_today_kwh: float # client-side delta-tracker; resets at midnight local
 
 
 # ----------------------------------------------------------------------
@@ -331,6 +344,16 @@ class EPCubeClient:
         self._bearer_token = bearer_token
         self._capacity_kwh = capacity_kwh
         self._reauth_callback = reauth_callback
+        # Battery flow delta-tracker state (Phase 3.5). Cube exposes
+        # batteryCurrentElectricity (current stored energy, kWh) but not
+        # signed charge/discharge flow. We delta-track between successive
+        # polls — positive delta = charge, negative = discharge — into
+        # per-day accumulators that reset on local midnight. Same approach
+        # Bobsilvio uses; threshold (0.05 kWh) filters API jitter.
+        self._battery_flow_last_kwh: float | None = None
+        self._battery_charge_today_kwh: float = 0.0
+        self._battery_discharge_today_kwh: float = 0.0
+        self._battery_flow_last_reset: date = date.today()
 
     # ------------------------------------------------------------------
     # Identity
@@ -389,6 +412,39 @@ class EPCubeClient:
                 return
 
     # ------------------------------------------------------------------
+    # Battery flow tracker
+    # ------------------------------------------------------------------
+    # Noise threshold (kWh). Below this, treat as measurement jitter and
+    # leave _battery_flow_last_kwh anchored so a slow real drift still
+    # eventually crosses the threshold and gets counted. Matches Bobsilvio.
+    _BATTERY_FLOW_THRESHOLD_KWH = 0.05
+
+    def _update_battery_flow(self, battery_now_kwh: float) -> None:
+        """Delta-track batteryCurrentElectricity into daily charge/discharge
+        accumulators. Reset at local midnight. First call after restart just
+        anchors the reference value — no delta is counted (we don't know how
+        long since the last poll)."""
+        today = date.today()
+        if today != self._battery_flow_last_reset:
+            self._battery_charge_today_kwh = 0.0
+            self._battery_discharge_today_kwh = 0.0
+            self._battery_flow_last_reset = today
+
+        if self._battery_flow_last_kwh is None:
+            self._battery_flow_last_kwh = battery_now_kwh
+            return
+
+        delta = battery_now_kwh - self._battery_flow_last_kwh
+        if delta >= self._BATTERY_FLOW_THRESHOLD_KWH:
+            self._battery_charge_today_kwh += delta
+            self._battery_flow_last_kwh = battery_now_kwh
+        elif delta <= -self._BATTERY_FLOW_THRESHOLD_KWH:
+            self._battery_discharge_today_kwh += abs(delta)
+            self._battery_flow_last_kwh = battery_now_kwh
+        # else: jitter — leave anchor unchanged so a slow drift accumulates
+        # toward the threshold across polls
+
+    # ------------------------------------------------------------------
     # Reads
     # ------------------------------------------------------------------
     async def get_status(self) -> DeviceStatus:
@@ -442,6 +498,11 @@ class EPCubeClient:
         if isinstance(pack_num, int) and pack_num > 0:
             self._capacity_kwh = pack_num * EP_CUBE_PACK_KWH
 
+        # Update the client-side battery-flow accumulators before constructing
+        # the DeviceStatus so the snapshot contains the freshly-updated values.
+        battery_kwh_now = _kwh_str_to_float(info.get("batteryCurrentElectricity"))
+        self._update_battery_flow(battery_kwh_now)
+
         work_status = str(info.get("workStatus", mode.get("workStatus", "1")))
         operating_mode = WORK_STATUS_TO_OPERATING_MODE.get(work_status, "unknown")
         reserve = _reserve_for_mode(operating_mode, mode)
@@ -472,6 +533,11 @@ class EPCubeClient:
             solar_ac_today_kwh=_kwh_str_to_float(info.get("solarAcElectricity")),
             self_consumption_pct=float(info.get("selfHelpRate", 0) or 0),
             winter_protect_pct=float(info.get("winterProtect", 0) or 0),
+            earning_yesterday=float(info.get("earningYesterday", 0) or 0),
+            grid_outage_count=int(info.get("gridPowerFailureNum", 0) or 0),
+            off_grid_seconds=int(info.get("offGridPowerSupplyTime", 0) or 0),
+            battery_charge_today_kwh=self._battery_charge_today_kwh,
+            battery_discharge_today_kwh=self._battery_discharge_today_kwh,
         )
 
     async def get_switch_mode(self) -> dict[str, Any]:

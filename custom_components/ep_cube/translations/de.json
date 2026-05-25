@@ -49,7 +49,12 @@
       "self_consumption_pct": {"name": "Eigenverbrauchsquote"},
       "solar_dc_today": {"name": "Solar DC heute"},
       "solar_ac_today": {"name": "Solar AC heute"},
-      "winter_protect": {"name": "Winter-Schutz-Ladezustand"}
+      "winter_protect": {"name": "Winter-Schutz-Ladezustand"},
+      "earning_yesterday": {"name": "Erträge gestern"},
+      "grid_outage_count": {"name": "Stromausfälle (gesamt)"},
+      "off_grid_seconds": {"name": "Inselbetriebsdauer (gesamt)"},
+      "battery_charge_today": {"name": "Batterie heute geladen"},
+      "battery_discharge_today": {"name": "Batterie heute entladen"}
     },
     "select": {
       "operating_mode": {
