@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# HA dev volume — populated by `docker compose up`, never committed
+ha_config/
+
+# Mock server state dumps
+mock_server/state_dump/
+
+# Captured live API traffic (sensitive — bearer tokens etc)
+captures/
+*.har
+*.mitm
+
+# Local env
+.env
+.env.local
+
+# Local docker-compose overrides (used by deployments that add Predbat etc.)
+docker-compose.override.yml
+
+# Claude Code — personal overrides only
+.claude/settings.local.json

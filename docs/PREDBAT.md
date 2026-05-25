@@ -46,7 +46,7 @@ predbat:
     - TZ=Europe/London
 ```
 
-Predbat web UI ends up at `http://<host>:5052/`.
+Predbat web UI ends up at `http://<your-host>:5052/`.
 
 ### 3. `predbat_config/` layout
 
@@ -78,7 +78,7 @@ ha_key: <paste-the-long-lived-token>
 
 ### 4. Bring up Predbat
 
-On <host>:
+On the Docker host:
 
 ```bash
 cd /volume1/docker/ha-ep-cube
@@ -173,7 +173,7 @@ The plumbing in `apps.yaml` (`pv_forecast_today` / `_tomorrow` / `_d3` / `_d4`) 
    - Settings → Devices & Services → Add Integration → "Solcast PV Forecast" → paste API key.
    - The integration auto-discovers sites tied to the API key.
 
-5. **Restart Predbat** (`docker compose restart predbat` on <host>) so it picks up the new `sensor.solcast_pv_forecast_*` entities. Within one plan cycle (~5 min) the Plan tab's `PV kWh` column should show non-zero values.
+5. **Restart Predbat** (`docker compose restart predbat` on the Docker host) so it picks up the new `sensor.solcast_pv_forecast_*` entities. Within one plan cycle (~5 min) the Plan tab's `PV kWh` column should show non-zero values.
 
 ### What entities Solcast creates (so you know what to expect)
 

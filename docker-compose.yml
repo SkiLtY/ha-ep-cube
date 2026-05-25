@@ -23,18 +23,11 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
 
-  # Predbat as a standalone Docker service. Upstream Predbat retired the
-  # AppDaemon install path; nipar44/predbat_addon is the Docker fork they
-  # point at. apps.yaml + secrets.yaml live in ./predbat_config/.
-  predbat:
-    image: nipar44/predbat_addon:alpine-latest
-    container_name: ha-ep-cube-predbat
-    restart: unless-stopped
-    ports:
-      - "5052:5052"
-    volumes:
-      - ./predbat_config:/config:rw
-    depends_on:
-      - homeassistant
-    environment:
-      - TZ=Europe/London
+# Notes for contributors:
+#   - First `docker compose up -d` will create an empty ./ha_config/ that
+#     HA initialises on first boot. Add the integration via HA's UI and
+#     point it at `http://mock:8765` (Docker DNS), any username/password,
+#     device_id `ep_cube_test_01`.
+#   - Production deployments that also run Predbat add a
+#     docker-compose.override.yml with the predbat service + real volume
+#     mounts; compose auto-merges both files.

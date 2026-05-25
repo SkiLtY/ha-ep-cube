@@ -207,7 +207,7 @@ Both `strings.json` (source) and `translations/en.json` (runtime) must exist. HA
 
 ## Verified flows (Phase 2a, 2026-05-04)
 
-End-to-end smoke tests on <host> against the mock cloud:
+End-to-end smoke tests against the mock cloud:
 
 1. **`charge_start` →** override TOU written, baseline split correctly around the new slot, operating_mode flipped from `self_consumption` to `time_of_use`, `_predbat_override: true` flag present on the new slot.
 2. **`charge_stop` →** baseline restored exactly, operating_mode back to `self_consumption`, no `_predbat_override` slots remaining.
