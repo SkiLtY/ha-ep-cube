@@ -1,7 +1,8 @@
-"""Build home-assistant/brands target files from source assets in this dir.
+"""Build brand PNG assets from the SVG sources in this dir.
 
-Output goes to docs/brand/output/. These are the files that get copied into
-a fork of home-assistant/brands at custom_integrations/ep_cube/.
+Output goes directly into custom_components/ep_cube/brand/, which HA
+2026.3+ serves at /api/brands/integration/ep_cube/<image> (taking
+priority over the brands-repo CDN).
 
 Run from repo root: python docs/brand/build_assets.py
 """
@@ -14,8 +15,9 @@ from PIL import Image
 from resvg_py import svg_to_bytes
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE / "output"
-OUT.mkdir(exist_ok=True)
+REPO = HERE.parent.parent
+OUT = REPO / "custom_components" / "ep_cube" / "brand"
+OUT.mkdir(parents=True, exist_ok=True)
 
 
 def render_svg(svg_path: Path, width: int, height: int) -> Image.Image:
@@ -61,4 +63,4 @@ logo_dark = HERE / "logo-source-dark.svg"
 save(render_logo(logo_dark, 100), "dark_logo.png")
 save(render_logo(logo_dark, 200), "dark_logo@2x.png")
 
-print("\nDone. 8 files in docs/brand/output/")
+print(f"\nDone. 8 files in {OUT.relative_to(REPO)}/")

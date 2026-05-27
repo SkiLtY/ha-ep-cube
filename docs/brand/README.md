@@ -1,18 +1,24 @@
 # Brand assets
 
-Source assets for the eventual [`home-assistant/brands`](https://github.com/home-assistant/brands)
-PR that registers `ep_cube` with proper iconography in the HA UI and HACS listings.
+SVG sources + build script for the brand PNGs served at
+`/api/brands/integration/ep_cube/<image>` in HA 2026.3+.
 
-These files are **not shipped inside the HACS zip** (release workflow
-zips only `custom_components/ep_cube/`). They live here for version
-control + traceability when we build the brands PR.
+The rendered PNGs live in [`custom_components/ep_cube/brand/`](../../custom_components/ep_cube/brand/)
+and ship inside the HACS zip — HA detects them automatically and they
+take priority over the `home-assistant/brands` CDN. No `manifest.json`
+changes required.
+
+> Historical note: this repo originally targeted a PR to
+> [`home-assistant/brands`](https://github.com/home-assistant/brands)
+> (see [PR #10389](https://github.com/home-assistant/brands/pull/10389),
+> auto-closed). That route is no longer accepted for custom integrations
+> per the [Feb 2026 brands-proxy-api announcement](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api).
 
 ## Source files
 
-SVG sources are the only inputs — `build_assets.py` renders all 8
-brands target files from them. Filenames follow HA's target-theme
-convention (e.g. `icon-source-light.svg` = variant for the *light*
-theme = dark ink).
+SVG sources are the only build inputs — `build_assets.py` renders all 8
+PNGs from them. Filenames follow HA's target-theme convention (e.g.
+`icon-source-light.svg` = variant for the *light* theme = dark ink).
 
 | File | viewBox | Ink | Description |
 |---|---|---|---|
@@ -27,18 +33,10 @@ theme = dark ink).
 python docs/brand/build_assets.py
 ```
 
-Renders 8 PNGs into `docs/brand/output/` via `resvg-py` (vector → raster).
-Requires `pip install resvg-py pillow`. These are the exact files that
-get copied into `custom_integrations/ep_cube/` on the brands fork.
+Renders 8 PNGs into `custom_components/ep_cube/brand/` via `resvg-py`
+(vector → raster). Requires `pip install resvg-py pillow`.
 
-## Mapping to home-assistant/brands
-
-Target paths in the brands repo are under `custom_integrations/ep_cube/`.
-HA brands convention: filenames refer to **target theme**, not artwork
-colour — `logo.png` works on light backgrounds (= black ink) and
-`dark_logo.png` works on dark backgrounds (= white ink).
-
-| Brands target | Output size | Rendered from |
+| Output PNG | Size | Rendered from |
 |---|---|---|
 | `icon.png` | 256 × 256 | `icon-source-light.svg` |
 | `icon@2x.png` | 512 × 512 | `icon-source-light.svg` |
@@ -49,11 +47,11 @@ colour — `logo.png` works on light backgrounds (= black ink) and
 | `dark_logo.png` | 242 × 100 | `logo-source-dark.svg` |
 | `dark_logo@2x.png` | 484 × 200 | `logo-source-dark.svg` |
 
-All output PNGs are RGBA with transparent backgrounds.
+All outputs are RGBA with transparent backgrounds.
 
-## Brand acknowledgement
+## Source provenance
 
-`home-assistant/brands` accepts third-party manufacturer logos by
-convention. The PR description should acknowledge that the assets are
-sourced from Canadian Solar's public EP Cube brand pack and included
-under the brands repo's third-party-manufacturer convention.
+PNGs are rendered from Canadian Solar's official EP Cube logo downloads:
+https://www.epcube.com/en-UK/support/document?tagCode=canadian-solar-ep-cube-logos
+The integration is independent — not affiliated with or endorsed by
+Canadian Solar.
