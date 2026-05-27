@@ -52,7 +52,7 @@ docker compose up -d --build mock
 - `devId="5613"`, `sgSn="100100007001257120126"`
 - 20 kWh nominal (4× 5 kWh packs), firmware V1.2.2, EREC G99
 - SoC 55 % (11.0 kWh stored), Solar 1.20 kW, Load 0.80 kW (all backUp), Grid 0.00 kW
-- Mode `"1"` (Self-Consumption), reserves: self=10 %, backup=100 %, ev=50 %
+- Mode `"1"` (Self-Consumption), reserves: self=20 %, backup=100 %, ev=50 %
 - TOU schedule pre-populated weekday-only: off-peak 00:30–04:30 @ 0.05, mid 04:30–16:00 @ 0.25, peak 16:00–19:00 @ 0.40
 
 ## Dev-only endpoints (state injection + inspection)

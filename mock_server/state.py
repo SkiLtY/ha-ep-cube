@@ -164,7 +164,7 @@ class DeviceState:
 
     # Mode + reserves (workStatus: "1"=self_consumption, "2"=tou, "3"=backup)
     workStatus: str = "1"
-    selfConsumptioinReserveSoc: int = 10  # sic — typo preserved
+    selfConsumptioinReserveSoc: int = 20  # sic — typo preserved; matches cube's apparent reset default
     backupPowerReserveSoc: int = 100
     evChargerReserveSoc: int = 50
     allowChargingXiaGrid: str = "1"  # string on read, int on write — see TOU extract

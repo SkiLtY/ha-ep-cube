@@ -192,7 +192,7 @@ def build_switch_mode_payload(
     dev_id: str,
     *,
     work_status: str,
-    self_consumption_reserve_soc: int = 10,
+    self_consumption_reserve_soc: int = 20,
     backup_reserve_soc: int = 100,
     allow_grid_charge: bool = True,
     # TOU schedule (used regardless of work_status — cube stores it for when
@@ -288,7 +288,7 @@ def payload_from_switch_mode_read(
     payload = build_switch_mode_payload(
         dev_id=dev_id,
         work_status=str(read_state.get("workStatus", "1")),
-        self_consumption_reserve_soc=int(read_state.get("selfConsumptioinReserveSoc") or 10),
+        self_consumption_reserve_soc=int(read_state.get("selfConsumptioinReserveSoc") or 20),
         backup_reserve_soc=int(read_state.get("backupPowerReserveSoc") or 100),
         allow_grid_charge=str(read_state.get("allowChargingXiaGrid", "1")) == "1",
         peak_slots=slots("peakTimeList"),
