@@ -31,7 +31,7 @@
 
 ---
 
-## ✨ What you get
+## ✨ What You Get
 
 - 🔋 **22 sensors + 5 control entities** surfacing every cube state — SoC, power flow, mode, reserves, daily energy, lifetime stats
 - ⚡ **Predbat shim** translates rate-based commands into the cube's TOU model — full **Octopus Agile** optimisation, no manual scheduling
@@ -42,7 +42,7 @@
 
 ---
 
-## ⚡ Quick start
+## ⚡ Quick Start
 
 > [!IMPORTANT]
 > HACS auto-install isn't live yet (Phase 4 — pending the first `v0.1.0` tag). Manual install for now:
@@ -73,7 +73,7 @@ The integration runs the captcha-solving login flow, fetches your device list, a
 
 ---
 
-## 🌍 Supported regions
+## 🌍 Supported Regions
 
 | Region | Host | Status |
 |--------|------|--------|
@@ -100,7 +100,7 @@ The integration runs the captcha-solving login flow, fetches your device list, a
 
 ## ⚙️ Services
 
-### Predbat shim (`services.py`)
+### Predbat Shim (`services.py`)
 
 All shim services accept only an optional `device_id`. Window and SoC parameters are read from the entities Predbat publishes — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full contract.
 
@@ -130,7 +130,7 @@ Call `select.select_option` / `number.set_value` from automations.
 
 ---
 
-## 🧩 Helper config (optional)
+## 🧩 Helper Config (Optional)
 
 The integration installs cleanly on a default HA setup. Two optional extras live in [`examples/ha_config/`](examples/ha_config/):
 
@@ -164,7 +164,7 @@ The TOU card has a slot reserved for a per-tier schedule editor — shipping wit
 
 ---
 
-## ⚡ Energy dashboard
+## ⚡ Energy Dashboard
 
 The integration ships four daily kWh sensors mirroring the cube's onboard counters, plus a self-consumption KPI. Monthly/yearly rollups are added via `utility_meter` in the helper package.
 
@@ -185,7 +185,7 @@ Wire them into HA's **Energy dashboard** (Settings → Dashboards → Energy):
 <details>
 <summary><h2>🛠️ For contributors</h2></summary>
 
-### 💡 Why this exists
+### 💡 Why This Exists
 
 The EP Cube has **no documented local API** — no Modbus, no MQTT. All control goes through Canadian Solar's cloud via mobile-app endpoints.
 
@@ -245,7 +245,7 @@ ha-ep-cube/
 └── docker-compose.yml              ← HA + mock-server stack
 ```
 
-### 🚀 Dev setup
+### 🚀 Dev Setup
 
 **Requires Docker.**
 
@@ -272,7 +272,7 @@ Add the integration via HA's UI:
 
 The mock's `deviceList` resolves a single device (`devId=5613`); no manual ID needed.
 
-### Running tests
+### Running Tests
 
 ```bash
 pip install -r requirements-test.txt
@@ -283,7 +283,7 @@ Tests use [`pytest-homeassistant-custom-component`](https://github.com/MatthewFl
 
 Coverage spans: API client (envelope unwrapping, 403→re-auth retry, `switch_mode` verification), Predbat shim (idempotency, baseline snapshotting, auto-revert), `predbat_state` parsing, config flow (region routing + migration), and entity registration.
 
-### 🏗 HA install type
+### 🏗 HA Install Type
 
 This stack uses **HA Container** (lightweight, no Supervisor). HA Container cannot install add-ons — Predbat runs as a sibling **`nipar44/predbat_addon`** Docker container (the upstream-recommended replacement for the now-deprecated AppDaemon install path). See [docs/PREDBAT.md](docs/PREDBAT.md).
 
