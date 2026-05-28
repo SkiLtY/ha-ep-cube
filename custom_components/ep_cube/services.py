@@ -41,11 +41,13 @@ match the live override.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
 import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
@@ -57,6 +59,9 @@ from .api import (
     payload_from_switch_mode_read,
 )
 from .const import (
+    DEFAULT_TIER_PRICE_MID_PEAK,
+    DEFAULT_TIER_PRICE_OFF_PEAK,
+    DEFAULT_TIER_PRICE_PEAK,
     DOMAIN,
     OPERATING_MODE_TOU,
     SHIM_PRICE_MID_PEAK,
@@ -77,6 +82,7 @@ SERVICE_CHARGE_FREEZE = "charge_freeze"
 SERVICE_DISCHARGE_FREEZE = "discharge_freeze"
 SERVICE_IDLE = "idle"
 SERVICE_DEBUG_FREEZE = "debug_freeze"
+SERVICE_SET_TOU_SCHEDULE = "set_tou_schedule"
 
 # Override kinds
 KIND_CHARGE = "charge"
@@ -140,6 +146,133 @@ def _strip_shim_slots(state: dict[str, Any]) -> tuple[dict[str, Any], int]:
             stripped += len(original) - len(kept)
             cleaned[key] = kept
     return cleaned, stripped
+
+
+# ----------------------------------------------------------------------
+# set_tou_schedule — user-facing TOU writer
+# ----------------------------------------------------------------------
+# User-facing slot format is "HH:MM-HH:MM" (single dash, no price). The cube
+# wire format is "HH:MM_HH:MM_PRICE.PP" — we re-encode on write, preserving
+# the existing tier's price where possible (so editing slots doesn't silently
+# overwrite the user's tariff). Midnight-crossing slots are rejected (the
+# cube probably tolerates them but the wire format isn't documented for
+# end < start and Predbat's slots never need them either).
+_USER_SLOT_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$")
+
+# Default price per tier when the cube currently has no slots in that tier
+# (so no price to preserve). Match the mock + factory defaults — see const.py.
+_DEFAULT_PRICE_BY_USER_FIELD: dict[str, float] = {
+    "peak_workday": DEFAULT_TIER_PRICE_PEAK,
+    "mid_peak_workday": DEFAULT_TIER_PRICE_MID_PEAK,
+    "off_peak_workday": DEFAULT_TIER_PRICE_OFF_PEAK,
+    "peak_weekend": DEFAULT_TIER_PRICE_PEAK,
+    "mid_peak_weekend": DEFAULT_TIER_PRICE_MID_PEAK,
+    "off_peak_weekend": DEFAULT_TIER_PRICE_OFF_PEAK,
+}
+
+# Map user field name → cube wire tier-list key.
+_USER_FIELD_TO_WIRE_KEY: dict[str, str] = {
+    "peak_workday": "peakTimeList",
+    "mid_peak_workday": "midPeakTimeList",
+    "off_peak_workday": "offPeakTimeList",
+    "peak_weekend": "peakTimeListNonWorkDay",
+    "mid_peak_weekend": "midPeakTimeListNonWorkDay",
+    "off_peak_weekend": "offPeakTimeListNonWorkDay",
+}
+
+SET_TOU_SCHEDULE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("device_id"): cv.string,
+        vol.Required("peak_workday"): [cv.string],
+        vol.Required("mid_peak_workday"): [cv.string],
+        vol.Required("off_peak_workday"): [cv.string],
+        vol.Required("peak_weekend"): [cv.string],
+        vol.Required("mid_peak_weekend"): [cv.string],
+        vol.Required("off_peak_weekend"): [cv.string],
+        vol.Optional("switch_to_tou", default=False): cv.boolean,
+    }
+)
+
+
+def _parse_user_slot(slot: str) -> tuple[int, int]:
+    """Parse 'HH:MM-HH:MM' to (start_minutes, end_minutes). end > start required."""
+    m = _USER_SLOT_RE.match(slot)
+    if not m:
+        raise ValueError(
+            f"slot {slot!r} not in HH:MM-HH:MM format (e.g. '04:30-16:00')"
+        )
+    sh, sm, eh, em = (int(x) for x in m.groups())
+    start = sh * 60 + sm
+    end = eh * 60 + em
+    if end <= start:
+        raise ValueError(
+            f"slot {slot!r} end must be after start "
+            f"(midnight-crossing slots are not supported — split into two)"
+        )
+    return start, end
+
+
+def _validate_day_profile(
+    day_label: str,
+    tiers: dict[str, list[str]],
+) -> None:
+    """Validate per-tier format + within-tier overlap + cross-tier overlap.
+    Raises HomeAssistantError with a precise location on failure."""
+    parsed_per_tier: dict[str, list[tuple[int, int]]] = {}
+    for tier_label, slots in tiers.items():
+        parsed: list[tuple[int, int]] = []
+        for raw in slots:
+            try:
+                parsed.append(_parse_user_slot(raw))
+            except ValueError as err:
+                raise HomeAssistantError(f"{day_label} {tier_label}: {err}") from None
+        # Within-tier overlap (sort by start, check adjacent).
+        for prev, cur in zip(sorted(parsed), sorted(parsed)[1:]):
+            if cur[0] < prev[1]:
+                raise HomeAssistantError(
+                    f"{day_label} {tier_label}: overlapping slots "
+                    f"(slot starting {cur[0] // 60:02d}:{cur[0] % 60:02d} "
+                    f"begins before previous slot ends at "
+                    f"{prev[1] // 60:02d}:{prev[1] % 60:02d})"
+                )
+        parsed_per_tier[tier_label] = parsed
+
+    # Cross-tier overlap — minute coverage map. 1440 minutes max so cheap.
+    coverage: dict[int, str] = {}
+    for tier_label, parsed in parsed_per_tier.items():
+        for start, end in parsed:
+            for minute in range(start, end):
+                claimed_by = coverage.get(minute)
+                if claimed_by is not None and claimed_by != tier_label:
+                    raise HomeAssistantError(
+                        f"{day_label}: {tier_label} overlaps {claimed_by} at "
+                        f"{minute // 60:02d}:{minute % 60:02d}"
+                    )
+                coverage[minute] = tier_label
+
+
+def _existing_house_price(slots: list[Any], default: float) -> float:
+    """Return the price (per-2dp float) of the first non-shim slot in `slots`,
+    falling back to `default` if none. Used so set_tou_schedule writes
+    preserve whatever per-tier price the user already had on the cube."""
+    for raw in slots or []:
+        parts = str(raw).rsplit("_", 1)
+        if len(parts) != 2:
+            continue
+        price_token = parts[1]
+        if price_token in _SHIM_PRICE_TOKENS:
+            continue
+        try:
+            return float(price_token)
+        except ValueError:
+            continue
+    return default
+
+
+def _user_slot_to_wire(user_slot: str, price: float) -> str:
+    """Convert 'HH:MM-HH:MM' + price → 'HH:MM_HH:MM_PRICE.PP' wire string."""
+    start_str, end_str = user_slot.split("-", 1)
+    return build_slot(start_str, end_str, price)
 
 
 class PredbatShim:
@@ -589,6 +722,89 @@ async def async_register_services(hass: HomeAssistant) -> None:
         )
         await shim.charge_freeze(end_time=end_time)
 
+    async def handle_set_tou_schedule(call: ServiceCall) -> None:
+        """User-facing TOU schedule writer.
+
+        Replaces the workday + weekend non-DST tier lists in one cube write.
+        DST tier lists, reserve SoCs, day masks and per-tier prices are
+        preserved from the cube's current state. The cube's workStatus is
+        left alone unless `switch_to_tou=true`.
+
+        If a Predbat shim override is active when the user fires this
+        service, the override is abandoned (user-wins) — Predbat will
+        re-plan and re-apply if it still wants to on its next cycle.
+        """
+        shim = _resolve_shim(call)
+
+        user_tiers = {
+            field: list(call.data.get(field) or [])
+            for field in _USER_FIELD_TO_WIRE_KEY
+        }
+
+        # Validate format + within-tier + cross-tier overlap before any cloud I/O.
+        _validate_day_profile(
+            "workday",
+            {f: user_tiers[f] for f in ("peak_workday", "mid_peak_workday", "off_peak_workday")},
+        )
+        _validate_day_profile(
+            "weekend",
+            {f: user_tiers[f] for f in ("peak_weekend", "mid_peak_weekend", "off_peak_weekend")},
+        )
+
+        # User-wins: clear any in-flight shim override without writing to the
+        # cube (the override's revert would clobber what we're about to write).
+        if shim.is_active:
+            _LOGGER.info("set_tou_schedule: abandoning active shim override (user-wins)")
+            shim.abandon_override()
+
+        # Read current state so we preserve DST tier lists + day masks + prices.
+        try:
+            live = await shim.client.get_switch_mode()
+        except EPCubeError as err:
+            raise HomeAssistantError(
+                f"cannot read current cube state: {err}"
+            ) from err
+
+        # Drop stale shim-signature slots so they don't leak back into the write.
+        live_clean, _ = _strip_shim_slots(live)
+
+        # Per-tier price: preserve the cube's existing per-tier price; fall back
+        # to per-tier defaults if the tier is currently empty.
+        overrides: dict[str, Any] = {}
+        for user_field, wire_key in _USER_FIELD_TO_WIRE_KEY.items():
+            price = _existing_house_price(
+                live_clean.get(wire_key, []) or [],
+                _DEFAULT_PRICE_BY_USER_FIELD[user_field],
+            )
+            overrides[wire_key] = [
+                _user_slot_to_wire(s, price) for s in user_tiers[user_field]
+            ]
+
+        if call.data.get("switch_to_tou"):
+            overrides["workStatus"] = WORK_STATUS_TOU
+
+        payload = payload_from_switch_mode_read(
+            shim.client.dev_id, live_clean, overrides=overrides
+        )
+
+        try:
+            await shim.client.switch_mode(payload)
+        except EPCubeError as err:
+            _LOGGER.error("set_tou_schedule write failed: %s", err)
+            raise HomeAssistantError(f"cube rejected schedule write: {err}") from err
+
+        _LOGGER.info(
+            "set_tou_schedule applied: workday peak=%d mid=%d off=%d / "
+            "weekend peak=%d mid=%d off=%d / switch_to_tou=%s",
+            len(user_tiers["peak_workday"]),
+            len(user_tiers["mid_peak_workday"]),
+            len(user_tiers["off_peak_workday"]),
+            len(user_tiers["peak_weekend"]),
+            len(user_tiers["mid_peak_weekend"]),
+            len(user_tiers["off_peak_weekend"]),
+            bool(call.data.get("switch_to_tou")),
+        )
+
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_START, handle_charge_start, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_STOP, handle_charge_stop, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_START, handle_discharge_start, schema=SHIM_SCHEMA)
@@ -598,6 +814,12 @@ async def async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_IDLE, handle_idle, schema=SHIM_SCHEMA)
     hass.services.async_register(
         DOMAIN, SERVICE_DEBUG_FREEZE, handle_debug_freeze, schema=DEBUG_FREEZE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_TOU_SCHEDULE,
+        handle_set_tou_schedule,
+        schema=SET_TOU_SCHEDULE_SCHEMA,
     )
 
 
@@ -611,6 +833,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_DISCHARGE_FREEZE,
         SERVICE_IDLE,
         SERVICE_DEBUG_FREEZE,
+        SERVICE_SET_TOU_SCHEDULE,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

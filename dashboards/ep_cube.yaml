@@ -198,18 +198,23 @@ views:
               - entity: select.ep_cube_operating_mode
                 state: time_of_use
             card:
-              type: entities
-              title: Time-of-use settings
-              show_header_toggle: false
-              entities:
-                - entity: number.ep_cube_self_consumption_reserve
-                  name: Reserve SoC
-                - entity: switch.ep_cube_allow_charging_from_grid
-                  name: Allow charging from grid
-                - entity: switch.ep_cube_daylight_saving_time
-                  name: Daylight saving time
-            # TODO Phase 4.1: TOU schedule editor goes here once
-            # set_tou_schedule service + Lovelace editor card ship
-            # (DST + workday/weekend + per-slot prices, bypasses shim).
-            # Bundled with a custom card so distribution goes via
-            # HACS-frontend.
+              type: vertical-stack
+              cards:
+                - type: entities
+                  title: Time-of-use settings
+                  show_header_toggle: false
+                  entities:
+                    - entity: number.ep_cube_self_consumption_reserve
+                      name: Reserve SoC
+                    - entity: switch.ep_cube_allow_charging_from_grid
+                      name: Allow charging from grid
+                    - entity: switch.ep_cube_daylight_saving_time
+                      name: Daylight saving time
+                # Phase 4.1 — TOU schedule editor card (companion to the
+                # ep_cube.set_tou_schedule service). Install per README:
+                # copy www/ep-cube-tou-editor.js to /config/www/ and register
+                # as a JS module Lovelace resource. If the resource isn't
+                # registered yet, this card renders as "Custom element doesn't
+                # exist" — safe to ignore until you add the resource.
+                - type: custom:ep-cube-tou-editor
+                  title: TOU schedule

@@ -114,8 +114,18 @@ All shim services accept only an optional `device_id`. Window and SoC parameters
 | `ep_cube.discharge_freeze` | Alias for `charge_freeze`; end-time taken from export window |
 | `ep_cube.idle` | Restore baseline TOU schedule |
 
-> [!NOTE]
-> A `set_tou_schedule` service + Lovelace editor card is planned for Phase 4.1 (post-HACS). See [Roadmap](#-roadmap).
+### TOU Schedule (`set_tou_schedule`)
+
+Replaces the cube's workday + weekend non-DST tier lists in one POST. DST tier lists, day masks, reserves, and per-tier prices are preserved from the cube's current state. If a Predbat shim override is in flight when called, it is abandoned (user-wins).
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `peak_workday`, `mid_peak_workday`, `off_peak_workday` | `list[str]` | "HH:MM-HH:MM" slots for the workday tier |
+| `peak_weekend`, `mid_peak_weekend`, `off_peak_weekend` | `list[str]` | "HH:MM-HH:MM" slots for the weekend tier |
+| `switch_to_tou` | `bool` (default `false`) | If true, also flip the cube into Time-of-Use mode after writing |
+| `device_id` | `str` (optional) | Only required if multiple cubes are configured |
+
+Slots are validated server-side for format, within-tier overlap, and cross-tier overlap. Midnight-crossing slots (`23:00-01:00`) are rejected — split them across two slots. The bundled [TOU Schedule Editor card](#-dashboard) drives this service from a UI form.
 
 Mode switching and reserve-SoC writes are exposed as **entities**, not services:
 
@@ -154,13 +164,17 @@ The integration installs cleanly on a default HA setup. Two optional extras live
 **Install steps:**
 
 1. **Power Flow Card Plus** — HACS → Frontend → search "Power Flow Card Plus" by [flixlix](https://github.com/flixlix/power-flow-card-plus) → Install → restart HA.
-2. **New dashboard** — Settings → Dashboards → Add Dashboard → "New dashboard from scratch" (title: *EP Cube*, icon: `mdi:home-battery`).
-3. **Paste YAML** — open dashboard → Edit → ⋮ → *Raw configuration editor* → replace contents with [`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) → Save.
+2. **TOU Schedule Editor card** *(optional — only needed if you want to edit the cube's Time-of-Use slots from HA)*:
+   - Copy [`www/ep-cube-tou-editor.js`](www/ep-cube-tou-editor.js) into your HA config's `www/` directory (so the path is `/config/www/ep-cube-tou-editor.js`).
+   - Settings → Dashboards → Resources → ⊕ Add Resource → URL `/local/ep-cube-tou-editor.js`, type *JavaScript module* → Create.
+   - Restart your browser (hard refresh) so HA picks up the new module.
+3. **New dashboard** — Settings → Dashboards → Add Dashboard → "New dashboard from scratch" (title: *EP Cube*, icon: `mdi:home-battery`).
+4. **Paste YAML** — open dashboard → Edit → ⋮ → *Raw configuration editor* → replace contents with [`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) → Save.
 
 > [!TIP]
 > Entity IDs assume the default device name `EP Cube`. If you renamed the device, or have multiple cubes, edit the YAML accordingly — HA appends `_2`, `_3`, etc. to disambiguate.
 
-The TOU card has a slot reserved for a per-tier schedule editor — shipping with Phase 4.1 (`set_tou_schedule` + Lovelace editor card, post-HACS).
+The TOU schedule editor card (Phase 4.1, shipped in v0.6.0) writes the cube's workday + weekend tier lists in one POST via [`ep_cube.set_tou_schedule`](#-services). DST tier lists, reserves and per-tier prices are preserved server-side from the cube's current state.
 
 ---
 

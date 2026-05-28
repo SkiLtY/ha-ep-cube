@@ -69,3 +69,11 @@ WORK_STATUS_TO_OPERATING_MODE: dict[str, str] = {
 SHIM_PRICE_OFF_PEAK = 0.01
 SHIM_PRICE_MID_PEAK = 0.20
 SHIM_PRICE_PEAK = 1.00
+
+# User-tier defaults for set_tou_schedule when the cube's current state has
+# no existing slots in a tier (so no price to preserve). Match the mock
+# server's _default_tou and the cube's factory schedule. Deliberately
+# distinct from SHIM_PRICE_* so the strip-stale-shim logic ignores them.
+DEFAULT_TIER_PRICE_PEAK = 0.40
+DEFAULT_TIER_PRICE_MID_PEAK = 0.25
+DEFAULT_TIER_PRICE_OFF_PEAK = 0.05

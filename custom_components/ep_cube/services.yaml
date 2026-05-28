@@ -7,13 +7,67 @@
 # number.set_value from automations instead.
 set_tou_schedule:
   name: Set TOU schedule
-  description: Replace the time-of-use schedule. Advanced — prefer the Predbat shim services for tariff control.
+  description: >-
+    Replace the cube's time-of-use schedule with new workday + weekend slots.
+    DST tier lists, reserves and per-tier prices are preserved. Slot format:
+    "HH:MM-HH:MM" (24h, no midnight-crossing). Empty list clears that tier.
+    If a Predbat shim override is in flight it will be abandoned (user-wins).
   fields:
-    schedule:
-      name: Schedule
+    peak_workday:
+      name: Workday — peak slots
+      description: List of "HH:MM-HH:MM" slots for the workday peak tier.
       required: true
+      example: '["16:00-19:00"]'
       selector:
         object:
+    mid_peak_workday:
+      name: Workday — mid-peak slots
+      description: List of "HH:MM-HH:MM" slots for the workday mid-peak tier.
+      required: true
+      example: '["04:30-16:00", "19:00-23:30"]'
+      selector:
+        object:
+    off_peak_workday:
+      name: Workday — off-peak slots
+      description: List of "HH:MM-HH:MM" slots for the workday off-peak tier.
+      required: true
+      example: '["00:30-04:30"]'
+      selector:
+        object:
+    peak_weekend:
+      name: Weekend — peak slots
+      description: List of "HH:MM-HH:MM" slots for the weekend peak tier.
+      required: true
+      example: "[]"
+      selector:
+        object:
+    mid_peak_weekend:
+      name: Weekend — mid-peak slots
+      description: List of "HH:MM-HH:MM" slots for the weekend mid-peak tier.
+      required: true
+      example: "[]"
+      selector:
+        object:
+    off_peak_weekend:
+      name: Weekend — off-peak slots
+      description: List of "HH:MM-HH:MM" slots for the weekend off-peak tier.
+      required: true
+      example: "[]"
+      selector:
+        object:
+    switch_to_tou:
+      name: Switch to TOU mode now
+      description: If true, also flip the cube's operating mode to Time of Use after writing the schedule.
+      required: false
+      default: false
+      selector:
+        boolean:
+    device_id:
+      name: Device ID
+      required: false
+      description: Cube devId — only required if multiple EP Cubes are configured.
+      selector:
+        text:
 
 # Predbat shim services
 #

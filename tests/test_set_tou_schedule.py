@@ -1,0 +1,414 @@
+"""Tests for the user-facing ep_cube.set_tou_schedule service.
+
+The service is the wire-side companion to the bundled Lovelace editor card
+(Phase 4.1). It accepts user-friendly "HH:MM-HH:MM" slot strings, validates
+format + within-tier + cross-tier overlap, then writes the cube's full
+switchMode payload preserving DST tier lists, day masks, reserves, and
+per-tier prices from the cube's current state.
+
+These tests exercise:
+  - Pure validation helpers (good input passes, malformed/overlapping
+    rejected with HomeAssistantError)
+  - Service dispatch end-to-end against a fake client (one switchMode write
+    per call, payload shape matches what the cube expects)
+  - Shim coexistence: abandon_override is called when a Predbat override
+    is in flight (user-wins)
+  - switch_to_tou=True flips workStatus; default leaves it alone
+  - Per-tier price preservation from the live cube state
+"""
+from __future__ import annotations
+
+from unittest.mock import AsyncMock
+
+import pytest
+from homeassistant.exceptions import HomeAssistantError
+
+from custom_components.ep_cube.const import (
+    DEFAULT_TIER_PRICE_MID_PEAK,
+    DEFAULT_TIER_PRICE_OFF_PEAK,
+    DEFAULT_TIER_PRICE_PEAK,
+    DOMAIN,
+    SHIM_PRICE_OFF_PEAK,
+    SHIM_PRICE_PEAK,
+    WORK_STATUS_SELF_CONSUMPTION,
+    WORK_STATUS_TOU,
+)
+from custom_components.ep_cube.services import (
+    PredbatShim,
+    SERVICE_SET_TOU_SCHEDULE,
+    _existing_house_price,
+    _parse_user_slot,
+    _validate_day_profile,
+    async_register_services,
+)
+
+
+# ----------------------------------------------------------------------
+# Pure validation helpers
+# ----------------------------------------------------------------------
+class TestParseUserSlot:
+    @pytest.mark.parametrize("slot,expected", [
+        ("00:00-23:59", (0, 23 * 60 + 59)),
+        ("04:30-16:00", (4 * 60 + 30, 16 * 60)),
+        ("16:00-19:00", (16 * 60, 19 * 60)),
+    ])
+    def test_valid_slots(self, slot, expected):
+        assert _parse_user_slot(slot) == expected
+
+    @pytest.mark.parametrize("slot", [
+        "bad",
+        "4:30-16:00",       # missing leading zero
+        "24:00-25:00",      # hour > 23
+        "12:60-13:00",      # minute > 59
+        "12:30_13:00",      # wrong separator (wire format)
+        "12:30-12:30",      # zero-length
+        "20:00-04:00",      # midnight-crossing rejected (split into two)
+    ])
+    def test_invalid_slots_raise(self, slot):
+        with pytest.raises(ValueError):
+            _parse_user_slot(slot)
+
+
+class TestValidateDayProfile:
+    def test_well_formed_profile_passes(self):
+        _validate_day_profile(
+            "workday",
+            {
+                "peak_workday": ["16:00-19:00"],
+                "mid_peak_workday": ["04:30-16:00", "19:00-23:30"],
+                "off_peak_workday": ["00:30-04:30"],
+            },
+        )
+
+    def test_within_tier_overlap_rejected(self):
+        with pytest.raises(HomeAssistantError, match="overlapping slots"):
+            _validate_day_profile(
+                "workday",
+                {
+                    "peak_workday": ["16:00-19:00", "18:00-20:00"],
+                    "mid_peak_workday": [],
+                    "off_peak_workday": [],
+                },
+            )
+
+    def test_cross_tier_overlap_rejected(self):
+        with pytest.raises(HomeAssistantError, match="overlaps"):
+            _validate_day_profile(
+                "workday",
+                {
+                    "peak_workday": ["16:00-19:00"],
+                    "mid_peak_workday": ["18:00-20:00"],  # overlaps peak 18:00-19:00
+                    "off_peak_workday": [],
+                },
+            )
+
+    def test_exact_cross_tier_duplicate_rejected(self):
+        with pytest.raises(HomeAssistantError, match="overlaps"):
+            _validate_day_profile(
+                "workday",
+                {
+                    "peak_workday": ["16:00-19:00"],
+                    "mid_peak_workday": ["16:00-19:00"],
+                    "off_peak_workday": [],
+                },
+            )
+
+    def test_adjacent_slots_not_an_overlap(self):
+        # 04:30-16:00 ends exactly where 16:00-19:00 begins — that's fine.
+        _validate_day_profile(
+            "workday",
+            {
+                "peak_workday": ["16:00-19:00"],
+                "mid_peak_workday": ["04:30-16:00"],
+                "off_peak_workday": [],
+            },
+        )
+
+    def test_malformed_slot_surfaces_field_label(self):
+        with pytest.raises(HomeAssistantError, match="workday mid_peak_workday"):
+            _validate_day_profile(
+                "workday",
+                {
+                    "peak_workday": [],
+                    "mid_peak_workday": ["nope"],
+                    "off_peak_workday": [],
+                },
+            )
+
+    def test_all_empty_profile_passes(self):
+        # Clearing all tiers is a valid operation (means "no TOU slots configured").
+        _validate_day_profile(
+            "workday",
+            {
+                "peak_workday": [],
+                "mid_peak_workday": [],
+                "off_peak_workday": [],
+            },
+        )
+
+
+class TestExistingHousePrice:
+    def test_preserves_existing_non_shim_price(self):
+        # Cube has a real user slot at 0.40 — set_tou_schedule should
+        # reuse that price for new slots in the same tier.
+        assert _existing_house_price(["16:00_19:00_0.40"], default=0.99) == 0.40
+
+    def test_falls_back_to_default_when_empty(self):
+        assert _existing_house_price([], default=0.25) == 0.25
+        assert _existing_house_price(None, default=0.25) == 0.25
+
+    def test_skips_shim_signature_slots(self):
+        # Stale shim slot at SHIM_PRICE_PEAK shouldn't poison the price.
+        assert _existing_house_price(
+            [f"00:00_06:00_{SHIM_PRICE_PEAK:.2f}", "16:00_19:00_0.40"],
+            default=0.99,
+        ) == 0.40
+
+    def test_falls_back_when_only_shim_slots(self):
+        # All slots are shim signatures (stale from a Predbat run) → default wins.
+        assert _existing_house_price(
+            [f"00:00_06:00_{SHIM_PRICE_PEAK:.2f}",
+             f"06:00_07:00_{SHIM_PRICE_OFF_PEAK:.2f}"],
+            default=0.42,
+        ) == 0.42
+
+    def test_malformed_slot_tolerated(self):
+        # Garbage slot is skipped; next valid one wins.
+        assert _existing_house_price(["garbage", "16:00_19:00_0.40"], default=0.99) == 0.40
+
+
+# ----------------------------------------------------------------------
+# Service dispatch end-to-end (via hass.services.async_call)
+# ----------------------------------------------------------------------
+@pytest.fixture
+async def service_ready(hass, fake_client):
+    """Register services + populate hass.data with a shim + client."""
+    shim = PredbatShim(hass=hass, entry_id="test-entry", client=fake_client)
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN]["test-entry"] = {
+        "shim": shim,
+        "client": fake_client,
+        "coordinator": None,
+    }
+    await async_register_services(hass)
+    yield shim, fake_client
+    # Clean up any timers the shim might have armed in a test path.
+    shim.cancel_revert_timer()
+    # Per-test service cleanup so the next test re-registers fresh.
+    for service in (
+        "set_tou_schedule", "charge_start", "charge_stop",
+        "discharge_start", "discharge_stop",
+        "charge_freeze", "discharge_freeze",
+        "idle", "debug_freeze",
+    ):
+        if hass.services.has_service(DOMAIN, service):
+            hass.services.async_remove(DOMAIN, service)
+    hass.data[DOMAIN].pop("test-entry", None)
+
+
+def _good_payload(**overrides):
+    """Minimal valid call payload — clears every tier."""
+    base = {
+        "peak_workday": [],
+        "mid_peak_workday": [],
+        "off_peak_workday": [],
+        "peak_weekend": [],
+        "mid_peak_weekend": [],
+        "off_peak_weekend": [],
+    }
+    base.update(overrides)
+    return base
+
+
+class TestServiceDispatch:
+    async def test_writes_switch_mode_once(self, hass, service_ready):
+        shim, client = service_ready
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_workday=["16:00-19:00"]),
+            blocking=True,
+        )
+        assert client.switch_mode.await_count == 1
+        # Cube state was read first (so we can preserve DST + prices).
+        assert client.get_switch_mode.await_count == 1
+
+    async def test_preserves_existing_tier_price(self, hass, service_ready, get_switch_mode):
+        # get_switch_mode fixture has peakTimeList=["16:00_19:00_0.40"] — that
+        # 0.40 should be propagated to the new slot we write.
+        shim, client = service_ready
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_workday=["17:00-20:00"]),
+            blocking=True,
+        )
+        body = client.switch_mode.await_args.args[0]
+        assert body["peakTimeList"] == ["17:00_20:00_0.40"]
+
+    async def test_uses_default_price_when_tier_empty(self, hass, service_ready, fake_client):
+        # Empty peakTimeListNonWorkDay in the fixture → default peak price fires.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_weekend=["18:00-21:00"]),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["peakTimeListNonWorkDay"] == [
+            f"18:00_21:00_{DEFAULT_TIER_PRICE_PEAK:.2f}"
+        ]
+
+    async def test_default_does_not_flip_work_status(self, hass, service_ready, get_switch_mode):
+        shim, client = service_ready
+        # get_switch_mode fixture has workStatus="1" (self-consumption).
+        await hass.services.async_call(
+            DOMAIN, SERVICE_SET_TOU_SCHEDULE, _good_payload(), blocking=True
+        )
+        body = client.switch_mode.await_args.args[0]
+        assert body["workStatus"] == WORK_STATUS_SELF_CONSUMPTION
+
+    async def test_switch_to_tou_flag_flips_work_status(self, hass, service_ready):
+        shim, client = service_ready
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(switch_to_tou=True),
+            blocking=True,
+        )
+        body = client.switch_mode.await_args.args[0]
+        assert body["workStatus"] == WORK_STATUS_TOU
+
+    async def test_preserves_dst_tier_lists_from_live_state(self, hass, service_ready, fake_client):
+        # Inject a live state with non-empty DST tier lists. Our write must
+        # round-trip them untouched even though set_tou_schedule's API only
+        # exposes non-DST tiers.
+        fake_client.get_switch_mode.return_value = {
+            "devId": "5613", "workStatus": "1",
+            "selfConsumptioinReserveSoc": "20", "backupPowerReserveSoc": "100",
+            "allowChargingXiaGrid": "1", "weatherWatch": "0", "onlySave": "0",
+            "peakTimeList": [], "midPeakTimeList": [], "offPeakTimeList": [],
+            "peakTimeListNonWorkDay": [], "midPeakTimeListNonWorkDay": [],
+            "offPeakTimeListNonWorkDay": [],
+            "activeWeek": [1, 2, 3, 4, 5], "activeWeekNonWorkDay": [6, 7],
+            "dayLightSavingTime": False,
+            "dayLightPeakTimeList": ["17:00_20:00_0.45"],   # DST data we must preserve
+            "dayLightMidPeakTimeList": ["05:30_17:00_0.30"],
+            "dayLightOffPeakTimeList": ["00:00_05:30_0.10"],
+            "dayLightPeakTimeListNonWorkDay": [],
+            "dayLightMidPeakTimeListNonWorkDay": [],
+            "dayLightOffPeakTimeListNonWorkDay": [],
+            "dayLightActiveWeek": [1, 2, 3, 4, 5],
+            "dayLightActiveWeekNonWorkDay": [6, 7],
+            "touType": 0,
+        }
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_workday=["16:00-19:00"]),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["dayLightPeakTimeList"] == ["17:00_20:00_0.45"]
+        assert body["dayLightMidPeakTimeList"] == ["05:30_17:00_0.30"]
+        assert body["dayLightOffPeakTimeList"] == ["00:00_05:30_0.10"]
+
+    async def test_strips_stale_shim_slots_from_live_state(self, hass, service_ready, fake_client):
+        # If a prior Predbat run left a shim-signature slot on the cube
+        # (price = SHIM_PRICE_PEAK = 1.00), our write must not re-send it
+        # — the cube would then carry it indefinitely. The shim's existing
+        # _strip_shim_slots runs on snapshot; we reuse it here too.
+        fake_client.get_switch_mode.return_value = {
+            "devId": "5613", "workStatus": "2",
+            "selfConsumptioinReserveSoc": "20", "backupPowerReserveSoc": "100",
+            "allowChargingXiaGrid": "1", "weatherWatch": "0", "onlySave": "0",
+            "peakTimeList": [
+                "16:00_19:00_0.40",                       # user's real slot — keep
+                f"20:00_21:00_{SHIM_PRICE_PEAK:.2f}",     # shim leftover — strip
+            ],
+            "midPeakTimeList": [], "offPeakTimeList": [],
+            "peakTimeListNonWorkDay": [], "midPeakTimeListNonWorkDay": [],
+            "offPeakTimeListNonWorkDay": [],
+            "activeWeek": [1, 2, 3, 4, 5], "activeWeekNonWorkDay": [6, 7],
+            "dayLightSavingTime": False,
+            "dayLightPeakTimeList": [], "dayLightMidPeakTimeList": [],
+            "dayLightOffPeakTimeList": [],
+            "dayLightPeakTimeListNonWorkDay": [],
+            "dayLightMidPeakTimeListNonWorkDay": [],
+            "dayLightOffPeakTimeListNonWorkDay": [],
+            "dayLightActiveWeek": [1, 2, 3, 4, 5],
+            "dayLightActiveWeekNonWorkDay": [6, 7],
+            "touType": 0,
+        }
+        # User overwrites peakTimeList entirely — no stale slot can survive.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_workday=["17:00-19:00"]),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        # Our written value preserves the user's 0.40 (first non-shim price found).
+        assert body["peakTimeList"] == ["17:00_19:00_0.40"]
+
+
+class TestShimCoexistence:
+    async def test_abandons_active_shim_override(self, hass, service_ready):
+        shim, client = service_ready
+
+        # Simulate an in-flight Predbat override.
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        await shim.charge_start(
+            end_time=dt_util.utcnow() + timedelta(minutes=30),
+            target_soc_pct=90.0,
+        )
+        assert shim.is_active is True
+        assert shim._baseline is not None
+
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_workday=["16:00-19:00"]),
+            blocking=True,
+        )
+        # Override cleared, baseline dropped, no revert was triggered.
+        assert shim.is_active is False
+        assert shim._baseline is None
+
+    async def test_no_op_when_no_shim_override(self, hass, service_ready):
+        shim, client = service_ready
+        assert shim.is_active is False
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_workday=["16:00-19:00"]),
+            blocking=True,
+        )
+        # One switchMode write, no spurious revert.
+        assert client.switch_mode.await_count == 1
+
+
+class TestServiceValidationErrors:
+    async def test_malformed_slot_raises_before_cloud_io(self, hass, service_ready):
+        shim, client = service_ready
+        with pytest.raises(HomeAssistantError):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_TOU_SCHEDULE,
+                _good_payload(peak_workday=["bad"]),
+                blocking=True,
+            )
+        client.switch_mode.assert_not_awaited()
+        client.get_switch_mode.assert_not_awaited()
+
+    async def test_within_tier_overlap_raises_before_cloud_io(self, hass, service_ready):
+        shim, client = service_ready
+        with pytest.raises(HomeAssistantError):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_TOU_SCHEDULE,
+                _good_payload(peak_workday=["16:00-19:00", "18:00-20:00"]),
+                blocking=True,
+            )
+        client.switch_mode.assert_not_awaited()
