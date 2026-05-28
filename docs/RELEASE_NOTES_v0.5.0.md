@@ -1,4 +1,4 @@
-## ☀️ EP Cube Integration — first release
+## ☀️ EP Cube Integration — First Release
 
 A clean-room Home Assistant integration for the **Canadian Solar EP Cube** residential battery, with a Predbat-compatible shim for Octopus Agile tariff optimisation. Built around the EP Cube mobile-app cloud API with full Bearer-token auth and silent re-auth.
 
@@ -49,6 +49,6 @@ If this saves you the mitmproxy sessions and Python hours it took to build — c
 
 ---
 
-**Why v0.5.0 not v0.1.0?** This is past the "first throw-over-the-wall" milestone — 11 of 13 planned phases are complete, the shim is live in production, there's a 150-test pytest suite. But it's still **pre-1.0**: API and entity shapes may shift based on real-user feedback before stabilising. Test in a non-production HA setup before relying on it.
+**Why v0.5.0 not v0.1.0?** This is past the "first throw-over-the-wall" milestone — 3 weeks of development (started 2026-05-03), 11 of 13 planned phases complete, the integration running against my own cube since commissioning (2026-05-19), and a 150-test pytest suite. But it's still **pre-1.0**: API and entity shapes may shift based on real-user feedback before stabilising. Test in a non-production HA setup before relying on it.
 
 *Not affiliated with or endorsed by Canadian Solar or EP Cube.*
