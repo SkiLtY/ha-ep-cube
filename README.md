@@ -1,77 +1,300 @@
-# ha-ep-cube
+<div align="center">
 
-Home Assistant custom integration for the **Canadian Solar EP Cube** residential battery, with a Predbat-compatible service layer for Octopus Agile tariff optimisation.
+# 🔋 ha-ep-cube
 
-> **Status:** pre-alpha. Integration is live against the real `monitoring-eu.epcube.com` cloud — all 9 sensors populating with verified values, Predbat plans against live Octopus Agile rates + Solcast PV forecasts and fires shim services that translate to `switchMode` writes. Phase 3.2 fully landed 2026-05-21: one-time email + password replaces the JSESSIONID-paste-every-hour UX, captcha-solving in pure numpy, silent re-auth on token expiry, mock-server realigned to the mobile-app surface, wire-level gotchas documented in TROUBLESHOOTING. APIs and entity shapes will still change before HACS distribution (Phase 4).
+**Home Assistant integration for the Canadian Solar EP Cube residential battery**
+*with a Predbat-compatible shim for Octopus Agile tariff optimisation*
 
-## Supported regions
+[![HA Version](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5?logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Build](https://img.shields.io/github/actions/workflow/status/SkiLtY/ha-ep-cube/validate.yml?label=CI)](../../actions)
+[![Phase](https://img.shields.io/badge/Phase-4%20(pre--HACS)-orange)](#-roadmap)
+[![Status](https://img.shields.io/badge/Status-pre--alpha-red)](#-roadmap)
 
-The EP Cube cloud runs region-specific hosts. The config flow exposes a region picker; pick the one that matches the cloud your mobile app talks to.
+</div>
+
+---
+
+> [!WARNING]
+> **Pre-alpha.** APIs and entity shapes will change before HACS distribution (Phase 4). Not yet recommended for production setups.
+
+---
+
+<div align="center">
+
+![EP Cube power-flow dashboard — animated, mirrors the EP Cube mobile app](docs/dashboard.gif)
+
+*A live drop-in Lovelace dashboard that mirrors the EP Cube mobile app — animated power flow, mode-aware controls, ships with the integration.*
+
+</div>
+
+---
+
+## ✨ What you get
+
+- 🔋 **22 sensors + 5 control entities** surfacing every cube state — SoC, power flow, mode, reserves, daily energy, lifetime stats
+- ⚡ **Predbat shim** translates rate-based commands into the cube's TOU model — full **Octopus Agile** optimisation, no manual scheduling
+- 🎨 **Drop-in animated dashboard** mirroring the EP Cube mobile app — power flow, mode picker, mode-specific control cards
+- 🌍 **Multi-region** — EU live, US/JP/Other supported via config-flow region picker
+- 🔐 **One-time email + password setup** with silent re-auth on token expiry — no JSESSIONID-paste UX, no recurring auth chores
+- 🧪 **150-test pytest suite + CI** on every PR
+
+---
+
+## ⚡ Quick start
+
+> [!IMPORTANT]
+> HACS auto-install isn't live yet (Phase 4 — pending the first `v0.1.0` tag). Manual install for now:
+
+**1. Install the integration**
+
+```bash
+cd /path/to/homeassistant/config
+mkdir -p custom_components
+git clone https://github.com/SkiLtY/ha-ep-cube /tmp/ha-ep-cube
+cp -r /tmp/ha-ep-cube/custom_components/ep_cube custom_components/
+```
+
+**2. Restart Home Assistant**
+
+**3. Add the integration**
+
+Settings → *Devices & services* → *Add integration* → search **Canadian Solar EP Cube** → enter your **region**, the **email + password** for the EP Cube mobile app, and submit.
+
+The integration runs the captcha-solving login flow, fetches your device list, and registers 22 sensors + 5 control entities under one device.
+
+> [!TIP]
+> **Want Predbat / Octopus Agile optimisation too?** After the integration is live, also:
+> 1. Copy `examples/ha_config/` into your HA config dir (or merge into your existing `configuration.yaml`) — adds the Riemann daily-kWh sensors Predbat needs.
+> 2. Install Predbat via the [`nipar44/predbat_addon` Docker container](https://github.com/nipar44/predbat_addon). Full runbook in [docs/PREDBAT.md](docs/PREDBAT.md).
+>
+> **Want the animated power-flow dashboard?** See [Dashboard](#-dashboard) — one HACS frontend card + one paste of `dashboards/ep_cube.yaml`.
+
+---
+
+## 🌍 Supported regions
 
 | Region | Host | Status |
-|---|---|---|
-| **EU** | `monitoring-eu.epcube.com` | ✅ Verified live (UK + most of Europe — installer's default for DE / IT / NL / FR / ES / etc.) |
-| **US** | `epcube-monitoring.com` (path prefix `/app-api`) | 🧪 **Experimental.** Host + path derived from public sources; not yet live-tested. Please open an issue with the result if you try it. |
-| **JP** | `monitoring-jp.epcube.com` | Untested. |
-| **Other** | user-supplied | Escape hatch for Australia, Canada, custom mocks, or any market where the host above is wrong. Capture the host from your EP Cube mobile app's network traffic and paste it in. |
+|--------|------|--------|
+| **EU** | `monitoring-eu.epcube.com` | ✅ Verified live (UK, DE, IT, NL, FR, ES, …) |
+| **US** | `epcube-monitoring.com` (path prefix `/app-api`) | 🧪 Experimental — host derived from public sources, not live-tested. Please open an issue with your result. |
+| **JP** | `monitoring-jp.epcube.com` | ⬜ Untested |
+| **Other** | User-supplied | Escape hatch for AU, CA, custom mocks, or any market where the above is wrong. Capture the host from your app's network traffic and paste it in. |
 
-## Why
+---
 
-The EP Cube has no documented local API (no Modbus, no MQTT). All control today goes through Canadian Solar's cloud via mobile-app endpoints. There is one existing community integration ([Bobsilvio/epcube](https://github.com/Bobsilvio/epcube)) — but no licence file, so we cannot legally fork it. This is a clean-room build.
+## 📡 Sensors
 
-The end goal: working Octopus Agile control via [Predbat](https://github.com/springfall2008/batpred). Predbat expects a rate-based, time-windowed control contract; EP Cube exposes a mode + TOU-schedule contract. The integration includes a shim service layer that translates between the two.
+22 sensors, all grouped under one device per EP Cube:
 
-## Layout
+| Group | Sensors |
+|-------|---------|
+| **Battery** | `battery_soc` · `battery_soc_kwh` · `battery_capacity_kwh` · `battery_power` · `battery_charge_today` · `battery_discharge_today` |
+| **Power flow** | `grid_power` · `solar_power` · `load_power` |
+| **Daily energy (kWh)** | `solar_today` · `grid_today` · `backup_today` · `nonbackup_today` · `solar_dc_today` · `solar_ac_today` |
+| **Mode + reserve** | `operating_mode` · `reserve_soc` |
+| **Lifetime / KPI** | `self_consumption_pct` · `earning_yesterday` · `grid_outage_count` · `off_grid_seconds` · `winter_protect` |
+
+---
+
+## ⚙️ Services
+
+### Predbat shim (`services.py`)
+
+All shim services accept only an optional `device_id`. Window and SoC parameters are read from the entities Predbat publishes — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full contract.
+
+| Service | Purpose |
+|---------|---------|
+| `ep_cube.charge_start` | Force grid charge until end of Predbat's planned charge window; target SoC from `best_charge_limit` |
+| `ep_cube.charge_stop` | Cancel active charge override, restore baseline |
+| `ep_cube.discharge_start` | Force discharge until end of planned export window; target SoC from `best_export_limit` |
+| `ep_cube.discharge_stop` | Cancel active discharge override |
+| `ep_cube.charge_freeze` | Hold battery at current SoC until end of charge window |
+| `ep_cube.discharge_freeze` | Alias for `charge_freeze`; end-time taken from export window |
+| `ep_cube.idle` | Restore baseline TOU schedule |
+
+> [!NOTE]
+> A `set_tou_schedule` service + Lovelace editor card is planned for Phase 4.1 (post-HACS). See [Roadmap](#-roadmap).
+
+Mode switching and reserve-SoC writes are exposed as **entities**, not services:
+
+```
+select.ep_cube_operating_mode
+switch.ep_cube_allow_grid_charge
+number.ep_cube_self_consumption_reserve
+number.ep_cube_backup_reserve
+```
+
+Call `select.select_option` / `number.set_value` from automations.
+
+---
+
+## 🧩 Helper config (optional)
+
+The integration installs cleanly on a default HA setup. Two optional extras live in [`examples/ha_config/`](examples/ha_config/):
+
+- **`packages/ep_cube.yaml`** — Riemann daily kWh sensors (load / PV / signed grid import / signed grid export), `utility_meter` monthly + yearly rollups, and `input_number` charge / discharge rate entities.
+- **`configuration.yaml`** — minimal example showing the `homeassistant.packages` block.
+
+| Use case | Need the package? |
+|----------|:-----------------:|
+| Running Predbat | ✅ Yes — `load_today` is a hard dependency; `charge_rate`/`discharge_rate` must be writable `input_number` entities |
+| Monthly/yearly history in Energy dashboard | ✅ Recommended |
+| Just install and view live sensors | ❌ No |
+
+**To install:** copy `examples/ha_config/` into your HA config directory (merging into any existing `configuration.yaml`), then restart HA.
+
+---
+
+## 📊 Dashboard
+
+[`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) is a drop-in Lovelace dashboard mirroring the EP Cube mobile app: animated power flow, battery status, operating-mode picker, and mode-specific control cards that swap automatically when you change mode. (See the [animated demo](#) at the top of this README.)
+
+**Install steps:**
+
+1. **Power Flow Card Plus** — HACS → Frontend → search "Power Flow Card Plus" by [flixlix](https://github.com/flixlix/power-flow-card-plus) → Install → restart HA.
+2. **New dashboard** — Settings → Dashboards → Add Dashboard → "New dashboard from scratch" (title: *EP Cube*, icon: `mdi:home-battery`).
+3. **Paste YAML** — open dashboard → Edit → ⋮ → *Raw configuration editor* → replace contents with [`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) → Save.
+
+> [!TIP]
+> Entity IDs assume the default device name `EP Cube`. If you renamed the device, or have multiple cubes, edit the YAML accordingly — HA appends `_2`, `_3`, etc. to disambiguate.
+
+The TOU card has a slot reserved for a per-tier schedule editor — shipping with Phase 4.1 (`set_tou_schedule` + Lovelace editor card, post-HACS).
+
+---
+
+## ⚡ Energy dashboard
+
+The integration ships four daily kWh sensors mirroring the cube's onboard counters, plus a self-consumption KPI. Monthly/yearly rollups are added via `utility_meter` in the helper package.
+
+Wire them into HA's **Energy dashboard** (Settings → Dashboards → Energy):
+
+| Slot | Entity | Notes |
+|------|--------|-------|
+| Solar production | `sensor.ep_cube_solar_today` | Built-in |
+| Grid consumption | `sensor.ep_cube_import_today` | ⚠️ Requires the [helper package](#-helper-config-optional) — Riemann-integrated, monotonic import, resets daily |
+| Return to grid | `sensor.ep_cube_export_today` | ⚠️ Requires the helper package — Riemann-integrated, monotonic export, resets daily |
+| Home battery SoC | `sensor.ep_cube_battery_soc_kwh` | Built-in |
+
+> [!WARNING]
+> **Do not use `sensor.ep_cube_grid_today`** in the Energy dashboard. The cube-native counter reports total grid throughput as a direction-ambiguous magnitude — on mixed import/export days, direction is hidden. Verified 2026-05-24. Use the Riemann sensors above instead.
+
+---
+
+<details>
+<summary><h2>🛠️ For contributors</h2></summary>
+
+### 💡 Why this exists
+
+The EP Cube has **no documented local API** — no Modbus, no MQTT. All control goes through Canadian Solar's cloud via mobile-app endpoints.
+
+One existing community integration exists ([Bobsilvio/epcube](https://github.com/Bobsilvio/epcube)) but carries no licence file, so it cannot legally be forked. This is a **clean-room build**.
+
+**The end goal:** working Octopus Agile tariff optimisation via [Predbat](https://github.com/springfall2008/batpred). Predbat operates on a rate-based, time-windowed contract; the EP Cube exposes a mode + TOU-schedule contract. This integration includes a **shim service layer** that translates between the two.
+
+### 🗺 Architecture
+
+```mermaid
+graph TB
+    subgraph Cloud ["☁️ Canadian Solar Cloud"]
+        EP[monitoring-eu.epcube.com]
+    end
+
+    subgraph HA ["🏠 Home Assistant"]
+        INT[ep_cube integration]
+        SHIM[Predbat shim<br/>services.py]
+        STATE[predbat_state.py]
+        SENS[22 sensors + control entities]
+    end
+
+    subgraph Predbat ["📈 Predbat container"]
+        PB[nipar44/predbat_addon]
+        OCT[Octopus Agile rates]
+        SOL[Solcast PV forecast]
+    end
+
+    EP <-->|Bearer token auth<br/>silent re-auth| INT
+    INT --> SENS
+    PB -->|best_charge_* / best_export_* entities| STATE
+    STATE --> SHIM
+    SHIM -->|switchMode writes| INT
+    OCT --> PB
+    SOL --> PB
+```
+
+### 📁 Layout
 
 ```
 ha-ep-cube/
-├── custom_components/ep_cube/   ← The HA integration (HACS-installable later)
-│   ├── services.py              ← Predbat shim service handlers (Phase 2b.1 contract)
-│   └── predbat_state.py         ← Reads predbat.best_charge_* / best_export_* entities
-├── mock_server/                 ← FastAPI mock of the EP Cube cloud, for dev without hardware
+├── custom_components/ep_cube/      ← HA integration (HACS-installable, Phase 4)
+│   ├── services.py                 ← Predbat shim service handlers
+│   └── predbat_state.py            ← Reads predbat.best_charge_* / best_export_* entities
+├── mock_server/                    ← FastAPI mock of the EP Cube cloud (dev without hardware)
 ├── dashboards/
-│   └── ep_cube.yaml             ← Lovelace dashboard (animated power flow + mode-aware controls)
+│   └── ep_cube.yaml                ← Lovelace dashboard (animated power flow + mode controls)
 ├── examples/
-│   └── ha_config/               ← Drop-in YAML for Predbat helpers + Energy dashboard rollups
+│   └── ha_config/                  ← Drop-in YAML for Predbat helpers + Energy dashboard rollups
 ├── docs/
-│   ├── ARCHITECTURE.md          ← Predbat shim contract + design notes
-│   ├── PREDBAT.md               ← Predbat install + tariff (BottlecapDave auto-detect) + Solcast runbook
-│   ├── PHASE_3_2.md             ← Phase 3.2 bearer-token + captcha refactor notes
-│   ├── MITMPROXY_SETUP.md       ← Cloud-API capture tooling (for contributors)
-│   ├── TROUBLESHOOTING.md       ← Known gotchas
-│   └── predbat_apps.yaml.example  ← Predbat custom-inverter template
-└── docker-compose.yml           ← HA + mock-server stack
+│   ├── ARCHITECTURE.md             ← Predbat shim contract + design notes
+│   ├── PREDBAT.md                  ← Predbat install + tariff (BottlecapDave) + Solcast runbook
+│   ├── PHASE_3_2.md                ← Bearer-token + captcha refactor notes
+│   ├── MITMPROXY_SETUP.md          ← Cloud-API capture tooling (for contributors)
+│   ├── TROUBLESHOOTING.md          ← Known wire-level gotchas
+│   └── predbat_apps.yaml.example   ← Predbat custom-inverter template
+└── docker-compose.yml              ← HA + mock-server stack
 ```
 
-## Dev setup
+### 🚀 Dev setup
 
-Requires Docker. Bring up the stack:
+**Requires Docker.**
 
 ```bash
+git clone https://github.com/SkiLtY/ha-ep-cube
+cd ha-ep-cube
 docker compose up -d
 ```
 
-This runs:
-- **Home Assistant** on http://localhost:8123 with `custom_components/ep_cube/` volume-mounted
-- **Mock EP Cube cloud** on http://localhost:8765
+This brings up:
 
-Add the integration through HA's UI; point it at `http://mock:8765` (Docker network DNS), any username/password, device_id `ep_cube_test_01`.
+| Service | URL | Notes |
+|---------|-----|-------|
+| Home Assistant | http://localhost:8123 | `custom_components/ep_cube/` volume-mounted |
+| Mock EP Cube cloud | http://localhost:8765 | FastAPI mock of the mobile-app surface |
+
+Add the integration via HA's UI:
+
+1. Settings → Devices & services → Add integration → *Canadian Solar EP Cube*
+2. Region: **Other** (escape hatch for custom hosts)
+3. Base URL: `http://mock:8765` (Docker network DNS)
+4. API prefix: `/api`
+5. Username + password: any string — the mock accepts anything and returns a stub Bearer token
+
+The mock's `deviceList` resolves a single device (`devId=5613`); no manual ID needed.
 
 ### Running tests
-
-Tests use [`pytest-homeassistant-custom-component`](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component) and run without Docker:
 
 ```bash
 pip install -r requirements-test.txt
 pytest
 ```
 
-The CI matrix (`.github/workflows/validate.yml`) runs the same on Python 3.12 and 3.13 against every PR and weekly. Coverage spans the API client (envelope unwrapping, 403→reauth retry, `switch_mode` verification), the Predbat shim (idempotency, baseline snapshotting, auto-revert), `predbat_state` parsing, config flow (region routing + migration), and entity registration.
+Tests use [`pytest-homeassistant-custom-component`](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component) and run without Docker. The CI matrix (`.github/workflows/validate.yml`) runs the same on **Python 3.12** against every PR and weekly. (3.13 is pending an aiodns/pycares fix in HA's test stack.)
 
-## Roadmap
+Coverage spans: API client (envelope unwrapping, 403→re-auth retry, `switch_mode` verification), Predbat shim (idempotency, baseline snapshotting, auto-revert), `predbat_state` parsing, config flow (region routing + migration), and entity registration.
+
+### 🏗 HA install type
+
+This stack uses **HA Container** (lightweight, no Supervisor). HA Container cannot install add-ons — Predbat runs as a sibling **`nipar44/predbat_addon`** Docker container (the upstream-recommended replacement for the now-deprecated AppDaemon install path). See [docs/PREDBAT.md](docs/PREDBAT.md).
+
+</details>
+
+---
+
+## 🛣 Roadmap
 
 | Phase | Status | What |
-|---|---|---|
+|-------|:------:|------|
 | 1 | ✅ | Mock cloud + HA integration skeleton + 9 sensors + DeviceInfo |
 | 2a | ✅ | Predbat shim: 7 services, baseline snapshot, idempotency, auto-revert |
 | 2b | ✅ | Predbat as `nipar44/predbat_addon` container, plan loop validated end-to-end |
@@ -81,93 +304,38 @@ The CI matrix (`.github/workflows/validate.yml`) runs the same on Python 3.12 an
 | 3 | ✅ | Hardware reconciliation — live cloud bring-up against `monitoring-eu.epcube.com` |
 | 3.1 | ✅ | `charge_freeze` → mid-peak TOU slot; force-export gap documented; stable device name |
 | 3.2 | ✅ | Mobile-app Bearer-token auth replaces JSESSIONID-cookie paste |
-| 3.3 | ✅ | Animated power-flow Lovelace dashboard (`dashboards/ep_cube.yaml`) |
-| 3.4 | ✅ | Feature-parity catch-up vs Bobsilvio/epcube — control entities + daily kWh sensors + i18n |
-| 3.5 | ✅ | Bobsilvio-parity metrics expansion — 5 sensors + 4 utility_meter rollups |
-| 4 | 🚧 | HACS distribution (scaffolding live, brand assets self-hosted at `custom_components/ep_cube/brand/`, helpers shipped at `examples/ha_config/`). Remaining: tests, first `v0.1.0` tag |
+| 3.3 | ✅ | Animated power-flow Lovelace dashboard |
+| 3.4 | ✅ | Feature-parity vs Bobsilvio/epcube — control entities + daily kWh sensors + i18n |
+| 3.5 | ✅ | Bobsilvio-parity metrics expansion — 5 sensors + 4 `utility_meter` rollups |
+| **4** | 🚧 | **HACS distribution** — scaffolding live, brand assets self-hosted, helpers shipped, 150-test pytest suite + CI matrix landed. Remaining: first `v0.1.0` tag |
 | 4.1 | ⏸️ | TOU schedule editor — `set_tou_schedule` service + Lovelace editor card (post-HACS) |
-| 4.2 | ⏸️ | Cloud-stats endpoint expansion — capture `queryDataElectricityV2` for signed grid import/export, `*_yesterday` variants, lifetime totals |
-| 4+ | ⏸️ | BottlecapDave [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) — half-hourly smart-meter consumption replaces Riemann `load_today`. Gated on Octopus Home Mini arrival |
+| 4.2 | ⏸️ | Cloud-stats expansion — `queryDataElectricityV2`, signed grid import/export, `*_yesterday` variants, lifetime totals |
+| 4+ | ⏸️ | [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) — half-hourly smart-meter consumption replaces Riemann `load_today`. Gated on Octopus Home Mini arrival. |
 
-## Services exposed
+---
 
-### Predbat shim (`services.py`)
+## ☕ About + Support
 
-All shim services accept only an optional `device_id`. Window/SoC parameters are read from the entities Predbat publishes (`predbat.best_charge_*` / `predbat.best_export_*`) — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full contract.
+> **Hacking life to keep it simple. Solving technical challenges along the way.**
+>
+> I'm an integration engineer who loves taking complex technical puzzles and turning them into simple solutions.
+>
+> When I'm not at a terminal, you'll usually find me logging miles in the pool or on the bike, training for that next aquabike event.
+>
+> If any of my tools, scripts, or tinkering have helped you solve a challenge of your own, tossing a ko-fi in the tank helps keep the engine running. Thanks for the support! ☕
 
-| Service | Purpose |
-|---|---|
-| `ep_cube.charge_start` | Force grid charge until end of Predbat's planned charge window, target SoC from `best_charge_limit` |
-| `ep_cube.charge_stop` | Cancel active charge override, restore baseline |
-| `ep_cube.discharge_start` | Force discharge until end of planned export window, target SoC from `best_export_limit` |
-| `ep_cube.discharge_stop` | Cancel active discharge override |
-| `ep_cube.charge_freeze` | Hold battery at current SoC until end of charge window |
-| `ep_cube.discharge_freeze` | Alias for charge_freeze, end-time taken from export window |
-| `ep_cube.idle` | Restore baseline TOU schedule |
+<div align="center">
 
-### Native (1:1 with cloud API)
+[![ko-fi](https://img.shields.io/badge/Ko--fi-Buy_me_a_coffee-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/SkiLtY)
 
-| Service | Purpose |
-|---|---|
-| `ep_cube.set_tou_schedule` | Replace the full TOU schedule |
+</div>
 
-Mode switching + reserve-SoC writes are exposed as entities, not services:
-`select.ep_cube_operating_mode`, `switch.ep_cube_allow_grid_charge`,
-`number.ep_cube_self_consumption_reserve`, `number.ep_cube_backup_reserve`.
-Call `select.select_option` / `number.set_value` from automations.
+— **Michael Skilton** ([@SkiLtY](https://github.com/SkiLtY))
 
-### Sensors (read)
+---
 
-`battery_soc`, `battery_soc_kwh` (energy), `battery_capacity_kwh`, `battery_power`, `grid_power`, `solar_power`, `load_power`, `operating_mode`, `reserve_soc`. All grouped under one device per EP Cube.
-
-## Helper config (optional)
-
-The integration installs cleanly on a default HA setup. Two optional extras live in [`examples/ha_config/`](examples/ha_config/):
-
-- **`packages/ep_cube.yaml`** — Riemann daily kWh sensors (load / PV / signed grid import / signed grid export), `utility_meter` monthly + yearly rollups on the cube's native daily counters + the battery in/out trackers, and `input_number` charge / discharge rate entities.
-- **`configuration.yaml`** — a minimal example showing the one-line `homeassistant.packages` block needed to load the file above.
-
-**You need the package if you're running Predbat.** Predbat requires `load_today` as a hard dependency, expects `pv_today` / `import_today` / `export_today` (warns from v8.39.0 if missing), and its `charge_rate` / `discharge_rate` entities must be writable (an `input_number`, not a read-only sensor).
-
-**You probably want the package if you want monthly / yearly history** in the Energy dashboard or in your own cards.
-
-**You don't need it for "just install the integration and look at the live sensors."**
-
-To install: copy the contents of `examples/ha_config/` into your HA config directory (merging into your existing `configuration.yaml` if you already have one), then restart HA.
-
-## Dashboard
-
-[`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) is a drop-in Lovelace dashboard that mirrors the EP Cube mobile app: live animated power flow at the top, battery status, an operating-mode picker, and mode-specific control cards (self-consumption / backup / time-of-use) that swap automatically when you change mode.
-
-**Install:**
-
-1. **Install the power-flow card via HACS** — HACS → Frontend → search "Power Flow Card Plus" by [flixlix](https://github.com/flixlix/power-flow-card-plus) → Install. Restart HA so the resource registers.
-2. **Add a new dashboard** — Settings → Dashboards → Add Dashboard → "New dashboard from scratch" (title: *EP Cube*, icon: `mdi:home-battery`).
-3. **Paste the YAML** — open the new dashboard → Edit → three-dot menu → *Raw configuration editor* → replace the contents with [`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) → Save.
-
-Entity IDs in the YAML assume the integration's default device name (`EP Cube`). If you renamed the device, or have multiple cubes, edit the YAML to match (HA auto-appends `_2`, `_3`, ... to disambiguate).
-
-The TOU card has a slot reserved for a per-tier schedule editor — that ships with Phase 4.1 (`set_tou_schedule` service + Lovelace editor card, post-HACS).
-
-## Energy dashboard
-
-The integration ships four daily kWh sensors that mirror the cube's onboard counters (`sensor.ep_cube_solar_today`, `..._grid_today`, `..._backup_today`, `..._nonbackup_today`) plus a self-consumption KPI (`sensor.ep_cube_self_consumption`). Monthly + yearly rollups are layered on these via `utility_meter` in [`examples/ha_config/packages/ep_cube.yaml`](examples/ha_config/packages/ep_cube.yaml) (entity IDs `sensor.ep_cube_{solar,grid,backup,nonbackup}_{month,year}`).
-
-To wire them into HA's built-in **Energy dashboard** (Settings → Dashboards → Energy):
-
-- **Solar production** → `sensor.ep_cube_solar_today`
-- **Grid consumption** → `sensor.ep_cube_import_today` (Riemann-integrated, monotonic import; resets daily)
-- **Return to grid** → `sensor.ep_cube_export_today` (Riemann-integrated, monotonic export; resets daily)
-- **Home battery** → use `sensor.ep_cube_battery_soc_kwh` for state-of-charge
-
-`sensor.ep_cube_grid_today` (the cube-native counter) reports total grid throughput as a single direction-ambiguous magnitude — on a pure-export day it equals export, on a pure-import day it equals import, on mixed days direction is hidden. Verified 2026-05-24 against log math. Useful as a "matches what the EP Cube app shows" reference, but NOT what you want in the Energy Dashboard — the Riemann sensors above have clean signed direction.
-
-## HA install type
-
-This stack uses **HA Container** (lightweight, no Supervisor). HA Container can't install add-ons — Predbat runs as a sibling **`nipar44/predbat_addon` Docker container** (the upstream-recommended replacement for the now-deprecated AppDaemon install path). See [docs/PREDBAT.md](docs/PREDBAT.md).
-
-## Licence
+## 📄 Licence
 
 MIT — see [LICENSE](LICENSE).
 
-Not affiliated with or endorsed by Canadian Solar or EP Cube.
+*Not affiliated with or endorsed by Canadian Solar or EP Cube.*
