@@ -1,6 +1,6 @@
 <div align="center">
 
-# ☀️ EP Cube Integration
+# ☀️ EP Cube Integration ☀️
 
 **Home Assistant integration for the Canadian Solar EP Cube residential battery**
 *with a Predbat-compatible shim for Octopus Agile tariff optimisation*
