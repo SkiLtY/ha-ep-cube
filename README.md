@@ -307,8 +307,8 @@ This stack uses **HA Container** (lightweight, no Supervisor). HA Container cann
 | 3.3 | ✅ | Animated power-flow Lovelace dashboard |
 | 3.4 | ✅ | Feature-parity vs Bobsilvio/epcube — control entities + daily kWh sensors + i18n |
 | 3.5 | ✅ | Bobsilvio-parity metrics expansion — 5 sensors + 4 `utility_meter` rollups |
-| **4** | 🚧 | **HACS distribution** — scaffolding live, brand assets self-hosted, helpers shipped, 150-test pytest suite + CI matrix landed. Remaining: first `v0.5.0` tag |
-| 4.1 | ⏸️ | TOU schedule editor — `set_tou_schedule` service + Lovelace editor card (post-HACS) |
+| **4** | ✅ | **HACS distribution** — first release [`v0.5.0`](https://github.com/SkiLtY/ha-ep-cube/releases/tag/v0.5.0) shipped 2026-05-28. 150-test pytest suite + CI matrix, demo-first README, curated release-notes workflow, brand assets self-hosted, helpers shipped. HACS Default submission held for next session. |
+| 4.1 | 🎯 next | TOU schedule editor — `set_tou_schedule` service + Lovelace editor card (post-HACS) |
 | 4.2 | ⏸️ | Cloud-stats expansion — `queryDataElectricityV2`, signed grid import/export, `*_yesterday` variants, lifetime totals |
 | 4+ | ⏸️ | [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) — half-hourly smart-meter consumption replaces Riemann `load_today`. Gated on Octopus Home Mini arrival. |
 
