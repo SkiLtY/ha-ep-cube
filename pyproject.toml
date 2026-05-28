@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ha-ep-cube"
+description = "Home Assistant custom integration for the Canadian Solar EP Cube battery."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+version = "0.0.1"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# pytest-homeassistant-custom-component emits some loop-related warnings on
+# Python 3.12+. Surface real failures, silence the framework noise.
+filterwarnings = [
+    "ignore::DeprecationWarning:homeassistant",
+    "ignore::DeprecationWarning:pytest_homeassistant_custom_component",
+]
+norecursedirs = [
+    "captures",
+    "spikes",
+    "ha_config",
+    "predbat_config",
+    "mock_server",
+    "docs",
+    "dashboards",
+    "examples",
+]

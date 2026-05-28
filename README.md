@@ -57,6 +57,17 @@ This runs:
 
 Add the integration through HA's UI; point it at `http://mock:8765` (Docker network DNS), any username/password, device_id `ep_cube_test_01`.
 
+### Running tests
+
+Tests use [`pytest-homeassistant-custom-component`](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component) and run without Docker:
+
+```bash
+pip install -r requirements-test.txt
+pytest
+```
+
+The CI matrix (`.github/workflows/validate.yml`) runs the same on Python 3.12 and 3.13 against every PR and weekly. Coverage spans the API client (envelope unwrapping, 403→reauth retry, `switch_mode` verification), the Predbat shim (idempotency, baseline snapshotting, auto-revert), `predbat_state` parsing, config flow (region routing + migration), and entity registration.
+
 ## Roadmap
 
 | Phase | Status | What |

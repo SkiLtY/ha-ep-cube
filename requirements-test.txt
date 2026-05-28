@@ -1,0 +1,9 @@
+# Test dependencies for the EP Cube integration.
+#
+# pytest-homeassistant-custom-component pins the matching homeassistant
+# core version transitively, so we don't need to pin it here. Bump this
+# pin when the matching HA stable changes (every ~4 weeks); the validate
+# workflow's weekly cron will catch incompatibilities early.
+pytest>=8.0,<9
+pytest-asyncio>=0.23,<1
+pytest-homeassistant-custom-component>=0.13.150

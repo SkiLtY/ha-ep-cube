@@ -1,0 +1,19 @@
+[
+  {
+    "id": "5613",
+    "devId": "5613",
+    "sgSn": "100100007001257120126",
+    "rtuSn": "RTU01230456789",
+    "name": "Mock EP Cube",
+    "timeZone": "Europe/London",
+    "version": "02160239021920260323",
+    "softwareVersion": "V1.2.2",
+    "isOnline": "1",
+    "status": "1",
+    "workStatus": "1",
+    "isFault": "0",
+    "devType": 1,
+    "batteryType": "5.0kWh",
+    "systemCapacity": "20.0kWh"
+  }
+]
