@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔋 ha-ep-cube
+# ☀️ EP Cube Integration
 
 **Home Assistant integration for the Canadian Solar EP Cube residential battery**
 *with a Predbat-compatible shim for Octopus Agile tariff optimisation*
@@ -45,7 +45,7 @@
 ## ⚡ Quick Start
 
 > [!IMPORTANT]
-> HACS auto-install isn't live yet (Phase 4 — pending the first `v0.1.0` tag). Manual install for now:
+> HACS auto-install isn't live yet (Phase 4 — pending the first `v0.5.0` tag). Manual install for now:
 
 **1. Install the integration**
 
@@ -307,7 +307,7 @@ This stack uses **HA Container** (lightweight, no Supervisor). HA Container cann
 | 3.3 | ✅ | Animated power-flow Lovelace dashboard |
 | 3.4 | ✅ | Feature-parity vs Bobsilvio/epcube — control entities + daily kWh sensors + i18n |
 | 3.5 | ✅ | Bobsilvio-parity metrics expansion — 5 sensors + 4 `utility_meter` rollups |
-| **4** | 🚧 | **HACS distribution** — scaffolding live, brand assets self-hosted, helpers shipped, 150-test pytest suite + CI matrix landed. Remaining: first `v0.1.0` tag |
+| **4** | 🚧 | **HACS distribution** — scaffolding live, brand assets self-hosted, helpers shipped, 150-test pytest suite + CI matrix landed. Remaining: first `v0.5.0` tag |
 | 4.1 | ⏸️ | TOU schedule editor — `set_tou_schedule` service + Lovelace editor card (post-HACS) |
 | 4.2 | ⏸️ | Cloud-stats expansion — `queryDataElectricityV2`, signed grid import/export, `*_yesterday` variants, lifetime totals |
 | 4+ | ⏸️ | [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) — half-hourly smart-meter consumption replaces Riemann `load_today`. Gated on Octopus Home Mini arrival. |
