@@ -1,7 +1,7 @@
 {
   "name": "Canadian Solar EP Cube",
   "render_readme": true,
-  "homeassistant": "2026.4.4",
+  "homeassistant": "2026.3",
   "zip_release": true,
   "filename": "ep_cube.zip",
   "content_in_root": false
