@@ -31,6 +31,8 @@ ha-ep-cube/
 ├── mock_server/                 ← FastAPI mock of the EP Cube cloud, for dev without hardware
 ├── dashboards/
 │   └── ep_cube.yaml             ← Lovelace dashboard (animated power flow + mode-aware controls)
+├── examples/
+│   └── ha_config/               ← Drop-in YAML for Predbat helpers + Energy dashboard rollups
 ├── docs/
 │   ├── ARCHITECTURE.md          ← Predbat shim contract + design notes
 │   ├── PREDBAT.md               ← Predbat install + tariff (BottlecapDave auto-detect) + Solcast runbook
@@ -107,6 +109,21 @@ Call `select.select_option` / `number.set_value` from automations.
 
 `battery_soc`, `battery_soc_kwh` (energy), `battery_capacity_kwh`, `battery_power`, `grid_power`, `solar_power`, `load_power`, `operating_mode`, `reserve_soc`. All grouped under one device per EP Cube.
 
+## Helper config (optional)
+
+The integration installs cleanly on a default HA setup. Two optional extras live in [`examples/ha_config/`](examples/ha_config/):
+
+- **`packages/ep_cube.yaml`** — Riemann daily kWh sensors (load / PV / signed grid import / signed grid export), `utility_meter` monthly + yearly rollups on the cube's native daily counters + the battery in/out trackers, and `input_number` charge / discharge rate entities.
+- **`configuration.yaml`** — a minimal example showing the one-line `homeassistant.packages` block needed to load the file above.
+
+**You need the package if you're running Predbat.** Predbat requires `load_today` as a hard dependency, expects `pv_today` / `import_today` / `export_today` (warns from v8.39.0 if missing), and its `charge_rate` / `discharge_rate` entities must be writable (an `input_number`, not a read-only sensor).
+
+**You probably want the package if you want monthly / yearly history** in the Energy dashboard or in your own cards.
+
+**You don't need it for "just install the integration and look at the live sensors."**
+
+To install: copy the contents of `examples/ha_config/` into your HA config directory (merging into your existing `configuration.yaml` if you already have one), then restart HA.
+
 ## Dashboard
 
 [`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) is a drop-in Lovelace dashboard that mirrors the EP Cube mobile app: live animated power flow at the top, battery status, an operating-mode picker, and mode-specific control cards (self-consumption / backup / time-of-use) that swap automatically when you change mode.
@@ -123,7 +140,7 @@ The TOU card has a slot reserved for a per-tier schedule editor — that ships w
 
 ## Energy dashboard
 
-The integration ships four daily kWh sensors that mirror the cube's onboard counters (`sensor.ep_cube_solar_today`, `..._grid_today`, `..._backup_today`, `..._nonbackup_today`) plus a self-consumption KPI (`sensor.ep_cube_self_consumption`). Monthly + yearly rollups are layered on these via `utility_meter` in [`ha_config/packages/ep_cube.yaml`](ha_config/packages/ep_cube.yaml) (entity IDs `sensor.ep_cube_{solar,grid,backup,nonbackup}_{month,year}`).
+The integration ships four daily kWh sensors that mirror the cube's onboard counters (`sensor.ep_cube_solar_today`, `..._grid_today`, `..._backup_today`, `..._nonbackup_today`) plus a self-consumption KPI (`sensor.ep_cube_self_consumption`). Monthly + yearly rollups are layered on these via `utility_meter` in [`examples/ha_config/packages/ep_cube.yaml`](examples/ha_config/packages/ep_cube.yaml) (entity IDs `sensor.ep_cube_{solar,grid,backup,nonbackup}_{month,year}`).
 
 To wire them into HA's built-in **Energy dashboard** (Settings → Dashboards → Energy):
 

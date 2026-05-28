@@ -1,0 +1,185 @@
+# Helper entities for the ep_cube integration.
+#
+# What this gives you:
+#   - Riemann-integrated daily kWh sensors for load / PV / grid import / grid
+#     export (Predbat reads these; HA's Energy dashboard also benefits)
+#   - utility_meter monthly + yearly rollups on the cube's native daily kWh
+#     counters
+#   - input_number charge_rate / discharge_rate entities that Predbat needs
+#     to write its planned rate into (the shim ignores the value — TOU charges
+#     at max — but Predbat's validator requires writable entities)
+#
+# How to install:
+#   1. Put this file at `<HA config>/packages/ep_cube.yaml`
+#   2. Make sure your configuration.yaml has:
+#        homeassistant:
+#          packages: !include_dir_named packages
+#   3. Restart HA
+#
+# Source entities are the integration's *_power sensors. Entity IDs are
+# stable across devIds — the integration uses a fixed `EP Cube` device name
+# so the slug is just `sensor.ep_cube_<key>`.
+
+# Directional grid power split. The integration's grid_power sensor is signed
+# (+ = import, − = export per docs/ARCHITECTURE.md), but Predbat's import_today
+# / export_today keys want monotonic per-direction kWh. Trigger-based template
+# so HA's dependency tracker definitely binds the source (plain `template:`
+# with a `{% set %}` preamble can silently stop re-evaluating).
+template:
+  # Triggers: state-change on grid_power AND homeassistant.start. The start
+  # trigger fires once at boot so the templates initialise to a real numeric
+  # value immediately, rather than sitting at "unknown" until the source
+  # sensor happens to change. Without the start trigger Predbat's validator
+  # complains "not a valid type float" against the downstream utility-meter
+  # sensors. We read via states() rather than trigger.to_state because the
+  # start-trigger context has no to_state.
+  - trigger:
+      - platform: state
+        entity_id: sensor.ep_cube_grid_power
+      - platform: homeassistant
+        event: start
+    sensor:
+      - name: "EP Cube grid import power"
+        unique_id: ep_cube_grid_import_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set gp = states('sensor.ep_cube_grid_power') | float(0) %}
+          {{ [gp, 0] | max }}
+      - name: "EP Cube grid export power"
+        unique_id: ep_cube_grid_export_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set gp = states('sensor.ep_cube_grid_power') | float(0) %}
+          {{ [-gp, 0] | max }}
+
+# Riemann sum integrals (W → kWh, trapezoidal) feeding the four daily counters
+# Predbat reads: load_today, pv_today, import_today, export_today.
+sensor:
+  - platform: integration
+    source: sensor.ep_cube_load_power
+    name: ep_cube_load_energy
+    unit_prefix: k
+    unit_time: h
+    method: trapezoidal
+  - platform: integration
+    source: sensor.ep_cube_solar_power
+    name: ep_cube_pv_energy
+    unit_prefix: k
+    unit_time: h
+    method: trapezoidal
+  - platform: integration
+    source: sensor.ep_cube_grid_import_power
+    name: ep_cube_grid_import_energy
+    unit_prefix: k
+    unit_time: h
+    method: trapezoidal
+  - platform: integration
+    source: sensor.ep_cube_grid_export_power
+    name: ep_cube_grid_export_energy
+    unit_prefix: k
+    unit_time: h
+    method: trapezoidal
+
+# Daily reset on each integral → kWh since midnight. Predbat reads these for
+# its multi-day pattern tracking (load_today is hard-required since Phase 2b;
+# pv_today / import_today / export_today became required-or-warn in v8.39.0).
+utility_meter:
+  ep_cube_load_today:
+    source: sensor.ep_cube_load_energy
+    cycle: daily
+  ep_cube_pv_today:
+    source: sensor.ep_cube_pv_energy
+    cycle: daily
+  ep_cube_import_today:
+    source: sensor.ep_cube_grid_import_energy
+    cycle: daily
+  ep_cube_export_today:
+    source: sensor.ep_cube_grid_export_energy
+    cycle: daily
+
+  # Monthly + yearly rollups on the 4 user-facing daily kWh sensors that
+  # ship with the integration. These read the cube's own daily counters
+  # (matching the EP Cube mobile app) — distinct from the Riemann-integrated
+  # *_today sensors above (which exist for Predbat). HA-side `utility_meter`
+  # handles the rollup; no additional cloud calls.
+  ep_cube_solar_month:
+    source: sensor.ep_cube_solar_today
+    cycle: monthly
+  ep_cube_solar_year:
+    source: sensor.ep_cube_solar_today
+    cycle: yearly
+  ep_cube_grid_month:
+    source: sensor.ep_cube_grid_today
+    cycle: monthly
+  ep_cube_grid_year:
+    source: sensor.ep_cube_grid_today
+    cycle: yearly
+  ep_cube_backup_month:
+    source: sensor.ep_cube_backup_today
+    cycle: monthly
+  ep_cube_backup_year:
+    source: sensor.ep_cube_backup_today
+    cycle: yearly
+  ep_cube_nonbackup_month:
+    source: sensor.ep_cube_nonbackup_today
+    cycle: monthly
+  ep_cube_nonbackup_year:
+    source: sensor.ep_cube_nonbackup_today
+    cycle: yearly
+
+  # Battery charge/discharge monthly + yearly rollups. Source sensors are
+  # client-side delta-trackers in the integration (the cube cloud doesn't
+  # expose signed battery flow on its main poll endpoint). Lifetime totals
+  # (no cycle) are NOT exposed here because RestoreSensor on the source
+  # today-sensor handles inter-restart persistence; add your own no-cycle
+  # utility_meter if you want a "since this entity was added" lifetime
+  # counter.
+  ep_cube_battery_charge_month:
+    source: sensor.ep_cube_battery_charge_today
+    cycle: monthly
+  ep_cube_battery_charge_year:
+    source: sensor.ep_cube_battery_charge_today
+    cycle: yearly
+  ep_cube_battery_discharge_month:
+    source: sensor.ep_cube_battery_discharge_today
+    cycle: monthly
+  ep_cube_battery_discharge_year:
+    source: sensor.ep_cube_battery_discharge_today
+    cycle: yearly
+
+# Writable charge/discharge rate targets that Predbat owns.
+#
+# Predbat's apps.yaml schema for service-API inverters expects `charge_rate`
+# and `discharge_rate` to be ENTITIES IT CAN MODIFY (it stores the planned
+# rate there as part of its plan output). Read-only `sensor.*` template
+# sensors trigger validation errors ("cannot be modified") and are listed
+# as configuration errors at startup.
+#
+# The integration's shim ignores the rate value (TOU charges at max), so
+# these are effectively decorative — but supplying writable plumbing keeps
+# Predbat's validator happy and lets it record its planned rate.
+#
+# Range matches battery_rate_max_charge / _discharge in apps.yaml (5 kW = 5000 W).
+input_number:
+  ep_cube_charge_rate:
+    name: EP Cube charge rate
+    min: 0
+    max: 5000
+    step: 100
+    initial: 5000
+    unit_of_measurement: W
+    mode: box
+    icon: mdi:battery-arrow-up
+  ep_cube_discharge_rate:
+    name: EP Cube discharge rate
+    min: 0
+    max: 5000
+    step: 100
+    initial: 5000
+    unit_of_measurement: W
+    mode: box
+    icon: mdi:battery-arrow-down

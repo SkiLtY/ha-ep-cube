@@ -23,8 +23,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# HA dev volume — populated by `docker compose up`, never committed
-ha_config/
+# HA dev volume — populated by `docker compose up`, never committed.
+# Anchored to repo root so it doesn't swallow `examples/ha_config/`.
+/ha_config/
 
 # Mock server state dumps
 mock_server/state_dump/

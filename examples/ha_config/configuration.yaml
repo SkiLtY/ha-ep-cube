@@ -1,0 +1,27 @@
+# Example HA configuration.yaml for ep_cube + Predbat users.
+#
+# This file is OPTIONAL. The integration installs cleanly on a default HA
+# install. You only need the helpers in packages/ep_cube.yaml if you also
+# run Predbat (or want monthly/yearly utility_meter rollups).
+#
+# If you already have a configuration.yaml, just add the `homeassistant:`
+# block below to your existing file and copy the `packages/` directory.
+
+default_config:
+
+# Custom YAML lives in packages/. Keeps configuration.yaml stable and lets
+# the ep_cube integration ship the helpers Predbat needs (load_today,
+# charge_rate/discharge_rate, utility_meter rollups).
+homeassistant:
+  packages: !include_dir_named packages
+
+# Standard HA boilerplate — remove or comment out anything you don't use.
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+logger:
+  default: warning
