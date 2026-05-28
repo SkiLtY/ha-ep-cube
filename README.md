@@ -73,7 +73,7 @@ Add the integration through HA's UI; point it at `http://mock:8765` (Docker netw
 | 3.3 | ✅ | Animated power-flow Lovelace dashboard (`dashboards/ep_cube.yaml`) |
 | 3.4 | ✅ | Feature-parity catch-up vs Bobsilvio/epcube — control entities + daily kWh sensors + i18n |
 | 3.5 | ✅ | Bobsilvio-parity metrics expansion — 5 sensors + 4 utility_meter rollups |
-| 4 | 🚧 | HACS distribution (scaffolding live, brand assets self-hosted at `custom_components/ep_cube/brand/`). Remaining: relocate `ha_config/` helpers to `examples/`, tests, first `v0.1.0` tag |
+| 4 | 🚧 | HACS distribution (scaffolding live, brand assets self-hosted at `custom_components/ep_cube/brand/`, helpers shipped at `examples/ha_config/`). Remaining: tests, first `v0.1.0` tag |
 | 4.1 | ⏸️ | TOU schedule editor — `set_tou_schedule` service + Lovelace editor card (post-HACS) |
 | 4.2 | ⏸️ | Cloud-stats endpoint expansion — capture `queryDataElectricityV2` for signed grid import/export, `*_yesterday` variants, lifetime totals |
 | 4+ | ⏸️ | BottlecapDave [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) — half-hourly smart-meter consumption replaces Riemann `load_today`. Gated on Octopus Home Mini arrival |
