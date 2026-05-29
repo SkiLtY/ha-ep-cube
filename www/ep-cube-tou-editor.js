@@ -159,15 +159,56 @@ class EpCubeTouEditor extends LitElement {
     return 6;
   }
 
-  // Hydrate the form from the current operating-mode select entity's
-  // matching device, by pulling the cube's stored tier lists from the
-  // getSwitchMode response — but that lives behind the integration and
-  // isn't exposed to the frontend directly. For MVP we hydrate from
-  // user-edits only and let the cube's existing schedule survive
-  // untouched until they explicitly save.
+  // Hydrate from the operating-mode select entity's `tou_schedule`
+  // attribute (added in v0.6.2 — the coordinator polls getSwitchMode and
+  // the select exposes the parsed workday/weekend tier lists).
   //
-  // (Future: surface a "Reload from cube" button that calls a read-only
-  // WebSocket command. Out of scope for v0.6.0.)
+  // Auto-hydrate runs once on first hass binding so we don't clobber the
+  // user's in-progress edits on every coordinator tick. The "Reload from
+  // cube" button forces a re-hydrate.
+  updated(changed) {
+    super.updated?.(changed);
+    if (!this._hydrated && this.hass) {
+      this._hydrateFromCube();
+    }
+  }
+
+  _readCubeSchedule() {
+    const state = this.hass?.states?.["select.ep_cube_operating_mode"];
+    const sched = state?.attributes?.tou_schedule;
+    if (!sched || typeof sched !== "object") return null;
+    return {
+      workday: {
+        peak: [...(sched.workday?.peak || [])],
+        mid_peak: [...(sched.workday?.mid_peak || [])],
+        off_peak: [...(sched.workday?.off_peak || [])],
+      },
+      weekend: {
+        peak: [...(sched.weekend?.peak || [])],
+        mid_peak: [...(sched.weekend?.mid_peak || [])],
+        off_peak: [...(sched.weekend?.off_peak || [])],
+      },
+    };
+  }
+
+  _hydrateFromCube() {
+    const fromCube = this._readCubeSchedule();
+    if (!fromCube) return;
+    this._schedule = fromCube;
+    this._hydrated = true;
+    this._errors = [];
+  }
+
+  _onReloadFromCube() {
+    const fromCube = this._readCubeSchedule();
+    if (!fromCube) {
+      this._statusMsg = "Cube schedule not available yet — try again in a moment.";
+      return;
+    }
+    this._schedule = fromCube;
+    this._errors = [];
+    this._statusMsg = "Reloaded from cube.";
+  }
 
   _onSlotChange(profile, tier, idx, field, value) {
     const slots = [...(this._schedule[profile][tier] || [])];
@@ -272,6 +313,10 @@ class EpCubeTouEditor extends LitElement {
       if (this._config?.device_id) data.device_id = this._config.device_id;
       await this.hass.callService("ep_cube", "set_tou_schedule", data);
       this._statusMsg = "Schedule saved.";
+      // Re-hydrate so the card reflects the cube's now-current state. The
+      // service triggers a coordinator refresh before returning, so the
+      // select entity's tou_schedule attribute is fresh by the time we read.
+      this._hydrateFromCube();
     } catch (err) {
       this._statusMsg = `Save failed: ${err?.message || err}`;
     } finally {
@@ -345,6 +390,9 @@ class EpCubeTouEditor extends LitElement {
           </div>
 
           <div class="tab-actions">
+            <button class="copy-link" @click=${this._onReloadFromCube}>
+              Reload from cube
+            </button>
             <button class="copy-link" @click=${this._copyFromOtherProfile}>
               Copy from ${profile === "workday" ? "weekend" : "workday"}
             </button>
@@ -419,6 +467,7 @@ class EpCubeTouEditor extends LitElement {
       .tab-actions {
         display: flex;
         justify-content: flex-end;
+        gap: 16px;
         margin: -8px 0 12px 0;
       }
       .copy-link {

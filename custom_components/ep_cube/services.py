@@ -148,6 +148,49 @@ def _strip_shim_slots(state: dict[str, Any]) -> tuple[dict[str, Any], int]:
     return cleaned, stripped
 
 
+def _slot_wire_to_user(slot: str) -> str | None:
+    """Convert a wire-format slot "HH:MM_HH:MM_PRICE" to user format
+    "HH:MM-HH:MM". Returns None if the input doesn't have at least the two
+    time components."""
+    parts = str(slot).split("_")
+    if len(parts) < 2:
+        return None
+    return f"{parts[0]}-{parts[1]}"
+
+
+def parse_tou_schedule(state: dict[str, Any]) -> dict[str, dict[str, list[str]]]:
+    """Parse a getSwitchMode response into the card-friendly nested shape.
+
+    Strips shim-signature slots (so leftover overrides from in-flight Predbat
+    windows don't leak into the user's view) and converts each remaining slot
+    from wire format ("HH:MM_HH:MM_PRICE") to user format ("HH:MM-HH:MM").
+
+    Returns::
+
+        {
+          "workday": {"peak": [...], "mid_peak": [...], "off_peak": [...]},
+          "weekend": {"peak": [...], "mid_peak": [...], "off_peak": [...]},
+        }
+
+    Missing wire keys are treated as empty lists. Malformed slot strings are
+    dropped silently.
+    """
+    cleaned, _ = _strip_shim_slots(state)
+    result: dict[str, dict[str, list[str]]] = {
+        "workday": {"peak": [], "mid_peak": [], "off_peak": []},
+        "weekend": {"peak": [], "mid_peak": [], "off_peak": []},
+    }
+    for user_field, wire_key in _USER_FIELD_TO_WIRE_KEY.items():
+        tier, _, profile = user_field.rpartition("_")
+        if profile not in ("workday", "weekend") or tier not in ("peak", "mid_peak", "off_peak"):
+            continue
+        for raw in cleaned.get(wire_key, []) or []:
+            user = _slot_wire_to_user(str(raw))
+            if user is not None:
+                result[profile][tier].append(user)
+    return result
+
+
 # ----------------------------------------------------------------------
 # set_tou_schedule — user-facing TOU writer
 # ----------------------------------------------------------------------
@@ -808,6 +851,14 @@ async def async_register_services(hass: HomeAssistant) -> None:
             len(user_tiers["off_peak_weekend"]),
             bool(call.data.get("switch_to_tou")),
         )
+
+        # Trigger a coordinator refresh so the operating-mode select's
+        # extra_state_attributes (tou_schedule) and the editor card's
+        # hydration reflect the new schedule immediately, not on the next
+        # 30s tick.
+        coordinator = hass.data.get(DOMAIN, {}).get(shim.entry_id, {}).get("coordinator")
+        if coordinator is not None:
+            await coordinator.async_request_refresh()
 
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_START, handle_charge_start, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_STOP, handle_charge_stop, schema=SHIM_SCHEMA)

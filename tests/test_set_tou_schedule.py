@@ -40,6 +40,7 @@ from custom_components.ep_cube.services import (
     _parse_user_slot,
     _validate_day_profile,
     async_register_services,
+    parse_tou_schedule,
 )
 
 
@@ -175,6 +176,77 @@ class TestExistingHousePrice:
     def test_malformed_slot_tolerated(self):
         # Garbage slot is skipped; next valid one wins.
         assert _existing_house_price(["garbage", "16:00_19:00_0.40"], default=0.99) == 0.40
+
+
+# ----------------------------------------------------------------------
+# parse_tou_schedule — used by the operating-mode select to expose the
+# cube's current schedule as an entity attribute, so the editor card can
+# hydrate from real state (Phase 4.2 / v0.6.2).
+# ----------------------------------------------------------------------
+class TestParseTouSchedule:
+    def test_empty_state_returns_six_empty_lists(self):
+        result = parse_tou_schedule({})
+        assert result == {
+            "workday": {"peak": [], "mid_peak": [], "off_peak": []},
+            "weekend": {"peak": [], "mid_peak": [], "off_peak": []},
+        }
+
+    def test_wire_slots_converted_to_user_format(self):
+        state = {
+            "peakTimeList": ["16:00_19:00_0.40"],
+            "midPeakTimeList": ["04:30_16:00_0.25", "19:00_23:59_0.25"],
+            "offPeakTimeList": ["00:30_04:30_0.05"],
+        }
+        result = parse_tou_schedule(state)
+        assert result["workday"]["peak"] == ["16:00-19:00"]
+        assert result["workday"]["mid_peak"] == ["04:30-16:00", "19:00-23:59"]
+        assert result["workday"]["off_peak"] == ["00:30-04:30"]
+
+    def test_weekend_lists_parsed_separately(self):
+        state = {
+            "peakTimeList": ["16:00_19:00_0.40"],
+            "peakTimeListNonWorkDay": ["17:00_20:00_0.40"],
+            "offPeakTimeListNonWorkDay": ["02:00_05:00_0.05"],
+        }
+        result = parse_tou_schedule(state)
+        assert result["workday"]["peak"] == ["16:00-19:00"]
+        assert result["weekend"]["peak"] == ["17:00-20:00"]
+        assert result["weekend"]["off_peak"] == ["02:00-05:00"]
+
+    def test_shim_signature_slots_stripped(self):
+        # A stale shim charge slot (SHIM_PRICE_OFF_PEAK = 0.01) shouldn't
+        # leak into the user-facing schedule.
+        state = {
+            "offPeakTimeList": [
+                f"08:00_09:00_{SHIM_PRICE_OFF_PEAK:.2f}",  # shim slot
+                "00:30_04:30_0.05",                         # real user slot
+            ],
+            "peakTimeList": [f"00:00_06:00_{SHIM_PRICE_PEAK:.2f}"],  # shim only
+        }
+        result = parse_tou_schedule(state)
+        assert result["workday"]["off_peak"] == ["00:30-04:30"]
+        assert result["workday"]["peak"] == []
+
+    def test_malformed_slot_dropped_silently(self):
+        state = {
+            "peakTimeList": ["16:00_19:00_0.40", "garbage", ""],
+        }
+        result = parse_tou_schedule(state)
+        # Garbage and empty entries are filtered; valid slot survives.
+        assert result["workday"]["peak"] == ["16:00-19:00"]
+
+    def test_does_not_surface_dst_lists(self):
+        # DST tier lists are preserved server-side but not exposed via the
+        # card (out of scope for the editor MVP). Confirm they don't leak
+        # into the parsed shape.
+        state = {
+            "peakTimeList": ["16:00_19:00_0.40"],
+            "dayLightPeakTimeList": ["17:00_20:00_0.40"],
+        }
+        result = parse_tou_schedule(state)
+        assert result["workday"]["peak"] == ["16:00-19:00"]
+        # No "dst" key, no leakage into workday/weekend.
+        assert set(result.keys()) == {"workday", "weekend"}
 
 
 # ----------------------------------------------------------------------
