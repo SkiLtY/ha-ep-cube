@@ -80,7 +80,13 @@ function validateDay(tiers) {
       const start = minutesOfDay(split.start);
       const end = minutesOfDay(split.end);
       if (end <= start) {
-        errors.push(`${tier.label}: ${slot} ends before it starts`);
+        // The cube (and EP Cube mobile app) doesn't support midnight-crossing
+        // slots — wire format treats end <= start as invalid. Point users at
+        // the 23:59 escape hatch.
+        errors.push(
+          `${tier.label}: ${slot} ends before it starts — ` +
+          `use 23:59 to end a slot at midnight`,
+        );
         continue;
       }
       parsed.push({ start, end, tierLabel: tier.label });
@@ -312,7 +318,9 @@ class EpCubeTouEditor extends LitElement {
 
             <div class="hint">
               DST tier lists, prices and reserves are preserved from the
-              cube's current state. Empty tier = cleared on save.
+              cube's current state. Empty tier = cleared on save. Slots
+              can't cross midnight — use 23:59 to end a slot at the end
+              of the day (matches the EP Cube mobile app's convention).
             </div>
           </div>
         </div>

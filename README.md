@@ -125,7 +125,7 @@ Replaces the cube's workday + weekend non-DST tier lists in one POST. DST tier l
 | `switch_to_tou` | `bool` (default `false`) | If true, also flip the cube into Time-of-Use mode after writing |
 | `device_id` | `str` (optional) | Only required if multiple cubes are configured |
 
-Slots are validated server-side for format, within-tier overlap, and cross-tier overlap. Midnight-crossing slots (`23:00-01:00`) are rejected — split them across two slots. The bundled [TOU Schedule Editor card](#-dashboard) drives this service from a UI form.
+Slots are validated server-side for format, within-tier overlap, and cross-tier overlap. Slots can't cross midnight — use `23:59` to end a slot at the end of the day (matches the EP Cube mobile app's convention; the cube's wire format rejects `end <= start`). The bundled [TOU Schedule Editor card](#-dashboard) drives this service from a UI form.
 
 Mode switching and reserve-SoC writes are exposed as **entities**, not services:
 

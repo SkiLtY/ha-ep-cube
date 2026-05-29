@@ -62,7 +62,7 @@ class TestParseUserSlot:
         "12:60-13:00",      # minute > 59
         "12:30_13:00",      # wrong separator (wire format)
         "12:30-12:30",      # zero-length
-        "20:00-04:00",      # midnight-crossing rejected (split into two)
+        "20:00-04:00",      # midnight-crossing rejected (cube unsupported)
     ])
     def test_invalid_slots_raise(self, slot):
         with pytest.raises(ValueError):

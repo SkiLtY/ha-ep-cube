@@ -205,9 +205,13 @@ def _parse_user_slot(slot: str) -> tuple[int, int]:
     start = sh * 60 + sm
     end = eh * 60 + em
     if end <= start:
+        # The cube (and EP Cube mobile app) doesn't support slots that cross
+        # midnight — the wire format treats end <= start as invalid. Users
+        # who want a "rest of day" slot should end at 23:59.
         raise ValueError(
-            f"slot {slot!r} end must be after start "
-            f"(midnight-crossing slots are not supported — split into two)"
+            f"slot {slot!r} ends before it starts — "
+            f"use 23:59 to end a slot at midnight "
+            f"(the EP Cube doesn't support slots that cross midnight)"
         )
     return start, end
 

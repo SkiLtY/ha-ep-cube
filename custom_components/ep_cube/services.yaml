@@ -10,7 +10,8 @@ set_tou_schedule:
   description: >-
     Replace the cube's time-of-use schedule with new workday + weekend slots.
     DST tier lists, reserves and per-tier prices are preserved. Slot format:
-    "HH:MM-HH:MM" (24h, no midnight-crossing). Empty list clears that tier.
+    "HH:MM-HH:MM" (24h, no midnight-crossing — use 23:59 to end at midnight,
+    matching the EP Cube mobile app's convention). Empty list clears that tier.
     If a Predbat shim override is in flight it will be abandoned (user-wins).
   fields:
     peak_workday:
