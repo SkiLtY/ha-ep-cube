@@ -65,10 +65,22 @@ WORK_STATUS_TO_OPERATING_MODE: dict[str, str] = {
 # and the inverter optimises. Predbat's mental model is "charge/hold/discharge"
 # with explicit slots; the shim maps that onto tiers using these synthetic
 # prices, spaced wide enough that there's no ambiguity in the inverter's
-# decisions. Values are arbitrary as long as off < mid << peak.
-SHIM_PRICE_OFF_PEAK = 0.01
-SHIM_PRICE_MID_PEAK = 0.20
-SHIM_PRICE_PEAK = 1.00
+# decisions.
+#
+# Values chosen to be obviously synthetic: above Agile's 100p/kWh daily cap so
+# no realistic UK tariff hits them, and the repeating-digit pattern
+# (2.22/3.33/4.44) makes shim slots visually identifiable if a user spots one
+# in the EP Cube mobile app's schedule view.
+#
+# Legacy values were 0.01 / 0.20 / 1.00 — replaced in v0.6.3 because 1.00
+# (peak) collided with realistic fixed-tariff peak prices, causing the
+# strip-shim-slots logic to silently drop genuine user slots from the editor
+# card's hydrated view. _SHIM_PRICE_TOKENS in services.py keeps the legacy
+# values in its match set for one release to clean up any pre-v0.6.3
+# leftover shim slots in cube memory.
+SHIM_PRICE_OFF_PEAK = 2.22
+SHIM_PRICE_MID_PEAK = 3.33
+SHIM_PRICE_PEAK = 4.44
 
 # User-tier defaults for set_tou_schedule when the cube's current state has
 # no existing slots in a tier (so no price to preserve). Match the mock

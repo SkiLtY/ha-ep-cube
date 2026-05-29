@@ -248,6 +248,29 @@ class TestParseTouSchedule:
         # No "dst" key, no leakage into workday/weekend.
         assert set(result.keys()) == {"workday", "weekend"}
 
+    def test_strips_both_new_and_legacy_shim_prices(self):
+        # v0.6.3 migrated synthetic shim prices from 0.01/0.20/1.00 to
+        # 2.22/3.33/4.44 (Agile-cap-aware, repeating digits = obviously
+        # synthetic). Migration window: legacy values stay in the strip set
+        # for one release so any leftover shim slots from a pre-v0.6.3
+        # Predbat run still get cleaned on next read. Confirm both
+        # generations are stripped.
+        state = {
+            "peakTimeList": [
+                f"00:00_06:00_{SHIM_PRICE_PEAK:.2f}",    # new (4.44)
+                "06:00_07:00_1.00",                       # legacy
+                "16:00_19:00_0.40",                       # genuine user slot
+            ],
+            "offPeakTimeList": [
+                f"08:00_09:00_{SHIM_PRICE_OFF_PEAK:.2f}", # new (2.22)
+                "09:00_10:00_0.01",                       # legacy
+                "00:30_04:30_0.05",                       # genuine user slot
+            ],
+        }
+        result = parse_tou_schedule(state)
+        assert result["workday"]["peak"] == ["16:00-19:00"]
+        assert result["workday"]["off_peak"] == ["00:30-04:30"]
+
 
 # ----------------------------------------------------------------------
 # Service dispatch end-to-end (via hass.services.async_call)

@@ -117,10 +117,16 @@ _TIER_LIST_KEYS: tuple[str, ...] = (
 # Slot wire format is "HH:MM_HH:MM_PRICE.PP" (see api.build_slot). A shim slot
 # is recognised by its price segment matching one of the synthetic SHIM_PRICE_*
 # values to 2dp. Documented user-facing constraint: don't manually configure
-# slots at 0.01 / 0.20 / 1.00.
+# slots with prices in the synthetic set below.
+#
+# Migration window (v0.6.3): legacy synthetic prices (0.01 / 0.20 / 1.00) are
+# kept in the match set for one release so any leftover shim slots from a
+# pre-v0.6.3 Predbat run still get stripped cleanly on next read. Drop the
+# legacy entries in v0.7 once any in-flight overrides have rotated out.
+_LEGACY_SHIM_PRICE_TOKENS: frozenset[str] = frozenset({"0.01", "0.20", "1.00"})
 _SHIM_PRICE_TOKENS: frozenset[str] = frozenset(
     f"{p:.2f}" for p in (SHIM_PRICE_OFF_PEAK, SHIM_PRICE_MID_PEAK, SHIM_PRICE_PEAK)
-)
+) | _LEGACY_SHIM_PRICE_TOKENS
 
 
 def _slot_is_shim_signature(slot: str) -> bool:
