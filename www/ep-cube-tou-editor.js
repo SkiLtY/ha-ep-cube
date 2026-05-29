@@ -376,10 +376,15 @@ class EpCubeTouEditor extends LitElement {
             </div>
 
             <div class="hint">
-              DST tier lists, prices and reserves are preserved from the
-              cube's current state. Empty tier = cleared on save. Slots
-              can't cross midnight — use 23:59 to end a slot at the end
-              of the day (matches the EP Cube mobile app's convention).
+              <strong>Tip:</strong> you only need to paint off-peak slots
+              (when you want to force grid charging at cheap rates). Leave
+              peak/mid-peak empty — undefined time defaults to peak, which
+              the cube treats as self-consumption (battery powers loads, no
+              grid charge). DST tier lists, prices and reserves are
+              preserved from the cube's current state. Empty tier = cleared
+              on save. Slots can't cross midnight — use 23:59 to end a slot
+              at the end of the day (matches the EP Cube mobile app's
+              convention).
             </div>
           </div>
         </div>
