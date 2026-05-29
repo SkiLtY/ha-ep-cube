@@ -64,6 +64,12 @@ function minutesOfDay(hhmm) {
   return h * 60 + m;
 }
 
+function minutesToHHMM(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 // Run the same validation rules as the backend service so the user sees
 // errors inline rather than waiting for the service call to fail.
 function validateDay(tiers) {
@@ -175,13 +181,60 @@ class EpCubeTouEditor extends LitElement {
     this._statusMsg = "";
   }
 
+  // Pick a default for new slots that won't trip the overlap validator on
+  // first edit. Use the latest end-time across all tiers on this profile,
+  // so the new slot tails the existing schedule. Empty schedule starts at
+  // 00:00. Duration defaults to 1h, capped at 23:59 (the cube's
+  // midnight-end convention).
+  _defaultNewSlot(profile) {
+    let latestEnd = 0;
+    for (const tier of TIERS) {
+      for (const slot of this._schedule[profile][tier.key] || []) {
+        const split = splitSlot(slot);
+        if (!split) continue;
+        const endM = minutesOfDay(split.end);
+        if (endM > latestEnd) latestEnd = endM;
+      }
+    }
+    // Day's already full (or nearly) — fall back to a 23:00-23:59 stub so
+    // the new slot at least has a non-zero duration to edit.
+    const startMin = latestEnd >= 1439 ? 1380 : latestEnd;
+    const endMin = Math.min(startMin + 60, 1439);
+    return `${minutesToHHMM(startMin)}-${minutesToHHMM(endMin)}`;
+  }
+
   _addSlot(profile, tier) {
-    const slots = [...(this._schedule[profile][tier] || []), "00:00-00:00"];
+    const slots = [...(this._schedule[profile][tier] || []), this._defaultNewSlot(profile)];
     this._schedule = {
       ...this._schedule,
       [profile]: { ...this._schedule[profile], [tier]: slots },
     };
     this._statusMsg = "";
+  }
+
+  _copyFromOtherProfile() {
+    const dest = this._activeProfile;
+    const src = dest === "workday" ? "weekend" : "workday";
+    const destHasContent = TIERS.some(
+      (t) => (this._schedule[dest][t.key] || []).length > 0,
+    );
+    if (destHasContent) {
+      const ok = window.confirm(
+        `Replace ${dest} schedule with a copy of ${src}? This can't be undone.`,
+      );
+      if (!ok) return;
+    }
+    const source = this._schedule[src];
+    this._schedule = {
+      ...this._schedule,
+      [dest]: {
+        peak: [...source.peak],
+        mid_peak: [...source.mid_peak],
+        off_peak: [...source.off_peak],
+      },
+    };
+    this._errors = [];
+    this._statusMsg = `Copied ${src} → ${dest}.`;
   }
 
   _removeSlot(profile, tier, idx) {
@@ -291,6 +344,12 @@ class EpCubeTouEditor extends LitElement {
             </button>
           </div>
 
+          <div class="tab-actions">
+            <button class="copy-link" @click=${this._copyFromOtherProfile}>
+              Copy from ${profile === "workday" ? "weekend" : "workday"}
+            </button>
+          </div>
+
           ${TIERS.map((t) => this._renderTier(profile, t))}
 
           <div class="footer">
@@ -351,6 +410,20 @@ class EpCubeTouEditor extends LitElement {
         background: var(--primary-color);
         color: var(--text-primary-color, #fff);
         border-color: var(--primary-color);
+      }
+      .tab-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin: -8px 0 12px 0;
+      }
+      .copy-link {
+        background: transparent;
+        border: none;
+        color: var(--primary-color);
+        font-size: 0.85em;
+        cursor: pointer;
+        padding: 4px 0;
+        text-decoration: underline;
       }
       .tier {
         margin-bottom: 16px;
