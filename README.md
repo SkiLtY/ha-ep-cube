@@ -45,7 +45,7 @@
 ## ⚡ Quick Start
 
 > [!IMPORTANT]
-> HACS auto-install isn't live yet (Phase 4 — pending the first `v0.5.0` tag). Manual install for now:
+> HACS auto-install isn't live yet (HACS Default submission held until v1.0 — the integration has shipped semver releases since [`v0.5.0`](https://github.com/SkiLtY/ha-ep-cube/releases/tag/v0.5.0)). Manual install for now:
 
 **1. Install the integration**
 
@@ -322,7 +322,7 @@ This stack uses **HA Container** (lightweight, no Supervisor). HA Container cann
 | 3.4 | ✅ | Feature-parity vs Bobsilvio/epcube — control entities + daily kWh sensors + i18n |
 | 3.5 | ✅ | Bobsilvio-parity metrics expansion — 5 sensors + 4 `utility_meter` rollups |
 | **4** | ✅ | **HACS distribution** — first release [`v0.5.0`](https://github.com/SkiLtY/ha-ep-cube/releases/tag/v0.5.0) shipped 2026-05-28. 150-test pytest suite + CI matrix, demo-first README, curated release-notes workflow, brand assets self-hosted, helpers shipped. HACS Default submission held for next session. |
-| 4.1 | 🎯 next | TOU schedule editor — `set_tou_schedule` service + Lovelace editor card (post-HACS) |
+| 4.1 | ✅ | **TOU schedule editor** — shipped in [`v0.6.0`](https://github.com/SkiLtY/ha-ep-cube/releases/tag/v0.6.0). `ep_cube.set_tou_schedule` service + bundled Lovelace editor card with workday/weekend tabs, inline validation, shim coexistence. Real-cube round-trip verified 2026-05-29. |
 | 4.2 | ⏸️ | Cloud-stats expansion — `queryDataElectricityV2`, signed grid import/export, `*_yesterday` variants, lifetime totals |
 | 4+ | ⏸️ | [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) — half-hourly smart-meter consumption replaces Riemann `load_today`. Gated on Octopus Home Mini arrival. |
 
