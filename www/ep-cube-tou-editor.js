@@ -253,6 +253,24 @@ class EpCubeTouEditor extends LitElement {
     this._statusMsg = "";
   }
 
+  async _onClearSchedule() {
+    const ok = window.confirm(
+      "Clear ALL TOU schedule slots (workday + weekend)?\n\n" +
+      "This wipes every tier on both profiles and saves the empty schedule " +
+      "to the cube. Useful for starting fresh or removing leftover slots " +
+      "from prior Predbat overrides. Can't be undone — but you can paint " +
+      "new slots immediately after.",
+    );
+    if (!ok) return;
+    this._schedule = {
+      workday: { peak: [], mid_peak: [], off_peak: [] },
+      weekend: { peak: [], mid_peak: [], off_peak: [] },
+    };
+    this._errors = [];
+    // _onSave reads from this._schedule, so it'll push the cleared state.
+    await this._onSave();
+  }
+
   _copyFromOtherProfile() {
     const dest = this._activeProfile;
     const src = dest === "workday" ? "weekend" : "workday";
@@ -420,6 +438,14 @@ class EpCubeTouEditor extends LitElement {
               <button class="save" ?disabled=${this._saving} @click=${this._onSave}>
                 ${this._saving ? "Saving…" : "Save schedule"}
               </button>
+              <button
+                class="clear"
+                ?disabled=${this._saving}
+                @click=${this._onClearSchedule}
+                title="Wipe all slots on both profiles and save the empty schedule."
+              >
+                Clear all
+              </button>
               <span class="status">${this._statusMsg}</span>
             </div>
 
@@ -574,6 +600,19 @@ class EpCubeTouEditor extends LitElement {
         font-size: 1em;
       }
       .save:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .clear {
+        background: transparent;
+        color: var(--error-color, #db4437);
+        border: 1px solid var(--error-color, #db4437);
+        border-radius: 8px;
+        padding: 10px 16px;
+        cursor: pointer;
+        font-size: 0.95em;
+      }
+      .clear:disabled {
         opacity: 0.5;
         cursor: not-allowed;
       }

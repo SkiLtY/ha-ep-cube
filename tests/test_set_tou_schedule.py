@@ -316,7 +316,11 @@ def _good_payload(**overrides):
 
 
 class TestServiceDispatch:
-    async def test_writes_switch_mode_once(self, hass, service_ready):
+    async def test_writes_two_writes_when_cube_in_non_tou_mode(self, hass, service_ready):
+        # Fixture has workStatus="1" (self-consumption). v0.6.4: schedule
+        # writes need a 2-write dance when cube isn't in TOU, because the
+        # cube silently drops tier-list updates while in non-TOU mode.
+        # Write A flips to TOU + applies tier lists; write B flips back.
         shim, client = service_ready
         await hass.services.async_call(
             DOMAIN,
@@ -324,9 +328,19 @@ class TestServiceDispatch:
             _good_payload(peak_workday=["16:00-19:00"]),
             blocking=True,
         )
-        assert client.switch_mode.await_count == 1
+        assert client.switch_mode.await_count == 2
         # Cube state was read first (so we can preserve DST + prices).
         assert client.get_switch_mode.await_count == 1
+        # Write A: workStatus=TOU.
+        write_a = client.switch_mode.await_args_list[0].args[0]
+        assert write_a["workStatus"] == WORK_STATUS_TOU
+        assert write_a["peakTimeList"] == ["16:00_19:00_0.40"]
+        # Write B: workStatus back to self_consumption (the original).
+        write_b = client.switch_mode.await_args_list[1].args[0]
+        assert write_b["workStatus"] == WORK_STATUS_SELF_CONSUMPTION
+        # B still includes the tier lists (cube ignores them on non-TOU
+        # transition, but we send them defensively).
+        assert write_b["peakTimeList"] == ["16:00_19:00_0.40"]
 
     async def test_preserves_existing_tier_price(self, hass, service_ready, get_switch_mode):
         # get_switch_mode fixture has peakTimeList=["16:00_19:00_0.40"] — that
@@ -373,6 +387,70 @@ class TestServiceDispatch:
         )
         body = client.switch_mode.await_args.args[0]
         assert body["workStatus"] == WORK_STATUS_TOU
+
+    async def test_single_write_when_switch_to_tou_true(self, hass, service_ready):
+        # switch_to_tou=True means user wants the cube to end up in TOU mode,
+        # so no 2-write dance — single write applies both mode + tier lists.
+        shim, client = service_ready
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_workday=["16:00-19:00"], switch_to_tou=True),
+            blocking=True,
+        )
+        assert client.switch_mode.await_count == 1
+
+    async def test_single_write_when_cube_already_in_tou(self, hass, service_ready, fake_client):
+        # If the cube is already in TOU mode, a TOU → TOU write applies
+        # tier lists cleanly. No 2-write dance needed.
+        fake_client.get_switch_mode.return_value = {
+            "devId": "5613", "workStatus": "2",   # already TOU
+            "selfConsumptioinReserveSoc": "20", "backupPowerReserveSoc": "100",
+            "allowChargingXiaGrid": "1",
+            "peakTimeList": ["16:00_19:00_0.40"], "midPeakTimeList": [], "offPeakTimeList": [],
+            "peakTimeListNonWorkDay": [], "midPeakTimeListNonWorkDay": [],
+            "offPeakTimeListNonWorkDay": [],
+            "activeWeek": [1, 2, 3, 4, 5], "activeWeekNonWorkDay": [6, 7],
+            "dayLightSavingTime": False,
+            "dayLightPeakTimeList": [], "dayLightMidPeakTimeList": [], "dayLightOffPeakTimeList": [],
+            "dayLightPeakTimeListNonWorkDay": [],
+            "dayLightMidPeakTimeListNonWorkDay": [],
+            "dayLightOffPeakTimeListNonWorkDay": [],
+            "dayLightActiveWeek": [1, 2, 3, 4, 5],
+            "dayLightActiveWeekNonWorkDay": [6, 7],
+            "touType": 0,
+        }
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_workday=["17:00-20:00"]),
+            blocking=True,
+        )
+        assert fake_client.switch_mode.await_count == 1
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["workStatus"] == WORK_STATUS_TOU
+        assert body["peakTimeList"] == ["17:00_20:00_0.40"]
+
+    async def test_two_write_clears_schedule_from_non_tou(self, hass, service_ready):
+        # Direct reproduction of the v0.6.4 bug user surfaced 2026-05-29: in
+        # self-consumption mode, save an empty schedule. Pre-v0.6.4 the cube
+        # silently dropped the tier-list write. With 2-write fix, the empty
+        # tier lists land via write A (TOU mode), then write B restores
+        # self-consumption — final state is empty schedule + correct mode.
+        shim, client = service_ready
+        await hass.services.async_call(
+            DOMAIN, SERVICE_SET_TOU_SCHEDULE, _good_payload(), blocking=True
+        )
+        assert client.switch_mode.await_count == 2
+        write_a = client.switch_mode.await_args_list[0].args[0]
+        write_b = client.switch_mode.await_args_list[1].args[0]
+        # Write A: empties tier lists while in TOU mode (where cube honours them).
+        assert write_a["workStatus"] == WORK_STATUS_TOU
+        assert write_a["peakTimeList"] == []
+        assert write_a["midPeakTimeList"] == []
+        assert write_a["offPeakTimeList"] == []
+        # Write B: back to self-consumption.
+        assert write_b["workStatus"] == WORK_STATUS_SELF_CONSUMPTION
 
     async def test_preserves_dst_tier_lists_from_live_state(self, hass, service_ready, fake_client):
         # Inject a live state with non-empty DST tier lists. Our write must
@@ -480,8 +558,9 @@ class TestShimCoexistence:
             _good_payload(peak_workday=["16:00-19:00"]),
             blocking=True,
         )
-        # One switchMode write, no spurious revert.
-        assert client.switch_mode.await_count == 1
+        # 2-write dance (cube in non-TOU per fixture); no spurious shim revert
+        # on top — shim is not active so it has no baseline to restore.
+        assert client.switch_mode.await_count == 2
 
 
 class TestServiceValidationErrors:

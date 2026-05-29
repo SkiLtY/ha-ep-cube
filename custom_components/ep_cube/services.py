@@ -833,29 +833,77 @@ async def async_register_services(hass: HomeAssistant) -> None:
                 _user_slot_to_wire(s, price) for s in user_tiers[user_field]
             ]
 
-        if call.data.get("switch_to_tou"):
+        current_work_status = str(live_clean.get("workStatus") or "1")
+        switch_to_tou = bool(call.data.get("switch_to_tou"))
+
+        # Cube quirk (verified 2026-05-21, re-verified 2026-05-29): when
+        # transitioning TOU → non-TOU in a single switchMode write, the cube
+        # adopts the new mode but **silently drops the tier-list portion** of
+        # the same write. Cube quirk #2: when **staying** non-TOU (no mode
+        # transition), the cube **also ignores** tier-list updates — so a
+        # set_tou_schedule call while the cube is in self_consumption or
+        # backup mode would appear to succeed but produce no actual change.
+        #
+        # 2-write dance fixes both: write A flips workStatus → TOU and
+        # applies the new tier lists (TOU → TOU never drops the write).
+        # Write B flips workStatus back to the user's original mode. The
+        # cube drops B's tier-list write but it doesn't matter — A already
+        # landed the schedule.
+        #
+        # Skip the dance when (a) the user wants to end up in TOU
+        # (switch_to_tou=true) or (b) the cube is already in TOU — in both
+        # cases a single TOU → TOU write applies cleanly.
+        needs_two_write = current_work_status != WORK_STATUS_TOU and not switch_to_tou
+
+        if switch_to_tou:
             overrides["workStatus"] = WORK_STATUS_TOU
 
-        payload = payload_from_switch_mode_read(
-            shim.client.dev_id, live_clean, overrides=overrides
+        payload_a = payload_from_switch_mode_read(
+            shim.client.dev_id,
+            live_clean,
+            overrides={**overrides, "workStatus": WORK_STATUS_TOU} if needs_two_write else overrides,
         )
 
         try:
-            await shim.client.switch_mode(payload)
+            await shim.client.switch_mode(payload_a)
         except EPCubeError as err:
-            _LOGGER.error("set_tou_schedule write failed: %s", err)
+            _LOGGER.error("set_tou_schedule write failed (write A): %s", err)
             raise HomeAssistantError(f"cube rejected schedule write: {err}") from err
+
+        if needs_two_write:
+            # Write B: switch back to user's original mode. Tier lists in the
+            # payload are ignored by the cube during this transition but we
+            # include them defensively (re-asserting the desired schedule).
+            payload_b = payload_from_switch_mode_read(
+                shim.client.dev_id,
+                live_clean,
+                overrides={**overrides, "workStatus": current_work_status},
+            )
+            try:
+                await shim.client.switch_mode(payload_b)
+            except EPCubeError as err:
+                _LOGGER.error(
+                    "set_tou_schedule write B failed — cube left in TOU mode "
+                    "instead of original %s: %s",
+                    current_work_status, err,
+                )
+                raise HomeAssistantError(
+                    f"schedule applied but mode restore failed (cube stuck in TOU): {err}"
+                ) from err
 
         _LOGGER.info(
             "set_tou_schedule applied: workday peak=%d mid=%d off=%d / "
-            "weekend peak=%d mid=%d off=%d / switch_to_tou=%s",
+            "weekend peak=%d mid=%d off=%d / switch_to_tou=%s "
+            "(2-write=%s, original_mode=%s)",
             len(user_tiers["peak_workday"]),
             len(user_tiers["mid_peak_workday"]),
             len(user_tiers["off_peak_workday"]),
             len(user_tiers["peak_weekend"]),
             len(user_tiers["mid_peak_weekend"]),
             len(user_tiers["off_peak_weekend"]),
-            bool(call.data.get("switch_to_tou")),
+            switch_to_tou,
+            needs_two_write,
+            current_work_status,
         )
 
         # Trigger a coordinator refresh so the operating-mode select's
