@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
@@ -53,7 +53,7 @@ jobs:
           zip -r ../../ep_cube.zip . -x "__pycache__/*" "*/__pycache__/*" "*.pyc"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.name }}
           body_path: docs/RELEASE_NOTES_${{ steps.tag.outputs.name }}.md
