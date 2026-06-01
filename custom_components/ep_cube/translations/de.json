@@ -64,6 +64,13 @@
           "time_of_use": "Zeitabhängiger Tarif",
           "backup": "Notstrom"
         }
+      },
+      "predbat_inverter_mode": {
+        "name": "Predbat Wechselrichtermodus",
+        "state": {
+          "Eco": "Eco",
+          "Timed Export": "Zeitgesteuerter Export"
+        }
       }
     },
     "switch": {
@@ -72,7 +79,8 @@
     },
     "number": {
       "self_consumption_reserve": {"name": "Eigenverbrauchsreserve"},
-      "backup_reserve": {"name": "Notstromreserve"}
+      "backup_reserve": {"name": "Notstromreserve"},
+      "predbat_charge_limit": {"name": "Predbat Ladelimit"}
     }
   }
 }

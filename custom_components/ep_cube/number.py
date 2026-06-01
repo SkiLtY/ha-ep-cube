@@ -42,6 +42,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import DeviceStatus, EPCubeClient, EPCubeError, payload_from_switch_mode_read
@@ -107,7 +108,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     data = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
+    entities: list[NumberEntity] = [
         EPCubeReserveNumber(
             coordinator=data["coordinator"],
             client=data["client"],
@@ -116,7 +117,9 @@ async def async_setup_entry(
             description=desc,
         )
         for desc in RESERVES
-    )
+    ]
+    entities.append(EPCubePredbatChargeLimit(entry_id=entry.entry_id))
+    async_add_entities(entities)
 
 
 class EPCubeReserveNumber(CoordinatorEntity[EPCubeCoordinator], NumberEntity):
@@ -196,3 +199,54 @@ class EPCubeReserveNumber(CoordinatorEntity[EPCubeCoordinator], NumberEntity):
 
         self._shim.patch_baseline(field, wire_value)
         await self.coordinator.async_request_refresh()
+
+
+class EPCubePredbatChargeLimit(NumberEntity, RestoreEntity):
+    """Predbat charge-limit target (SoC %) stub entity.
+
+    Predbat's `charge_limit` apps.yaml key requires an entity that accepts
+    `number/set_value` writes and reads back the written value (Predbat polls
+    until match). This entity satisfies that polling contract; the actual
+    cube actions are still driven by the 6 `*_service` calls Predbat fires
+    alongside (`charge_start_service` et al.) which our services.py already
+    handles via the shim.
+
+    Default 100% mirrors Predbat's own `create_entity("charge_limit", 100)`
+    fallback (see inverter.py:517 in the predbat container).
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "predbat_charge_limit"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, *, entry_id: str) -> None:
+        self._attr_unique_id = f"{entry_id}_predbat_charge_limit"
+        self._attr_native_value = 100.0
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name="EP Cube",
+            manufacturer="Canadian Solar",
+            model="EP Cube",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is None or last.state in (None, "unknown", "unavailable"):
+            return
+        try:
+            self._attr_native_value = float(last.state)
+        except (TypeError, ValueError):
+            _LOGGER.debug(
+                "predbat_charge_limit: ignoring un-parseable restored state %r",
+                last.state,
+            )
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._attr_native_value = value
+        self.async_write_ha_state()

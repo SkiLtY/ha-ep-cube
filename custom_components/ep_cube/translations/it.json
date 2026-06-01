@@ -64,6 +64,13 @@
           "time_of_use": "Tariffa oraria",
           "backup": "Backup"
         }
+      },
+      "predbat_inverter_mode": {
+        "name": "Modalità inverter Predbat",
+        "state": {
+          "Eco": "Eco",
+          "Timed Export": "Esportazione temporizzata"
+        }
       }
     },
     "switch": {
@@ -72,7 +79,8 @@
     },
     "number": {
       "self_consumption_reserve": {"name": "Riserva autoconsumo"},
-      "backup_reserve": {"name": "Riserva backup"}
+      "backup_reserve": {"name": "Riserva backup"},
+      "predbat_charge_limit": {"name": "Limite di carica Predbat"}
     }
   }
 }

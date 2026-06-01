@@ -64,6 +64,13 @@
           "time_of_use": "Tijdgebonden tarief",
           "backup": "Back-up"
         }
+      },
+      "predbat_inverter_mode": {
+        "name": "Predbat omvormermodus",
+        "state": {
+          "Eco": "Eco",
+          "Timed Export": "Geplande export"
+        }
       }
     },
     "switch": {
@@ -72,7 +79,8 @@
     },
     "number": {
       "self_consumption_reserve": {"name": "Zelfverbruik-reserve"},
-      "backup_reserve": {"name": "Back-up-reserve"}
+      "backup_reserve": {"name": "Back-up-reserve"},
+      "predbat_charge_limit": {"name": "Predbat laadlimiet"}
     }
   }
 }

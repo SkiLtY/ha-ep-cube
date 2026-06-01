@@ -21,6 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import EPCubeClient, EPCubeError, payload_from_switch_mode_read
@@ -42,6 +43,15 @@ OPERATING_MODE_OPTIONS: list[str] = [
     OPERATING_MODE_BACKUP,
 ]
 
+# Predbat's `inverter_mode` write target. Predbat (inverter.py:2076-2125 in
+# the upstream container, generic-inverter branch — not Fox, not GE eco
+# toggle) writes one of these two raw strings via `select/select_option`
+# and polls until the entity state matches. "Eco" is normal/Demand mode,
+# "Timed Export" is force-export-window active. Predbat also tolerates
+# reading "Eco (Paused)" as a third state but never writes it, so we omit
+# it to keep the option list focused on writable values.
+PREDBAT_INVERTER_MODE_OPTIONS: list[str] = ["Eco", "Timed Export"]
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -50,12 +60,15 @@ async def async_setup_entry(
 ) -> None:
     data = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
-        [EPCubeOperatingModeSelect(
-            coordinator=data["coordinator"],
-            client=data["client"],
-            shim=data["shim"],
-            entry_id=entry.entry_id,
-        )]
+        [
+            EPCubeOperatingModeSelect(
+                coordinator=data["coordinator"],
+                client=data["client"],
+                shim=data["shim"],
+                entry_id=entry.entry_id,
+            ),
+            EPCubePredbatInverterMode(entry_id=entry.entry_id),
+        ]
     )
 
 
@@ -126,3 +139,48 @@ class EPCubeOperatingModeSelect(CoordinatorEntity[EPCubeCoordinator], SelectEnti
             raise HomeAssistantError(f"failed to switch mode to {option}: {err}") from err
 
         await self.coordinator.async_request_refresh()
+
+
+class EPCubePredbatInverterMode(SelectEntity, RestoreEntity):
+    """Predbat inverter_mode stub entity.
+
+    Predbat's `inverter_mode` apps.yaml key requires a select entity that
+    accepts `select/select_option` writes and reads back the written value
+    (Predbat polls until match). This entity satisfies that polling contract;
+    the actual cube force-export window is still driven by the
+    `discharge_start_service` / `discharge_end_service` calls Predbat fires
+    alongside, which our services.py already handles via the shim.
+
+    Default "Eco" mirrors Predbat's own `create_entity("inverter_mode",
+    "Eco")` fallback (see inverter.py:528-529 in the predbat container).
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "predbat_inverter_mode"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = PREDBAT_INVERTER_MODE_OPTIONS
+
+    def __init__(self, *, entry_id: str) -> None:
+        self._attr_unique_id = f"{entry_id}_predbat_inverter_mode"
+        self._attr_current_option = "Eco"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name="EP Cube",
+            manufacturer="Canadian Solar",
+            model="EP Cube",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is not None and last.state in PREDBAT_INVERTER_MODE_OPTIONS:
+            self._attr_current_option = last.state
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in PREDBAT_INVERTER_MODE_OPTIONS:
+            raise HomeAssistantError(
+                f"unknown predbat inverter_mode option {option!r} — must be one of "
+                f"{PREDBAT_INVERTER_MODE_OPTIONS!r}"
+            )
+        self._attr_current_option = option
+        self.async_write_ha_state()

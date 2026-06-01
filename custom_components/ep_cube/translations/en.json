@@ -64,6 +64,13 @@
           "time_of_use": "Time of Use",
           "backup": "Backup"
         }
+      },
+      "predbat_inverter_mode": {
+        "name": "Predbat inverter mode",
+        "state": {
+          "Eco": "Eco",
+          "Timed Export": "Timed export"
+        }
       }
     },
     "switch": {
@@ -72,7 +79,8 @@
     },
     "number": {
       "self_consumption_reserve": {"name": "Self-consumption reserve"},
-      "backup_reserve": {"name": "Backup reserve"}
+      "backup_reserve": {"name": "Backup reserve"},
+      "predbat_charge_limit": {"name": "Predbat charge limit"}
     }
   }
 }

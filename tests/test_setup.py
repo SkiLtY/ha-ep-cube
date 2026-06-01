@@ -112,6 +112,11 @@ class TestSetupEntry:
         assert "daylight_saving_time" in by_domain.get("switch", set())
         assert "self_consumption_reserve" in by_domain.get("number", set())
         assert "backup_reserve" in by_domain.get("number", set())
+        # Session 36: Predbat write-target stubs (number + select) — required
+        # for the `charge_limit` + `inverter_mode` apps.yaml entity-first
+        # contract. Pure state-trackers; no cube I/O.
+        assert "predbat_charge_limit" in by_domain.get("number", set())
+        assert "predbat_inverter_mode" in by_domain.get("select", set())
 
     async def test_writable_entities_tagged_config(self, hass, setup_integration):
         # Phase 3.4 session-18 tagging — writables get CONFIG category so
@@ -123,6 +128,8 @@ class TestSetupEntry:
             f"{setup_integration.entry_id}_daylight_saving_time",
             f"{setup_integration.entry_id}_self_consumption_reserve",
             f"{setup_integration.entry_id}_backup_reserve",
+            f"{setup_integration.entry_id}_predbat_charge_limit",
+            f"{setup_integration.entry_id}_predbat_inverter_mode",
         }
         for entity in registry.entities.values():
             if entity.unique_id in writable_uids:
