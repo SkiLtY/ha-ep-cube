@@ -32,16 +32,30 @@ const html = LitElement.prototype.html;
 const css = LitElement.prototype.css;
 
 const TIERS = [
-  { key: "peak", label: "Peak", colour: "var(--error-color, #db4437)" },
-  { key: "mid_peak", label: "Mid-peak", colour: "var(--warning-color, #ffa600)" },
-  { key: "off_peak", label: "Off-peak", colour: "var(--success-color, #43a047)" },
+  // `defaultPrice` shown as input placeholder when the tier has no current
+  // price on the cube. Matches DEFAULT_TIER_PRICE_* in const.py — kept in
+  // sync manually since the card has no Python import. p/kWh.
+  { key: "peak",     label: "Peak",     colour: "var(--error-color, #db4437)",   defaultPrice: 0.40 },
+  { key: "mid_peak", label: "Mid-peak", colour: "var(--warning-color, #ffa600)", defaultPrice: 0.25 },
+  { key: "off_peak", label: "Off-peak", colour: "var(--success-color, #43a047)", defaultPrice: 0.05 },
 ];
 
 const SLOT_RE = /^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$/;
 
+// Per-tier price range — must match _PRICES_SCHEMA in services.py.
+const PRICE_MIN = 0.0;
+const PRICE_MAX = 999.99;
+
 const blankSchedule = () => ({
   workday: { peak: [], mid_peak: [], off_peak: [] },
   weekend: { peak: [], mid_peak: [], off_peak: [] },
+});
+
+// Mirror of `parse_tou_prices` in services.py. null = "no current price on
+// the cube" (tier empty or all shim slots), so the input shows a placeholder.
+const blankPrices = () => ({
+  workday: { peak: null, mid_peak: null, off_peak: null },
+  weekend: { peak: null, mid_peak: null, off_peak: null },
 });
 
 // Parse "HH:MM-HH:MM" → { start: "HH:MM", end: "HH:MM" } | null
@@ -133,6 +147,7 @@ class EpCubeTouEditor extends LitElement {
       _config: { state: true },
       _activeProfile: { state: true },
       _schedule: { state: true },
+      _prices: { state: true },
       _switchToTou: { state: true },
       _errors: { state: true },
       _saving: { state: true },
@@ -144,6 +159,7 @@ class EpCubeTouEditor extends LitElement {
     super();
     this._activeProfile = "workday";
     this._schedule = blankSchedule();
+    this._prices = blankPrices();
     this._switchToTou = false;
     this._errors = [];
     this._saving = false;
@@ -191,10 +207,32 @@ class EpCubeTouEditor extends LitElement {
     };
   }
 
+  // Read per-tier prices from the operating-mode select's `tou_prices`
+  // attribute (Phase 4.1++). Null entries indicate the cube has no current
+  // price for that tier (empty / all-shim) so the input will fall back to
+  // the placeholder. Returns null if the whole attribute is missing (older
+  // integration version), so the card degrades gracefully.
+  _readCubePrices() {
+    const state = this.hass?.states?.["select.ep_cube_operating_mode"];
+    const prices = state?.attributes?.tou_prices;
+    if (!prices || typeof prices !== "object") return null;
+    const pickProfile = (p) => ({
+      peak:     typeof p?.peak     === "number" ? p.peak     : null,
+      mid_peak: typeof p?.mid_peak === "number" ? p.mid_peak : null,
+      off_peak: typeof p?.off_peak === "number" ? p.off_peak : null,
+    });
+    return {
+      workday: pickProfile(prices.workday),
+      weekend: pickProfile(prices.weekend),
+    };
+  }
+
   _hydrateFromCube() {
     const fromCube = this._readCubeSchedule();
     if (!fromCube) return;
     this._schedule = fromCube;
+    const prices = this._readCubePrices();
+    if (prices) this._prices = prices;
     this._hydrated = true;
     this._errors = [];
   }
@@ -206,8 +244,29 @@ class EpCubeTouEditor extends LitElement {
       return;
     }
     this._schedule = fromCube;
+    const prices = this._readCubePrices();
+    if (prices) this._prices = prices;
     this._errors = [];
     this._statusMsg = "Reloaded from cube.";
+  }
+
+  // Price input handler. Empty string → null (means "preserve cube's
+  // current price on save"). Non-empty → parsed as Number; NaN stays as the
+  // empty-string sentinel via the same null path. Bounds-check happens at
+  // save time via validatePrices so the user can transit through invalid
+  // states while typing.
+  _onPriceChange(profile, tier, raw) {
+    const trimmed = String(raw ?? "").trim();
+    let next = null;
+    if (trimmed !== "") {
+      const n = Number(trimmed);
+      if (Number.isFinite(n)) next = n;
+    }
+    this._prices = {
+      ...this._prices,
+      [profile]: { ...this._prices[profile], [tier]: next },
+    };
+    this._statusMsg = "";
   }
 
   _onSlotChange(profile, tier, idx, field, value) {
@@ -259,13 +318,16 @@ class EpCubeTouEditor extends LitElement {
       "This wipes every tier on both profiles and saves the empty schedule " +
       "to the cube. Useful for starting fresh or removing leftover slots " +
       "from prior Predbat overrides. Can't be undone — but you can paint " +
-      "new slots immediately after.",
+      "new slots immediately after.\n\nPer-tier prices are left untouched.",
     );
     if (!ok) return;
     this._schedule = {
       workday: { peak: [], mid_peak: [], off_peak: [] },
       weekend: { peak: [], mid_peak: [], off_peak: [] },
     };
+    // Don't clear `_prices` — the user may want to repaint slots right after
+    // Clear all, and their last-typed prices are still meaningful. Hydration
+    // after save will refresh from cube anyway.
     this._errors = [];
     // _onSave reads from this._schedule, so it'll push the cleared state.
     await this._onSave();
@@ -274,22 +336,32 @@ class EpCubeTouEditor extends LitElement {
   _copyFromOtherProfile() {
     const dest = this._activeProfile;
     const src = dest === "workday" ? "weekend" : "workday";
-    const destHasContent = TIERS.some(
-      (t) => (this._schedule[dest][t.key] || []).length > 0,
-    );
+    const destHasContent =
+      TIERS.some((t) => (this._schedule[dest][t.key] || []).length > 0) ||
+      TIERS.some((t) => this._prices[dest][t.key] !== null);
     if (destHasContent) {
       const ok = window.confirm(
-        `Replace ${dest} schedule with a copy of ${src}? This can't be undone.`,
+        `Replace ${dest} schedule + prices with a copy of ${src}? ` +
+        `This can't be undone.`,
       );
       if (!ok) return;
     }
     const source = this._schedule[src];
+    const sourcePrices = this._prices[src];
     this._schedule = {
       ...this._schedule,
       [dest]: {
         peak: [...source.peak],
         mid_peak: [...source.mid_peak],
         off_peak: [...source.off_peak],
+      },
+    };
+    this._prices = {
+      ...this._prices,
+      [dest]: {
+        peak: sourcePrices.peak,
+        mid_peak: sourcePrices.mid_peak,
+        off_peak: sourcePrices.off_peak,
       },
     };
     this._errors = [];
@@ -306,10 +378,46 @@ class EpCubeTouEditor extends LitElement {
     this._statusMsg = "";
   }
 
+  // Validate the rate inputs against PRICE_MIN/MAX. Empty (null) prices
+  // are fine — they mean "preserve cube's current price". Mirrors the
+  // `_PRICES_SCHEMA` range in services.py.
+  _validatePrices() {
+    const errs = [];
+    for (const profile of ["workday", "weekend"]) {
+      for (const tier of TIERS) {
+        const v = this._prices[profile][tier.key];
+        if (v === null) continue;
+        if (!Number.isFinite(v) || v < PRICE_MIN || v > PRICE_MAX) {
+          errs.push(
+            `${profile === "workday" ? "Workday" : "Weekend"} ${tier.label}: ` +
+            `rate must be ${PRICE_MIN}-${PRICE_MAX} p/kWh (got "${v}")`,
+          );
+        }
+      }
+    }
+    return errs;
+  }
+
+  // Collect explicit prices into the wire-side `prices` dict. Skip null
+  // entries (which signal "preserve from cube" — the backend's
+  // _existing_house_price + DEFAULT_TIER_PRICE_* fallback handles them).
+  _collectPrices() {
+    const out = {};
+    for (const profile of ["workday", "weekend"]) {
+      for (const tier of TIERS) {
+        const v = this._prices[profile][tier.key];
+        if (v === null) continue;
+        out[`${tier.key}_${profile}`] = v;
+      }
+    }
+    return out;
+  }
+
   async _onSave() {
     const errors = [
       ...validateDay(this._schedule.workday).map((e) => `Workday: ${e}`),
       ...validateDay(this._schedule.weekend).map((e) => `Weekend: ${e}`),
+      ...this._validatePrices(),
     ];
     this._errors = errors;
     if (errors.length) {
@@ -328,12 +436,15 @@ class EpCubeTouEditor extends LitElement {
         off_peak_weekend: this._schedule.weekend.off_peak,
         switch_to_tou: this._switchToTou,
       };
+      const prices = this._collectPrices();
+      if (Object.keys(prices).length > 0) data.prices = prices;
       if (this._config?.device_id) data.device_id = this._config.device_id;
       await this.hass.callService("ep_cube", "set_tou_schedule", data);
       this._statusMsg = "Schedule saved.";
       // Re-hydrate so the card reflects the cube's now-current state. The
       // service triggers a coordinator refresh before returning, so the
-      // select entity's tou_schedule attribute is fresh by the time we read.
+      // select entity's tou_schedule + tou_prices attributes are fresh by
+      // the time we read.
       this._hydrateFromCube();
     } catch (err) {
       this._statusMsg = `Save failed: ${err?.message || err}`;
@@ -370,11 +481,29 @@ class EpCubeTouEditor extends LitElement {
 
   _renderTier(profile, tier) {
     const slots = this._schedule[profile][tier.key] || [];
+    const priceValue = this._prices[profile][tier.key];
+    // Display the user's current value (numeric) or empty string when null
+    // (means "preserve cube"). Placeholder shows the tier's default so the
+    // user has a visible hint of what they'd get if they leave it blank.
+    const priceDisplay = priceValue === null ? "" : String(priceValue);
     return html`
       <div class="tier">
         <div class="tier-header" style="--tier-colour: ${tier.colour}">
           <span class="tier-dot"></span>
           <span class="tier-label">${tier.label}</span>
+          <div class="tier-rate">
+            <input
+              type="number"
+              step="0.01"
+              min=${PRICE_MIN}
+              max=${PRICE_MAX}
+              .value=${priceDisplay}
+              placeholder=${tier.defaultPrice.toFixed(2)}
+              @input=${(e) => this._onPriceChange(profile, tier.key, e.target.value)}
+              title="Rate in p/kWh. Leave blank to keep the cube's current price."
+            />
+            <span class="unit">p/kWh</span>
+          </div>
           <button class="add" @click=${() => this._addSlot(profile, tier.key)}>
             + Add slot
           </button>
@@ -454,11 +583,16 @@ class EpCubeTouEditor extends LitElement {
               (when you want to force grid charging at cheap rates). Leave
               peak/mid-peak empty — undefined time defaults to peak, which
               the cube treats as self-consumption (battery powers loads, no
-              grid charge). DST tier lists, prices and reserves are
-              preserved from the cube's current state. Empty tier = cleared
-              on save. Slots can't cross midnight — use 23:59 to end a slot
-              at the end of the day (matches the EP Cube mobile app's
-              convention).
+              grid charge). DST tier lists and reserves are preserved from
+              the cube's current state. Empty tier = cleared on save. Slots
+              can't cross midnight — use 23:59 to end a slot at the end of
+              the day (matches the EP Cube mobile app's convention).
+              <br /><br />
+              <strong>Rates:</strong> the p/kWh inputs let you set each
+              tier's price. Leave blank to keep the cube's current value.
+              For Predbat users the cube's internal prices are cosmetic —
+              Predbat optimises against your real tariff (e.g. Octopus
+              Agile) independently.
             </div>
           </div>
         </div>
@@ -527,6 +661,25 @@ class EpCubeTouEditor extends LitElement {
       .tier-label {
         flex: 1;
         font-weight: 600;
+      }
+      .tier-rate {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.85em;
+      }
+      .tier-rate input {
+        width: 72px;
+        padding: 4px 6px;
+        background: var(--card-background-color, #1c1c1c);
+        color: var(--primary-text-color);
+        border: 1px solid var(--divider-color, #444);
+        border-radius: 6px;
+        font: inherit;
+        text-align: right;
+      }
+      .tier-rate .unit {
+        opacity: 0.7;
       }
       .add {
         background: transparent;

@@ -37,9 +37,11 @@ from custom_components.ep_cube.services import (
     PredbatShim,
     SERVICE_SET_TOU_SCHEDULE,
     _existing_house_price,
+    _first_non_shim_price,
     _parse_user_slot,
     _validate_day_profile,
     async_register_services,
+    parse_tou_prices,
     parse_tou_schedule,
 )
 
@@ -248,28 +250,38 @@ class TestParseTouSchedule:
         # No "dst" key, no leakage into workday/weekend.
         assert set(result.keys()) == {"workday", "weekend"}
 
-    def test_strips_both_new_and_legacy_shim_prices(self):
-        # v0.6.3 migrated synthetic shim prices from 0.01/0.20/1.00 to
-        # 2.22/3.33/4.44 (Agile-cap-aware, repeating digits = obviously
-        # synthetic). Migration window: legacy values stay in the strip set
-        # for one release so any leftover shim slots from a pre-v0.6.3
-        # Predbat run still get cleaned on next read. Confirm both
-        # generations are stripped.
+    def test_strips_current_shim_prices_only(self):
+        # v0.7 dropped the v0.6.3 legacy migration window — only current
+        # synthetic prices (2.22 / 3.33 / 4.44) are recognised. Legacy
+        # values (0.01 / 0.20 / 1.00) would now look like genuine user
+        # slots. By v0.7's ship date any in-flight pre-v0.6.3 overrides
+        # have long since rotated out, so the strip-set narrowing is safe.
         state = {
             "peakTimeList": [
-                f"00:00_06:00_{SHIM_PRICE_PEAK:.2f}",    # new (4.44)
-                "06:00_07:00_1.00",                       # legacy
-                "16:00_19:00_0.40",                       # genuine user slot
+                f"00:00_06:00_{SHIM_PRICE_PEAK:.2f}",    # new (4.44) — stripped
+                "16:00_19:00_0.40",                       # genuine user slot — kept
             ],
             "offPeakTimeList": [
-                f"08:00_09:00_{SHIM_PRICE_OFF_PEAK:.2f}", # new (2.22)
-                "09:00_10:00_0.01",                       # legacy
-                "00:30_04:30_0.05",                       # genuine user slot
+                f"08:00_09:00_{SHIM_PRICE_OFF_PEAK:.2f}", # new (2.22) — stripped
+                "00:30_04:30_0.05",                       # genuine user slot — kept
             ],
         }
         result = parse_tou_schedule(state)
         assert result["workday"]["peak"] == ["16:00-19:00"]
         assert result["workday"]["off_peak"] == ["00:30-04:30"]
+
+    def test_legacy_shim_prices_no_longer_stripped(self):
+        # Confirm the v0.7 narrowing: 0.01 / 0.20 / 1.00 would now leak
+        # through as user slots. This is intentional — they collide with
+        # realistic fixed-tariff prices and the legacy migration window
+        # has expired. A user with a 1.00 p/kWh peak slot will now see it.
+        state = {
+            "peakTimeList": ["06:00_07:00_1.00"],
+            "offPeakTimeList": ["09:00_10:00_0.01"],
+        }
+        result = parse_tou_schedule(state)
+        assert result["workday"]["peak"] == ["06:00-07:00"]
+        assert result["workday"]["off_peak"] == ["09:00-10:00"]
 
 
 # ----------------------------------------------------------------------
@@ -586,3 +598,280 @@ class TestServiceValidationErrors:
                 blocking=True,
             )
         client.switch_mode.assert_not_awaited()
+
+
+# ----------------------------------------------------------------------
+# Phase 4.1++ (v0.7) — per-tier rate entry on TOU card + service
+# ----------------------------------------------------------------------
+class TestFirstNonShimPrice:
+    """Helper extracted from _existing_house_price so parse_tou_prices can
+    share the slot-scanning logic. None when no real (non-shim) slot exists."""
+
+    def test_returns_first_real_price(self):
+        assert _first_non_shim_price(["16:00_19:00_0.40"]) == 0.40
+
+    def test_returns_none_for_empty(self):
+        assert _first_non_shim_price([]) is None
+        assert _first_non_shim_price(None) is None
+
+    def test_skips_shim_slots(self):
+        assert _first_non_shim_price(
+            [f"00:00_06:00_{SHIM_PRICE_PEAK:.2f}", "16:00_19:00_0.40"]
+        ) == 0.40
+
+    def test_returns_none_when_only_shim(self):
+        # All shim — None signals "no real price to display" so the card
+        # falls back to the placeholder rather than showing 2.22 / 3.33 / 4.44.
+        assert _first_non_shim_price(
+            [f"00:00_06:00_{SHIM_PRICE_PEAK:.2f}",
+             f"06:00_07:00_{SHIM_PRICE_OFF_PEAK:.2f}"]
+        ) is None
+
+    def test_malformed_slot_tolerated(self):
+        assert _first_non_shim_price(["garbage", "16:00_19:00_0.40"]) == 0.40
+
+    def test_existing_house_price_still_falls_back(self):
+        # _existing_house_price is a thin wrapper over _first_non_shim_price
+        # with a default fallback — regression check that the refactor
+        # didn't change its behaviour.
+        assert _existing_house_price([], default=0.25) == 0.25
+        assert _existing_house_price(["16:00_19:00_0.40"], default=0.99) == 0.40
+
+
+class TestParseTouPrices:
+    """parse_tou_prices powers the operating-mode select's tou_prices
+    attribute, which the card hydrates from on bind + after save."""
+
+    def test_empty_state_returns_six_nulls(self):
+        result = parse_tou_prices({})
+        assert result == {
+            "workday": {"peak": None, "mid_peak": None, "off_peak": None},
+            "weekend": {"peak": None, "mid_peak": None, "off_peak": None},
+        }
+
+    def test_populated_state_returns_first_price_per_tier(self):
+        state = {
+            "peakTimeList": ["16:00_19:00_0.40", "20:00_22:00_0.40"],
+            "midPeakTimeList": ["04:30_16:00_0.25"],
+            "offPeakTimeList": ["00:30_04:30_0.05"],
+            "peakTimeListNonWorkDay": ["17:00_20:00_0.42"],
+            "midPeakTimeListNonWorkDay": ["05:00_17:00_0.27"],
+            "offPeakTimeListNonWorkDay": ["00:00_05:00_0.07"],
+        }
+        result = parse_tou_prices(state)
+        assert result["workday"] == {"peak": 0.40, "mid_peak": 0.25, "off_peak": 0.05}
+        assert result["weekend"] == {"peak": 0.42, "mid_peak": 0.27, "off_peak": 0.07}
+
+    def test_empty_tier_returns_none_not_default(self):
+        # Critical: if a tier has no slots, we return None so the card shows
+        # a placeholder instead of misleadingly displaying DEFAULT_TIER_PRICE_*
+        # as if it were a real price.
+        state = {
+            "peakTimeList": ["16:00_19:00_0.40"],
+            "midPeakTimeList": [],
+            "offPeakTimeList": [],
+        }
+        result = parse_tou_prices(state)
+        assert result["workday"]["peak"] == 0.40
+        assert result["workday"]["mid_peak"] is None
+        assert result["workday"]["off_peak"] is None
+
+    def test_shim_signature_slots_stripped(self):
+        # A tier that contains ONLY shim slots (stale from a Predbat run)
+        # should look empty — returning None so we don't surface 4.44 etc
+        # as a "real" price the user would otherwise have to clear.
+        state = {
+            "peakTimeList": [f"00:00_06:00_{SHIM_PRICE_PEAK:.2f}"],
+            "offPeakTimeList": [
+                f"08:00_09:00_{SHIM_PRICE_OFF_PEAK:.2f}",
+                "00:30_04:30_0.05",
+            ],
+        }
+        result = parse_tou_prices(state)
+        assert result["workday"]["peak"] is None
+        assert result["workday"]["off_peak"] == 0.05
+
+    def test_malformed_slot_tolerated(self):
+        state = {"peakTimeList": ["garbage", "", "16:00_19:00_0.40"]}
+        assert parse_tou_prices(state)["workday"]["peak"] == 0.40
+
+    def test_does_not_surface_dst_prices(self):
+        # DST tier lists are preserved server-side but the card doesn't
+        # expose them. Confirm DST prices don't leak into workday/weekend.
+        state = {
+            "peakTimeList": ["16:00_19:00_0.40"],
+            "dayLightPeakTimeList": ["17:00_20:00_0.99"],
+        }
+        result = parse_tou_prices(state)
+        assert result["workday"]["peak"] == 0.40
+        assert set(result.keys()) == {"workday", "weekend"}
+
+
+class TestExplicitPrices:
+    """Service-level: the optional `prices` arg overrides preserve-from-cube
+    on a per-tier basis. Unspecified tiers keep existing behaviour."""
+
+    async def test_full_prices_dict_overrides_cube(self, hass, service_ready, fake_client):
+        # Cube has 0.40 peak — explicit 9.99 should override.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(
+                peak_workday=["16:00-19:00"],
+                prices={
+                    "peak_workday": 9.99,
+                    "mid_peak_workday": 5.55,
+                    "off_peak_workday": 1.11,
+                    "peak_weekend": 8.88,
+                    "mid_peak_weekend": 4.44,  # collides with SHIM_PRICE_PEAK
+                    "off_peak_weekend": 2.22,  # collides with SHIM_PRICE_OFF_PEAK
+                },
+            ),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        # Even though some user prices collide with synthetic shim values
+        # (2.22 / 4.44), the write goes through — _strip_shim_slots only
+        # runs at READ time. The user's explicit choice is honoured.
+        assert body["peakTimeList"] == ["16:00_19:00_9.99"]
+
+    async def test_partial_prices_preserves_unspecified(self, hass, service_ready, fake_client):
+        # Only peak_workday explicit. Other tiers fall back to cube's
+        # existing price (mid 0.25, off 0.05 per the get_switch_mode fixture)
+        # or DEFAULT_TIER_PRICE_* when the cube's tier is empty.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(
+                peak_workday=["16:00-19:00"],
+                mid_peak_workday=["04:30-16:00"],
+                off_peak_workday=["00:30-04:30"],
+                prices={"peak_workday": 9.99},
+            ),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["peakTimeList"] == ["16:00_19:00_9.99"]
+        # mid_peak preserves cube's 0.25; off_peak preserves cube's 0.05.
+        assert body["midPeakTimeList"] == ["04:30_16:00_0.25"]
+        assert body["offPeakTimeList"] == ["00:30_04:30_0.05"]
+
+    async def test_explicit_price_for_empty_cube_tier(self, hass, service_ready, fake_client):
+        # Cube has empty peakTimeListNonWorkDay. Without `prices`, default
+        # DEFAULT_TIER_PRICE_PEAK fires. With `prices`, the explicit value wins.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(
+                peak_weekend=["18:00-21:00"],
+                prices={"peak_weekend": 12.34},
+            ),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["peakTimeListNonWorkDay"] == ["18:00_21:00_12.34"]
+
+    async def test_no_prices_arg_preserves_cube(self, hass, service_ready, fake_client):
+        # Regression: omitting `prices` entirely keeps the pre-v0.7 behaviour
+        # (preserve from cube → DEFAULT_TIER_PRICE_* fallback).
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_workday=["17:00-20:00"]),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["peakTimeList"] == ["17:00_20:00_0.40"]
+
+    async def test_empty_prices_dict_treated_as_omitted(self, hass, service_ready, fake_client):
+        # The card sends `prices` only when it has values. Passing an empty
+        # dict from a Developer Tools call shouldn't break — falls through
+        # to preserve-from-cube.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(peak_workday=["17:00-20:00"], prices={}),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["peakTimeList"] == ["17:00_20:00_0.40"]
+
+    @pytest.mark.parametrize("bad_price", [-1.0, 1000.0, 99999.0])
+    async def test_out_of_range_price_rejected(self, hass, service_ready, bad_price):
+        shim, client = service_ready
+        with pytest.raises(Exception):  # voluptuous Invalid wrapped to HA error
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_TOU_SCHEDULE,
+                _good_payload(
+                    peak_workday=["16:00-19:00"],
+                    prices={"peak_workday": bad_price},
+                ),
+                blocking=True,
+            )
+        client.switch_mode.assert_not_awaited()
+
+    async def test_unknown_price_key_rejected(self, hass, service_ready):
+        # voluptuous schema only accepts the 6 documented keys. Typos like
+        # "peakWorkday" or "off-peak_workday" fail closed.
+        shim, client = service_ready
+        with pytest.raises(Exception):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_TOU_SCHEDULE,
+                _good_payload(
+                    peak_workday=["16:00-19:00"],
+                    prices={"peakWorkday": 9.99},
+                ),
+                blocking=True,
+            )
+        client.switch_mode.assert_not_awaited()
+
+    async def test_string_price_coerced_to_float(self, hass, service_ready, fake_client):
+        # Developer Tools sends YAML strings — voluptuous's vol.Coerce(float)
+        # accepts "9.99" the same as 9.99. Confirms the schema is forgiving.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(
+                peak_workday=["16:00-19:00"],
+                prices={"peak_workday": "9.99"},
+            ),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["peakTimeList"] == ["16:00_19:00_9.99"]
+
+    async def test_explicit_prices_with_2write_dance(self, hass, service_ready, fake_client):
+        # Confirm explicit prices land via write A (the TOU-mode write where
+        # the cube actually accepts tier-list edits). Write B should also
+        # carry the same prices defensively even though the cube drops the
+        # tier-list portion of B.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(
+                peak_workday=["16:00-19:00"],
+                prices={"peak_workday": 7.77},
+            ),
+            blocking=True,
+        )
+        assert fake_client.switch_mode.await_count == 2
+        write_a = fake_client.switch_mode.await_args_list[0].args[0]
+        write_b = fake_client.switch_mode.await_args_list[1].args[0]
+        assert write_a["peakTimeList"] == ["16:00_19:00_7.77"]
+        assert write_b["peakTimeList"] == ["16:00_19:00_7.77"]
+
+    async def test_zero_price_accepted(self, hass, service_ready, fake_client):
+        # 0.00 is valid — some fixed-tariff users have a free-period slot.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(
+                off_peak_workday=["00:00-04:00"],
+                prices={"off_peak_workday": 0.0},
+            ),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["offPeakTimeList"] == ["00:00_04:00_0.00"]

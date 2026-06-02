@@ -33,7 +33,7 @@ from .const import (
     OPERATING_MODE_TOU,
 )
 from .coordinator import EPCubeCoordinator
-from .services import PredbatShim, parse_tou_schedule
+from .services import PredbatShim, parse_tou_prices, parse_tou_schedule
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,13 +106,17 @@ class EPCubeOperatingModeSelect(CoordinatorEntity[EPCubeCoordinator], SelectEnti
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        """Expose the cube's current TOU schedule as an attribute so the
-        editor card can hydrate from real state. Empty until the coordinator
-        has successfully fetched getSwitchMode at least once."""
+        """Expose the cube's current TOU schedule + per-tier prices as
+        attributes so the editor card can hydrate both slot times and the
+        rate inputs (Phase 4.1++ / v0.7) from real state. Empty until the
+        coordinator has successfully fetched getSwitchMode at least once."""
         switch_mode = self.coordinator.switch_mode
         if switch_mode is None:
             return {}
-        return {"tou_schedule": parse_tou_schedule(switch_mode)}
+        return {
+            "tou_schedule": parse_tou_schedule(switch_mode),
+            "tou_prices": parse_tou_prices(switch_mode),
+        }
 
     async def async_select_option(self, option: str) -> None:
         if option not in OPERATING_MODE_TO_WORK_STATUS:

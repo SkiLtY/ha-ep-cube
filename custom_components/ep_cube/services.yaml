@@ -63,6 +63,19 @@ set_tou_schedule:
       default: false
       selector:
         boolean:
+    prices:
+      name: Per-tier prices (optional)
+      description: >-
+        Optional p/kWh prices for each tier — overrides what's currently on
+        the cube. Any tier omitted from this dict keeps its existing price
+        (or falls back to a sensible default if the tier is empty on the
+        cube). Six keys recognised, all optional: peak_workday, mid_peak_workday,
+        off_peak_workday, peak_weekend, mid_peak_weekend, off_peak_weekend.
+        Range 0-999.99.
+      required: false
+      example: '{"off_peak_workday": 8.5, "peak_workday": 28.5}'
+      selector:
+        object:
     device_id:
       name: Device ID
       required: false

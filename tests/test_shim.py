@@ -57,9 +57,9 @@ def _future(minutes: int):
 # ----------------------------------------------------------------------
 class TestShimSignature:
     @pytest.mark.parametrize("slot", [
-        "00:00_06:00_0.01",     # SHIM_PRICE_OFF_PEAK
-        "12:00_18:00_0.20",     # SHIM_PRICE_MID_PEAK
-        "18:00_21:00_1.00",     # SHIM_PRICE_PEAK
+        f"00:00_06:00_{SHIM_PRICE_OFF_PEAK:.2f}",
+        f"12:00_18:00_{SHIM_PRICE_MID_PEAK:.2f}",
+        f"18:00_21:00_{SHIM_PRICE_PEAK:.2f}",
     ])
     def test_synthetic_prices_detected(self, slot):
         assert _slot_is_shim_signature(slot) is True
@@ -68,6 +68,11 @@ class TestShimSignature:
         "00:30_04:30_0.05",     # user's real off-peak price
         "04:30_16:00_0.25",     # user's real mid-peak
         "16:00_19:00_0.40",     # user's real peak
+        # v0.6.3 legacy synthetic prices — narrowed out of the shim signature
+        # set in v0.7 (Phase 4.1++), so they now look like genuine user slots.
+        "00:00_06:00_0.01",
+        "12:00_18:00_0.20",
+        "18:00_21:00_1.00",
         "garbage",
     ])
     def test_user_prices_not_detected(self, slot):
@@ -78,15 +83,18 @@ class TestStripShimSlots:
     def test_strips_only_synthetic_prices(self):
         state = {
             "workStatus": "2",
-            "peakTimeList": ["16:00_19:00_0.40", "20:00_21:00_1.00"],
+            "peakTimeList": [
+                "16:00_19:00_0.40",
+                f"20:00_21:00_{SHIM_PRICE_PEAK:.2f}",
+            ],
             "midPeakTimeList": ["04:30_16:00_0.25"],
-            "offPeakTimeList": ["00:30_04:30_0.01"],
+            "offPeakTimeList": [f"00:30_04:30_{SHIM_PRICE_OFF_PEAK:.2f}"],
         }
         cleaned, n = _strip_shim_slots(state)
         assert n == 2  # one peak + one off-peak match synthetic prices
         assert cleaned["peakTimeList"] == ["16:00_19:00_0.40"]
         assert cleaned["offPeakTimeList"] == []
-        # User's mid-peak survives (0.25 ≠ 0.20).
+        # User's mid-peak survives (0.25 ≠ SHIM_PRICE_MID_PEAK).
         assert cleaned["midPeakTimeList"] == ["04:30_16:00_0.25"]
 
     def test_no_op_when_clean(self, get_switch_mode):
@@ -95,7 +103,7 @@ class TestStripShimSlots:
         assert cleaned["peakTimeList"] == get_switch_mode["peakTimeList"]
 
     def test_input_not_mutated(self):
-        state = {"peakTimeList": ["20:00_21:00_1.00"]}
+        state = {"peakTimeList": [f"20:00_21:00_{SHIM_PRICE_PEAK:.2f}"]}
         original = list(state["peakTimeList"])
         _strip_shim_slots(state)
         assert state["peakTimeList"] == original
@@ -151,7 +159,7 @@ class TestBaselineSnapshot:
             "devId": "5613", "workStatus": "1",
             "selfConsumptioinReserveSoc": "20", "backupPowerReserveSoc": "100",
             "allowChargingXiaGrid": "1",
-            "peakTimeList": ["20:00_21:00_1.00"],   # synthetic shim slot
+            "peakTimeList": [f"20:00_21:00_{SHIM_PRICE_PEAK:.2f}"],  # synthetic shim slot
             "midPeakTimeList": [],
             "offPeakTimeList": ["00:30_04:30_0.05"],  # real user slot
             "peakTimeListNonWorkDay": [], "midPeakTimeListNonWorkDay": [],

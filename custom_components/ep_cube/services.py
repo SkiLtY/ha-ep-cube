@@ -119,14 +119,16 @@ _TIER_LIST_KEYS: tuple[str, ...] = (
 # values to 2dp. Documented user-facing constraint: don't manually configure
 # slots with prices in the synthetic set below.
 #
-# Migration window (v0.6.3): legacy synthetic prices (0.01 / 0.20 / 1.00) are
-# kept in the match set for one release so any leftover shim slots from a
-# pre-v0.6.3 Predbat run still get stripped cleanly on next read. Drop the
-# legacy entries in v0.7 once any in-flight overrides have rotated out.
-_LEGACY_SHIM_PRICE_TOKENS: frozenset[str] = frozenset({"0.01", "0.20", "1.00"})
+# v0.6.3 migrated the synthetic prices from 0.01 / 0.20 / 1.00 to the current
+# 2.22 / 3.33 / 4.44 (above Agile's 100p cap, repeating-digit pattern). v0.6.3
+# kept the legacy tokens in the strip set for one release so any leftover
+# shim slots from pre-v0.6.3 Predbat runs would be cleaned on next read.
+# Dropped in v0.7 — by now any in-flight overrides have long since rotated
+# out and the 5-day operational window since v0.6.3 has stripped any cube
+# memory residue via continuous shim operation.
 _SHIM_PRICE_TOKENS: frozenset[str] = frozenset(
     f"{p:.2f}" for p in (SHIM_PRICE_OFF_PEAK, SHIM_PRICE_MID_PEAK, SHIM_PRICE_PEAK)
-) | _LEGACY_SHIM_PRICE_TOKENS
+)
 
 
 def _slot_is_shim_signature(slot: str) -> bool:
@@ -229,6 +231,19 @@ _USER_FIELD_TO_WIRE_KEY: dict[str, str] = {
     "off_peak_weekend": "offPeakTimeListNonWorkDay",
 }
 
+# Per-tier price override. All keys optional — a tier omitted from the dict
+# (or with the entire `prices` argument omitted) keeps preserve-from-cube
+# behaviour. Range 0-999.99 covers UK tariffs comfortably; Octopus Tracker
+# has occasionally spiked into 3-digit p/kWh territory so 99.99 felt tight.
+# The wire format (`PRICE.PP` from `build_slot`'s f"{price:.2f}") has no
+# documented width constraint.
+_PRICES_SCHEMA = vol.Schema(
+    {
+        vol.Optional(field): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=999.99))
+        for field in _USER_FIELD_TO_WIRE_KEY
+    }
+)
+
 SET_TOU_SCHEDULE_SCHEMA = vol.Schema(
     {
         vol.Optional("device_id"): cv.string,
@@ -239,6 +254,7 @@ SET_TOU_SCHEDULE_SCHEMA = vol.Schema(
         vol.Required("mid_peak_weekend"): [cv.string],
         vol.Required("off_peak_weekend"): [cv.string],
         vol.Optional("switch_to_tou", default=False): cv.boolean,
+        vol.Optional("prices"): _PRICES_SCHEMA,
     }
 )
 
@@ -304,10 +320,12 @@ def _validate_day_profile(
                 coverage[minute] = tier_label
 
 
-def _existing_house_price(slots: list[Any], default: float) -> float:
-    """Return the price (per-2dp float) of the first non-shim slot in `slots`,
-    falling back to `default` if none. Used so set_tou_schedule writes
-    preserve whatever per-tier price the user already had on the cube."""
+def _first_non_shim_price(slots: list[Any] | None) -> float | None:
+    """Return the price of the first non-shim slot in `slots`, or None if none.
+
+    Shared by `_existing_house_price` (with default fallback) and
+    `parse_tou_prices` (which surfaces None to the card so the input shows
+    a placeholder rather than a misleading "real" value)."""
     for raw in slots or []:
         parts = str(raw).rsplit("_", 1)
         if len(parts) != 2:
@@ -319,7 +337,47 @@ def _existing_house_price(slots: list[Any], default: float) -> float:
             return float(price_token)
         except ValueError:
             continue
-    return default
+    return None
+
+
+def _existing_house_price(slots: list[Any], default: float) -> float:
+    """Return the price (per-2dp float) of the first non-shim slot in `slots`,
+    falling back to `default` if none. Used so set_tou_schedule writes
+    preserve whatever per-tier price the user already had on the cube."""
+    found = _first_non_shim_price(slots)
+    return found if found is not None else default
+
+
+def parse_tou_prices(state: dict[str, Any]) -> dict[str, dict[str, float | None]]:
+    """Parse current per-tier prices from a getSwitchMode response.
+
+    Returns the price of the first non-shim slot in each tier — the price
+    that `set_tou_schedule` would preserve if the user didn't override it.
+    `None` indicates the tier has no real slots (only shim, or empty), so
+    there's no current price to display; the card shows the
+    `DEFAULT_TIER_PRICE_*` constant as an input placeholder in that case.
+
+    Returns::
+
+        {
+          "workday": {"peak": float|None, "mid_peak": float|None, "off_peak": float|None},
+          "weekend": {"peak": float|None, "mid_peak": float|None, "off_peak": float|None},
+        }
+
+    Sibling to `parse_tou_schedule` — added in Phase 4.1++ (v0.7) so the
+    TOU editor card can hydrate per-tier rate inputs without a second poll.
+    """
+    cleaned, _ = _strip_shim_slots(state)
+    result: dict[str, dict[str, float | None]] = {
+        "workday": {"peak": None, "mid_peak": None, "off_peak": None},
+        "weekend": {"peak": None, "mid_peak": None, "off_peak": None},
+    }
+    for user_field, wire_key in _USER_FIELD_TO_WIRE_KEY.items():
+        tier, _, profile = user_field.rpartition("_")
+        if profile not in ("workday", "weekend") or tier not in ("peak", "mid_peak", "off_peak"):
+            continue
+        result[profile][tier] = _first_non_shim_price(cleaned.get(wire_key, []))
+    return result
 
 
 def _user_slot_to_wire(user_slot: str, price: float) -> str:
@@ -821,14 +879,24 @@ async def async_register_services(hass: HomeAssistant) -> None:
         # Drop stale shim-signature slots so they don't leak back into the write.
         live_clean, _ = _strip_shim_slots(live)
 
-        # Per-tier price: preserve the cube's existing per-tier price; fall back
-        # to per-tier defaults if the tier is currently empty.
+        # Per-tier price hierarchy (added Phase 4.1++ / v0.7):
+        #   1. Explicit value in `prices` arg → use it (user-provided override)
+        #   2. Cube's existing per-tier price (preserved via _existing_house_price)
+        #   3. _DEFAULT_PRICE_BY_USER_FIELD (factory/mock default)
+        # Each tier resolves independently — a partial `prices` dict leaves
+        # unspecified tiers on preserve-from-cube semantics. The card's UX
+        # depends on this: blank-and-save preserves, set-and-save overrides.
+        prices_arg = call.data.get("prices") or {}
         overrides: dict[str, Any] = {}
         for user_field, wire_key in _USER_FIELD_TO_WIRE_KEY.items():
-            price = _existing_house_price(
-                live_clean.get(wire_key, []) or [],
-                _DEFAULT_PRICE_BY_USER_FIELD[user_field],
-            )
+            explicit = prices_arg.get(user_field)
+            if explicit is not None:
+                price = float(explicit)
+            else:
+                price = _existing_house_price(
+                    live_clean.get(wire_key, []) or [],
+                    _DEFAULT_PRICE_BY_USER_FIELD[user_field],
+                )
             overrides[wire_key] = [
                 _user_slot_to_wire(s, price) for s in user_tiers[user_field]
             ]
@@ -893,7 +961,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
 
         _LOGGER.info(
             "set_tou_schedule applied: workday peak=%d mid=%d off=%d / "
-            "weekend peak=%d mid=%d off=%d / switch_to_tou=%s "
+            "weekend peak=%d mid=%d off=%d / switch_to_tou=%s / explicit_prices=%s "
             "(2-write=%s, original_mode=%s)",
             len(user_tiers["peak_workday"]),
             len(user_tiers["mid_peak_workday"]),
@@ -902,6 +970,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
             len(user_tiers["mid_peak_weekend"]),
             len(user_tiers["off_peak_weekend"]),
             switch_to_tou,
+            sorted(prices_arg.keys()) if prices_arg else "none",
             needs_two_write,
             current_work_status,
         )

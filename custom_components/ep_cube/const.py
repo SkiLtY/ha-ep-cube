@@ -75,9 +75,9 @@ WORK_STATUS_TO_OPERATING_MODE: dict[str, str] = {
 # Legacy values were 0.01 / 0.20 / 1.00 — replaced in v0.6.3 because 1.00
 # (peak) collided with realistic fixed-tariff peak prices, causing the
 # strip-shim-slots logic to silently drop genuine user slots from the editor
-# card's hydrated view. _SHIM_PRICE_TOKENS in services.py keeps the legacy
-# values in its match set for one release to clean up any pre-v0.6.3
-# leftover shim slots in cube memory.
+# card's hydrated view. The v0.6.3 migration window kept the legacy values
+# in the strip set for one release; v0.7 dropped them since any in-flight
+# pre-v0.6.3 overrides had rotated out by then.
 SHIM_PRICE_OFF_PEAK = 2.22
 SHIM_PRICE_MID_PEAK = 3.33
 SHIM_PRICE_PEAK = 4.44
