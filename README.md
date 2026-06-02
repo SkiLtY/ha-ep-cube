@@ -116,13 +116,14 @@ All shim services accept only an optional `device_id`. Window and SoC parameters
 
 ### TOU Schedule (`set_tou_schedule`)
 
-Replaces the cube's workday + weekend non-DST tier lists in one POST. DST tier lists, day masks, reserves, and per-tier prices are preserved from the cube's current state. If a Predbat shim override is in flight when called, it is abandoned (user-wins).
+Replaces the cube's workday + weekend non-DST tier lists in one POST. DST tier lists, day masks, and reserves are preserved from the cube's current state. Per-tier prices are preserved by default; pass `prices` to override (v0.7.0+). If a Predbat shim override is in flight when called, it is abandoned (user-wins).
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `peak_workday`, `mid_peak_workday`, `off_peak_workday` | `list[str]` | "HH:MM-HH:MM" slots for the workday tier |
 | `peak_weekend`, `mid_peak_weekend`, `off_peak_weekend` | `list[str]` | "HH:MM-HH:MM" slots for the weekend tier |
 | `switch_to_tou` | `bool` (default `false`) | If true, also flip the cube into Time-of-Use mode after writing |
+| `prices` | `dict[str, float]` (optional) | Per-tier p/kWh override. Six keys recognised, all optional: `peak_workday`, `mid_peak_workday`, `off_peak_workday`, `peak_weekend`, `mid_peak_weekend`, `off_peak_weekend`. Range 0-999. Tiers omitted from the dict preserve their existing cube price. Cube precision is 1p — sub-p values round on save. |
 | `device_id` | `str` (optional) | Only required if multiple cubes are configured |
 
 Slots are validated server-side for format, within-tier overlap, and cross-tier overlap. Slots can't cross midnight — use `23:59` to end a slot at the end of the day (matches the EP Cube mobile app's convention; the cube's wire format rejects `end <= start`). The bundled [TOU Schedule Editor card](#-dashboard) drives this service from a UI form.
@@ -174,7 +175,7 @@ The integration installs cleanly on a default HA setup. Two optional extras live
 > [!TIP]
 > Entity IDs assume the default device name `EP Cube`. If you renamed the device, or have multiple cubes, edit the YAML accordingly — HA appends `_2`, `_3`, etc. to disambiguate.
 
-The TOU schedule editor card (Phase 4.1, shipped in v0.6.0) writes the cube's workday + weekend tier lists in one POST via [`ep_cube.set_tou_schedule`](#-services). DST tier lists, reserves and per-tier prices are preserved server-side from the cube's current state.
+The TOU schedule editor card (Phase 4.1, shipped in v0.6.0) writes the cube's workday + weekend tier lists in one POST via [`ep_cube.set_tou_schedule`](#-services). DST tier lists and reserves are preserved server-side from the cube's current state. v0.7.0+ adds per-tier rate inputs next to each tier — type a p/kWh value to override, or leave blank to keep the cube's current price.
 
 ---
 
