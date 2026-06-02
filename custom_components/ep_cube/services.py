@@ -233,13 +233,21 @@ _USER_FIELD_TO_WIRE_KEY: dict[str, str] = {
 
 # Per-tier price override. All keys optional — a tier omitted from the dict
 # (or with the entire `prices` argument omitted) keeps preserve-from-cube
-# behaviour. Range 0-999.99 covers UK tariffs comfortably; Octopus Tracker
-# has occasionally spiked into 3-digit p/kWh territory so 99.99 felt tight.
-# The wire format (`PRICE.PP` from `build_slot`'s f"{price:.2f}") has no
-# documented width constraint.
+# behaviour.
+#
+# UNITS: service interface is p/kWh (the user-facing unit on the dashboard
+# card and what UK users think of tariffs in). The cube's wire format is in
+# the user's local-currency major units (e.g. £/kWh on EU firmware), which
+# means a 1:100 conversion happens in the handler before `build_slot`.
+# Range 0-999 p/kWh covers Octopus Agile (typical 1-30p, capped at 100p)
+# and Tracker (occasional 3-digit spikes) comfortably.
+#
+# Precision note: the wire format is 2dp on the £-scale, i.e. 1p resolution.
+# Sub-p input (e.g. 19.25 p/kWh) rounds to 19p on save. Documented in the
+# card hint text.
 _PRICES_SCHEMA = vol.Schema(
     {
-        vol.Optional(field): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=999.99))
+        vol.Optional(field): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=999.0))
         for field in _USER_FIELD_TO_WIRE_KEY
     }
 )
@@ -880,9 +888,11 @@ async def async_register_services(hass: HomeAssistant) -> None:
         live_clean, _ = _strip_shim_slots(live)
 
         # Per-tier price hierarchy (added Phase 4.1++ / v0.7):
-        #   1. Explicit value in `prices` arg → use it (user-provided override)
-        #   2. Cube's existing per-tier price (preserved via _existing_house_price)
-        #   3. _DEFAULT_PRICE_BY_USER_FIELD (factory/mock default)
+        #   1. Explicit value in `prices` arg → use it (user-provided override
+        #      in p/kWh; converted to wire-native ÷100 before build_slot)
+        #   2. Cube's existing per-tier price (preserved via _existing_house_price,
+        #      already in wire-native units — no conversion)
+        #   3. _DEFAULT_PRICE_BY_USER_FIELD (factory/mock default, wire-native)
         # Each tier resolves independently — a partial `prices` dict leaves
         # unspecified tiers on preserve-from-cube semantics. The card's UX
         # depends on this: blank-and-save preserves, set-and-save overrides.
@@ -891,7 +901,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
         for user_field, wire_key in _USER_FIELD_TO_WIRE_KEY.items():
             explicit = prices_arg.get(user_field)
             if explicit is not None:
-                price = float(explicit)
+                # Service interface is p/kWh; cube wire is £/kWh-flavoured.
+                price = float(explicit) / 100.0
             else:
                 price = _existing_house_price(
                     live_clean.get(wire_key, []) or [],

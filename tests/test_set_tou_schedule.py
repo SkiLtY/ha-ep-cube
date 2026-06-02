@@ -712,33 +712,11 @@ class TestExplicitPrices:
     on a per-tier basis. Unspecified tiers keep existing behaviour."""
 
     async def test_full_prices_dict_overrides_cube(self, hass, service_ready, fake_client):
-        # Cube has 0.40 peak — explicit 9.99 should override.
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_SET_TOU_SCHEDULE,
-            _good_payload(
-                peak_workday=["16:00-19:00"],
-                prices={
-                    "peak_workday": 9.99,
-                    "mid_peak_workday": 5.55,
-                    "off_peak_workday": 1.11,
-                    "peak_weekend": 8.88,
-                    "mid_peak_weekend": 4.44,  # collides with SHIM_PRICE_PEAK
-                    "off_peak_weekend": 2.22,  # collides with SHIM_PRICE_OFF_PEAK
-                },
-            ),
-            blocking=True,
-        )
-        body = fake_client.switch_mode.await_args.args[0]
-        # Even though some user prices collide with synthetic shim values
-        # (2.22 / 4.44), the write goes through — _strip_shim_slots only
-        # runs at READ time. The user's explicit choice is honoured.
-        assert body["peakTimeList"] == ["16:00_19:00_9.99"]
-
-    async def test_partial_prices_preserves_unspecified(self, hass, service_ready, fake_client):
-        # Only peak_workday explicit. Other tiers fall back to cube's
-        # existing price (mid 0.25, off 0.05 per the get_switch_mode fixture)
-        # or DEFAULT_TIER_PRICE_* when the cube's tier is empty.
+        # Cube has 0.40 peak — explicit 25 p/kWh should override.
+        # Service interface is p/kWh; handler divides by 100 for wire format
+        # (which is in £/kWh-flavoured units, 2dp). 25 p/kWh → 0.25 wire.
+        # All 6 tiers given slots + explicit prices to confirm each one
+        # routes through the conversion correctly.
         await hass.services.async_call(
             DOMAIN,
             SERVICE_SET_TOU_SCHEDULE,
@@ -746,30 +724,82 @@ class TestExplicitPrices:
                 peak_workday=["16:00-19:00"],
                 mid_peak_workday=["04:30-16:00"],
                 off_peak_workday=["00:30-04:30"],
-                prices={"peak_workday": 9.99},
+                peak_weekend=["18:00-21:00"],
+                mid_peak_weekend=["05:00-18:00"],
+                off_peak_weekend=["00:00-05:00"],
+                prices={
+                    "peak_workday": 25,
+                    "mid_peak_workday": 15,
+                    "off_peak_workday": 5,
+                    "peak_weekend": 30,
+                    "mid_peak_weekend": 12,
+                    "off_peak_weekend": 4,
+                },
             ),
             blocking=True,
         )
         body = fake_client.switch_mode.await_args.args[0]
-        assert body["peakTimeList"] == ["16:00_19:00_9.99"]
-        # mid_peak preserves cube's 0.25; off_peak preserves cube's 0.05.
+        assert body["peakTimeList"] == ["16:00_19:00_0.25"]
+        assert body["midPeakTimeList"] == ["04:30_16:00_0.15"]
+        assert body["offPeakTimeList"] == ["00:30_04:30_0.05"]
+        assert body["peakTimeListNonWorkDay"] == ["18:00_21:00_0.30"]
+        assert body["midPeakTimeListNonWorkDay"] == ["05:00_18:00_0.12"]
+        assert body["offPeakTimeListNonWorkDay"] == ["00:00_05:00_0.04"]
+
+    async def test_partial_prices_preserves_unspecified(self, hass, service_ready, fake_client):
+        # Only peak_workday explicit (25 p/kWh → 0.25 wire). Other tiers
+        # fall back to cube's existing price (mid 0.25, off 0.05 per the
+        # get_switch_mode fixture) or DEFAULT_TIER_PRICE_* when the cube's
+        # tier is empty.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(
+                peak_workday=["16:00-19:00"],
+                mid_peak_workday=["04:30-16:00"],
+                off_peak_workday=["00:30-04:30"],
+                prices={"peak_workday": 25},
+            ),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["peakTimeList"] == ["16:00_19:00_0.25"]
+        # mid_peak preserves cube's 0.25 wire (= 25 p/kWh); off_peak preserves 0.05.
         assert body["midPeakTimeList"] == ["04:30_16:00_0.25"]
         assert body["offPeakTimeList"] == ["00:30_04:30_0.05"]
 
     async def test_explicit_price_for_empty_cube_tier(self, hass, service_ready, fake_client):
         # Cube has empty peakTimeListNonWorkDay. Without `prices`, default
-        # DEFAULT_TIER_PRICE_PEAK fires. With `prices`, the explicit value wins.
+        # DEFAULT_TIER_PRICE_PEAK (0.40 wire = 40 p/kWh) fires. With `prices`,
+        # the explicit value wins (35 p/kWh → 0.35 wire).
         await hass.services.async_call(
             DOMAIN,
             SERVICE_SET_TOU_SCHEDULE,
             _good_payload(
                 peak_weekend=["18:00-21:00"],
-                prices={"peak_weekend": 12.34},
+                prices={"peak_weekend": 35},
             ),
             blocking=True,
         )
         body = fake_client.switch_mode.await_args.args[0]
-        assert body["peakTimeListNonWorkDay"] == ["18:00_21:00_12.34"]
+        assert body["peakTimeListNonWorkDay"] == ["18:00_21:00_0.35"]
+
+    async def test_sub_penny_price_rounds_to_1p(self, hass, service_ready, fake_client):
+        # Cube wire format is 2dp on £-scale = 1p precision. The Octopus
+        # Agile API quotes to 0.01p resolution, so 19.25 p/kWh comes through
+        # as 0.1925 wire which rounds to 0.19 = 19p. Documented in services.py
+        # comment + card hint text.
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_TOU_SCHEDULE,
+            _good_payload(
+                off_peak_workday=["00:00-04:00"],
+                prices={"off_peak_workday": 19.25},
+            ),
+            blocking=True,
+        )
+        body = fake_client.switch_mode.await_args.args[0]
+        assert body["offPeakTimeList"] == ["00:00_04:00_0.19"]
 
     async def test_no_prices_arg_preserves_cube(self, hass, service_ready, fake_client):
         # Regression: omitting `prices` entirely keeps the pre-v0.7 behaviour
@@ -829,38 +859,38 @@ class TestExplicitPrices:
 
     async def test_string_price_coerced_to_float(self, hass, service_ready, fake_client):
         # Developer Tools sends YAML strings — voluptuous's vol.Coerce(float)
-        # accepts "9.99" the same as 9.99. Confirms the schema is forgiving.
+        # accepts "25" the same as 25. Confirms the schema is forgiving.
         await hass.services.async_call(
             DOMAIN,
             SERVICE_SET_TOU_SCHEDULE,
             _good_payload(
                 peak_workday=["16:00-19:00"],
-                prices={"peak_workday": "9.99"},
+                prices={"peak_workday": "25"},
             ),
             blocking=True,
         )
         body = fake_client.switch_mode.await_args.args[0]
-        assert body["peakTimeList"] == ["16:00_19:00_9.99"]
+        assert body["peakTimeList"] == ["16:00_19:00_0.25"]
 
     async def test_explicit_prices_with_2write_dance(self, hass, service_ready, fake_client):
         # Confirm explicit prices land via write A (the TOU-mode write where
         # the cube actually accepts tier-list edits). Write B should also
         # carry the same prices defensively even though the cube drops the
-        # tier-list portion of B.
+        # tier-list portion of B. 12 p/kWh → 0.12 wire.
         await hass.services.async_call(
             DOMAIN,
             SERVICE_SET_TOU_SCHEDULE,
             _good_payload(
                 peak_workday=["16:00-19:00"],
-                prices={"peak_workday": 7.77},
+                prices={"peak_workday": 12},
             ),
             blocking=True,
         )
         assert fake_client.switch_mode.await_count == 2
         write_a = fake_client.switch_mode.await_args_list[0].args[0]
         write_b = fake_client.switch_mode.await_args_list[1].args[0]
-        assert write_a["peakTimeList"] == ["16:00_19:00_7.77"]
-        assert write_b["peakTimeList"] == ["16:00_19:00_7.77"]
+        assert write_a["peakTimeList"] == ["16:00_19:00_0.12"]
+        assert write_b["peakTimeList"] == ["16:00_19:00_0.12"]
 
     async def test_zero_price_accepted(self, hass, service_ready, fake_client):
         # 0.00 is valid — some fixed-tariff users have a free-period slot.

@@ -33,18 +33,25 @@ const css = LitElement.prototype.css;
 
 const TIERS = [
   // `defaultPrice` shown as input placeholder when the tier has no current
-  // price on the cube. Matches DEFAULT_TIER_PRICE_* in const.py — kept in
-  // sync manually since the card has no Python import. p/kWh.
-  { key: "peak",     label: "Peak",     colour: "var(--error-color, #db4437)",   defaultPrice: 0.40 },
-  { key: "mid_peak", label: "Mid-peak", colour: "var(--warning-color, #ffa600)", defaultPrice: 0.25 },
-  { key: "off_peak", label: "Off-peak", colour: "var(--success-color, #43a047)", defaultPrice: 0.05 },
+  // price on the cube. Matches DEFAULT_TIER_PRICE_* in const.py × 100 (the
+  // const is in cube wire units; here we show p/kWh). Kept in sync manually
+  // since the card has no Python import.
+  { key: "peak",     label: "Peak",     colour: "var(--error-color, #db4437)",   defaultPrice: 40 },
+  { key: "mid_peak", label: "Mid-peak", colour: "var(--warning-color, #ffa600)", defaultPrice: 25 },
+  { key: "off_peak", label: "Off-peak", colour: "var(--success-color, #43a047)", defaultPrice: 5  },
 ];
 
 const SLOT_RE = /^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$/;
 
-// Per-tier price range — must match _PRICES_SCHEMA in services.py.
-const PRICE_MIN = 0.0;
-const PRICE_MAX = 999.99;
+// Per-tier price range — must match _PRICES_SCHEMA in services.py. UNITS: p/kWh
+// (the service interface converts to wire-native £/kWh internally).
+const PRICE_MIN = 0;
+const PRICE_MAX = 999;
+
+// Conversion factor: cube wire stores prices in £/kWh-flavoured units (e.g.
+// 0.05 = 5p/kWh). We display + send in p/kWh, so multiply on hydrate and
+// the service handler divides on save.
+const WIRE_TO_P_PER_KWH = 100;
 
 const blankSchedule = () => ({
   workday: { peak: [], mid_peak: [], off_peak: [] },
@@ -208,18 +215,22 @@ class EpCubeTouEditor extends LitElement {
   }
 
   // Read per-tier prices from the operating-mode select's `tou_prices`
-  // attribute (Phase 4.1++). Null entries indicate the cube has no current
-  // price for that tier (empty / all-shim) so the input will fall back to
-  // the placeholder. Returns null if the whole attribute is missing (older
-  // integration version), so the card degrades gracefully.
+  // attribute (Phase 4.1++). The attribute is in cube wire-native units
+  // (£/kWh-flavoured, e.g. 0.05). Multiply by WIRE_TO_P_PER_KWH to display
+  // in p/kWh which is what the rate inputs use. Null entries indicate the
+  // cube has no current price for that tier (empty / all-shim) so the input
+  // will fall back to the placeholder. Returns null if the whole attribute
+  // is missing (older integration version), so the card degrades gracefully.
   _readCubePrices() {
     const state = this.hass?.states?.["select.ep_cube_operating_mode"];
     const prices = state?.attributes?.tou_prices;
     if (!prices || typeof prices !== "object") return null;
+    const toPPerKwh = (v) =>
+      typeof v === "number" ? Math.round(v * WIRE_TO_P_PER_KWH * 100) / 100 : null;
     const pickProfile = (p) => ({
-      peak:     typeof p?.peak     === "number" ? p.peak     : null,
-      mid_peak: typeof p?.mid_peak === "number" ? p.mid_peak : null,
-      off_peak: typeof p?.off_peak === "number" ? p.off_peak : null,
+      peak:     toPPerKwh(p?.peak),
+      mid_peak: toPPerKwh(p?.mid_peak),
+      off_peak: toPPerKwh(p?.off_peak),
     });
     return {
       workday: pickProfile(prices.workday),
@@ -233,7 +244,12 @@ class EpCubeTouEditor extends LitElement {
     this._schedule = fromCube;
     const prices = this._readCubePrices();
     if (prices) this._prices = prices;
-    this._hydrated = true;
+    // Race-safe hydration guard: only flag _hydrated true once BOTH the
+    // schedule AND the prices attribute have arrived. Otherwise an early
+    // tick that finds tou_schedule populated but tou_prices still missing
+    // (HA recorder restore vs first coordinator poll order) would set the
+    // guard and never retry. v0.7.0 bug surfaced 2026-06-02; fixed v0.7.1.
+    if (prices) this._hydrated = true;
     this._errors = [];
   }
 
@@ -494,13 +510,13 @@ class EpCubeTouEditor extends LitElement {
           <div class="tier-rate">
             <input
               type="number"
-              step="0.01"
+              step="1"
               min=${PRICE_MIN}
               max=${PRICE_MAX}
               .value=${priceDisplay}
-              placeholder=${tier.defaultPrice.toFixed(2)}
+              placeholder=${String(tier.defaultPrice)}
               @input=${(e) => this._onPriceChange(profile, tier.key, e.target.value)}
-              title="Rate in p/kWh. Leave blank to keep the cube's current price."
+              title="Rate in p/kWh. Leave blank to keep the cube's current price. Cube precision is 1p — sub-p values round on save."
             />
             <span class="unit">p/kWh</span>
           </div>
@@ -589,10 +605,12 @@ class EpCubeTouEditor extends LitElement {
               the day (matches the EP Cube mobile app's convention).
               <br /><br />
               <strong>Rates:</strong> the p/kWh inputs let you set each
-              tier's price. Leave blank to keep the cube's current value.
-              For Predbat users the cube's internal prices are cosmetic —
-              Predbat optimises against your real tariff (e.g. Octopus
-              Agile) independently.
+              tier's price. Leave blank to keep the cube's current value;
+              the placeholder shows the EP Cube's factory default. Cube
+              precision is 1p — sub-p values round on save. For Predbat
+              users the cube's internal prices are cosmetic — Predbat
+              optimises against your real tariff (e.g. Octopus Agile)
+              independently.
             </div>
           </div>
         </div>
