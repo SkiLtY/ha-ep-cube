@@ -1,89 +1,13 @@
-# Native services — 1:1 with cloud API
-#
-# Mode switching is exposed as select.ep_cube_operating_mode; reserve SoC
-# as number.ep_cube_self_consumption_reserve / number.ep_cube_backup_reserve
-# (mode-aware available, write pre-check). A native set_operating_mode
-# service would just re-invent those writes — call select.select_option /
-# number.set_value from automations instead.
-set_tou_schedule:
-  name: Set TOU schedule
-  description: >-
-    Replace the cube's time-of-use schedule with new workday + weekend slots.
-    DST tier lists, reserves and per-tier prices are preserved. Slot format:
-    "HH:MM-HH:MM" (24h, no midnight-crossing — use 23:59 to end at midnight,
-    matching the EP Cube mobile app's convention). Empty list clears that tier.
-    If a Predbat shim override is in flight it will be abandoned (user-wins).
-  fields:
-    peak_workday:
-      name: Workday — peak slots
-      description: List of "HH:MM-HH:MM" slots for the workday peak tier.
-      required: true
-      example: '["16:00-19:00"]'
-      selector:
-        object:
-    mid_peak_workday:
-      name: Workday — mid-peak slots
-      description: List of "HH:MM-HH:MM" slots for the workday mid-peak tier.
-      required: true
-      example: '["04:30-16:00", "19:00-23:30"]'
-      selector:
-        object:
-    off_peak_workday:
-      name: Workday — off-peak slots
-      description: List of "HH:MM-HH:MM" slots for the workday off-peak tier.
-      required: true
-      example: '["00:30-04:30"]'
-      selector:
-        object:
-    peak_weekend:
-      name: Weekend — peak slots
-      description: List of "HH:MM-HH:MM" slots for the weekend peak tier.
-      required: true
-      example: "[]"
-      selector:
-        object:
-    mid_peak_weekend:
-      name: Weekend — mid-peak slots
-      description: List of "HH:MM-HH:MM" slots for the weekend mid-peak tier.
-      required: true
-      example: "[]"
-      selector:
-        object:
-    off_peak_weekend:
-      name: Weekend — off-peak slots
-      description: List of "HH:MM-HH:MM" slots for the weekend off-peak tier.
-      required: true
-      example: "[]"
-      selector:
-        object:
-    switch_to_tou:
-      name: Switch to TOU mode now
-      description: If true, also flip the cube's operating mode to Time of Use after writing the schedule.
-      required: false
-      default: false
-      selector:
-        boolean:
-    prices:
-      name: Per-tier prices (optional, p/kWh)
-      description: >-
-        Optional per-tier prices in p/kWh — overrides what's currently on
-        the cube. Any tier omitted from this dict keeps its existing price
-        (or falls back to a sensible default if the tier is empty on the
-        cube). Six keys recognised, all optional: peak_workday, mid_peak_workday,
-        off_peak_workday, peak_weekend, mid_peak_weekend, off_peak_weekend.
-        Range 0-999 p/kWh. Cube precision is 1p — sub-p values round on save.
-      required: false
-      example: '{"off_peak_workday": 8.5, "peak_workday": 28.5}'
-      selector:
-        object:
-    device_id:
-      name: Device ID
-      required: false
-      description: Cube devId — only required if multiple EP Cubes are configured.
-      selector:
-        text:
-
 # Predbat shim services
+#
+# Note: from v1.0 there is no user-facing TOU writer service. Mode
+# switching stays exposed as select.ep_cube_operating_mode; reserve SoC
+# as number.ep_cube_self_consumption_reserve / number.ep_cube_backup_reserve
+# (mode-aware available, write pre-check). The previous set_tou_schedule
+# service was removed — Predbat is the single source of truth for TOU;
+# manual TOU painting belongs in the EP Cube mobile app or a different
+# integration. If the cube contains user-painted slots, an HA Repair
+# issue is raised offering to wipe them and hand control back to Predbat.
 #
 # Phase 2b.1 contract: these services take no parameters beyond an optional
 # device_id. The planned window and target SoC are read from Predbat's

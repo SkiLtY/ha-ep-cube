@@ -153,14 +153,14 @@ class TestSetupEntry:
                 )
 
     async def test_services_registered(self, hass, setup_integration):
-        # Predbat shim's 7+1 services + the user-facing set_tou_schedule
-        # land on the service bus.
+        # Predbat shim's 7 services + the debug_freeze diagnostic land on
+        # the service bus. (v1.0 dropped the user-facing set_tou_schedule
+        # in favour of an HA Repair flow — see repairs.py.)
         for service in (
             "charge_start", "charge_stop",
             "discharge_start", "discharge_stop",
             "charge_freeze", "discharge_freeze",
             "idle", "debug_freeze",
-            "set_tou_schedule",
         ):
             assert hass.services.has_service(DOMAIN, service), f"missing {service}"
 
