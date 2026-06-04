@@ -22,6 +22,14 @@ EP_CUBE_PACK_KWH = 5.0
 DEFAULT_BASE_URL = "https://monitoring-eu.epcube.com"
 DEFAULT_API_PREFIX = "/api"
 DEFAULT_POLL_INTERVAL_SECONDS = 60   # real cloud polls at ~55s; we match
+DEFAULT_STATS_POLL_INTERVAL_SECONDS = 300  # queryDataElectricityV2 today bucket — slow-moving cumulative kWh
+
+# queryDataElectricityV2 scopeType values. Date-string formats below are what
+# the cube expects per scope; coordinator builds them with these in mind.
+STATS_SCOPE_TOTAL = 0    # YYYY     (lifetime; currently == ANNUAL until year-roll)
+STATS_SCOPE_DAILY = 1    # YYYY-MM-DD
+STATS_SCOPE_MONTHLY = 2  # YYYY-MM
+STATS_SCOPE_ANNUAL = 3   # YYYY
 
 # Region endpoints — cross-referenced against Bobsilvio/epcube/const.py
 # (BASE_URLS dict). The US region notably uses a different hostname AND a

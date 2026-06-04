@@ -370,3 +370,132 @@ class TestSwitchMode:
         payload = build_switch_mode_payload(dev_id="5613", work_status="2")
         with pytest.raises(WriteVerificationError):
             await client_factory().switch_mode(payload)
+
+
+# ----------------------------------------------------------------------
+# queryDataElectricityV2 — Phase 4.2 stats endpoint
+# ----------------------------------------------------------------------
+class TestGetStats:
+    # The cube returns camelCase keys; get_stats lowercases at the boundary
+    # so consumers don't carry the camelCase noise. Field set picked to match
+    # what the live EU cube returns on scope=1 (verified 2026-06-04).
+    _LIVE_KEYS = {
+        "gridElectricity": 0.44,
+        "gridElectricityFrom": 0.44,
+        "gridElectricityTo": 7.88,
+        "solarElectricity": 27.87,
+        "backUpElectricity": 18.47,
+        "selfHelpRate": 98,
+        "treeNum": 1.01585,
+        "coal": 7.388,
+    }
+
+    async def test_daily_scope_url_and_lowercase_keys(
+        self, aioclient_mock, client_factory
+    ):
+        aioclient_mock.get(
+            _url_re("/api/device/queryDataElectricityV2"),
+            json=_envelope(dict(self._LIVE_KEYS)),
+        )
+        result = await client_factory().get_stats(1, "2026-06-04")
+
+        method, url, data, headers = aioclient_mock.mock_calls[0]
+        assert "devId=5613" in url
+        assert "queryDateStr=2026-06-04" in url
+        assert "scopeType=1" in url
+        # Keys lowercased so downstream lookups don't carry camelCase noise.
+        assert result["gridelectricityfrom"] == 0.44
+        assert result["gridelectricityto"] == 7.88
+        assert result["selfhelprate"] == 98
+        assert "gridElectricityFrom" not in result
+
+    async def test_monthly_scope_takes_yyyy_mm(self, aioclient_mock, client_factory):
+        aioclient_mock.get(
+            _url_re("/api/device/queryDataElectricityV2"),
+            json=_envelope({"gridElectricityFrom": 16.75}),
+        )
+        await client_factory().get_stats(2, "2026-06")
+        _, url, _, _ = aioclient_mock.mock_calls[0]
+        assert "queryDateStr=2026-06" in url
+        assert "scopeType=2" in url
+
+    async def test_annual_scope_takes_yyyy(self, aioclient_mock, client_factory):
+        aioclient_mock.get(
+            _url_re("/api/device/queryDataElectricityV2"),
+            json=_envelope({"gridElectricityFrom": 33.19}),
+        )
+        await client_factory().get_stats(3, "2026")
+        _, url, _, _ = aioclient_mock.mock_calls[0]
+        assert "queryDateStr=2026" in url
+        assert "scopeType=3" in url
+
+    async def test_total_scope_zero(self, aioclient_mock, client_factory):
+        aioclient_mock.get(
+            _url_re("/api/device/queryDataElectricityV2"),
+            json=_envelope({}),
+        )
+        await client_factory().get_stats(0, "2026")
+        _, url, _, _ = aioclient_mock.mock_calls[0]
+        assert "scopeType=0" in url
+
+    async def test_empty_data_returns_empty_dict(
+        self, aioclient_mock, client_factory
+    ):
+        aioclient_mock.get(
+            _url_re("/api/device/queryDataElectricityV2"),
+            json=_envelope({}),
+        )
+        result = await client_factory().get_stats(1, "2026-06-04")
+        assert result == {}
+
+    async def test_non_dict_data_returns_empty_dict(
+        self, aioclient_mock, client_factory
+    ):
+        # Defensive: cube has been known to return null/list shapes on the
+        # weirder endpoints; the helper should normalise to {} so consumers
+        # can .get() without crashing.
+        aioclient_mock.get(
+            _url_re("/api/device/queryDataElectricityV2"),
+            json=_envelope(None),
+        )
+        result = await client_factory().get_stats(1, "2026-06-04")
+        assert result == {}
+
+    async def test_us_region_uses_app_api_prefix(
+        self, aioclient_mock, client_factory
+    ):
+        aioclient_mock.get(
+            _url_re("/app-api/device/queryDataElectricityV2"),
+            json=_envelope({"gridElectricityFrom": 1.0}),
+        )
+        await client_factory(api_prefix="/app-api").get_stats(1, "2026-06-04")
+        _, url, _, _ = aioclient_mock.mock_calls[0]
+        assert "/app-api/device/queryDataElectricityV2" in url
+
+    async def test_403_triggers_reauth_callback(
+        self, aioclient_mock, client_factory
+    ):
+        # Reauth flow already covered for other endpoints — verify it kicks in
+        # on the stats path too (uses the shared _request transport).
+        calls = {"n": 0}
+
+        async def handler(method, url, data):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return AiohttpClientMockResponse(
+                    method=method, url=url, status=403, response=b"token expired",
+                )
+            return AiohttpClientMockResponse(
+                method=method, url=url, status=200,
+                json=_envelope({"gridElectricityFrom": 1.0}),
+            )
+
+        aioclient_mock.get(
+            _url_re("/api/device/queryDataElectricityV2"), side_effect=handler,
+        )
+        reauth = AsyncMock(return_value="refreshed-token")
+        client = client_factory(reauth_callback=reauth)
+        result = await client.get_stats(1, "2026-06-04")
+        assert calls["n"] == 2
+        assert reauth.await_count == 1
+        assert result["gridelectricityfrom"] == 1.0

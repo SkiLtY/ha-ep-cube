@@ -555,6 +555,25 @@ class EPCubeClient:
             return data
         return []
 
+    async def get_stats(self, scope_type: int, date_str: str) -> dict[str, Any]:
+        """Fetch the cube's own electricity rollup for a window.
+
+        scope_type per STATS_SCOPE_* constants in const.py. date_str format
+        depends on scope: daily=YYYY-MM-DD, monthly=YYYY-MM, annual/total=YYYY.
+
+        Keys in the returned dict are normalised to lowercase to match the
+        Bobsilvio convention — cube's wire keys are camelCase but lowering them
+        once at the boundary keeps every consumer's lookup code consistent.
+        """
+        path = (
+            f"{self._api_prefix}/device/queryDataElectricityV2"
+            f"?devId={self._dev_id}&queryDateStr={date_str}&scopeType={scope_type}"
+        )
+        data = await self._get(path)
+        if not isinstance(data, dict):
+            return {}
+        return {k.lower(): v for k, v in data.items()}
+
     # ------------------------------------------------------------------
     # Writes
     # ------------------------------------------------------------------
