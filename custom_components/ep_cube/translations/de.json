@@ -82,5 +82,19 @@
       "backup_reserve": {"name": "Notstromreserve"},
       "predbat_charge_limit": {"name": "Predbat Ladelimit"}
     }
+  },
+  "issues": {
+    "predbat_priority": {
+      "title": "Manuelle TOU-Slots auf dem Cube, während Predbat läuft",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "TOU-Steuerung an Predbat zurückgeben",
+            "description": "Der EP Cube hat aktuell vom Benutzer eingerichtete Time-of-Use-Slots, und Predbat ist auf dieser Home-Assistant-Instanz installiert. Ab v1.0 betrachtet die EP-Cube-Integration Predbat als alleinige Quelle der Wahrheit für die TOU-Steuerung — ein manueller Zeitplan auf dem Cube kann dazu führen, dass der Predbat-Plan von dem abweicht, was die Batterie tatsächlich tut.\n\nMit Bestätigen werden die sechs Nicht-Sommerzeit-Tarif-Listen (Werktag + Wochenende × Spitze / Mittel / Niedrig) auf dem Cube geleert. Sommerzeit-Listen, Reserven und der aktuelle Betriebsmodus bleiben unverändert. Predbat behält über die Shim-Dienste (charge / discharge / freeze) die volle Kontrolle.\n\nWenn Sie den manuellen Zeitplan behalten möchten und nicht möchten, dass Predbat die Batterie steuert, ist die sicherere Wahl, stattdessen Predbat (oder seine Dummy-Entitäten) zu deinstallieren — die manuelle TOU-Pflege gehört in die EP-Cube-App.",
+            "submit": "Manuelle Slots löschen"
+          }
+        }
+      }
+    }
   }
 }

@@ -82,5 +82,19 @@
       "backup_reserve": {"name": "Backup reserve"},
       "predbat_charge_limit": {"name": "Predbat charge limit"}
     }
+  },
+  "issues": {
+    "predbat_priority": {
+      "title": "Manual TOU slots on the cube while Predbat is running",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Hand TOU control back to Predbat",
+            "description": "The EP Cube currently has user-painted time-of-use slots, and Predbat is installed on this Home Assistant instance. From v1.0 the EP Cube integration treats Predbat as the single source of truth for TOU control — any manual schedule on the cube can cause Predbat's plan to drift out of sync with what the battery is actually doing.\n\nSelecting Submit will clear the six non-DST tier lists (workday + weekend × peak / mid-peak / off-peak) on the cube. DST tier lists, reserves and the cube's current operating mode are left untouched. Predbat keeps full control via the shim's charge / discharge / freeze services.\n\nIf you'd rather keep the manual schedule and you don't want Predbat to control the battery, the safer choice is to uninstall Predbat (or its dummy entities) instead — manual TOU painting belongs in the EP Cube mobile app.",
+            "submit": "Wipe manual slots"
+          }
+        }
+      }
+    }
   }
 }

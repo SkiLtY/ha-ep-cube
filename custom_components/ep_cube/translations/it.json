@@ -82,5 +82,19 @@
       "backup_reserve": {"name": "Riserva backup"},
       "predbat_charge_limit": {"name": "Limite di carica Predbat"}
     }
+  },
+  "issues": {
+    "predbat_priority": {
+      "title": "Slot TOU manuali sul cube mentre Predbat è attivo",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Restituire il controllo TOU a Predbat",
+            "description": "L'EP Cube ha attualmente slot Time-of-Use impostati manualmente, e Predbat è installato su questa istanza di Home Assistant. Dalla v1.0 l'integrazione EP Cube considera Predbat come unica fonte di verità per il controllo TOU — qualsiasi pianificazione manuale sul cube può far divergere il piano di Predbat da ciò che la batteria sta effettivamente facendo.\n\nSelezionando Conferma verranno svuotate le sei liste di fascia non-DST (giorno feriale + weekend × picco / medio / off-peak) sul cube. Le liste DST, le riserve e la modalità operativa corrente restano invariate. Predbat mantiene il controllo completo tramite i servizi shim (charge / discharge / freeze).\n\nSe preferisci mantenere la pianificazione manuale e non vuoi che Predbat controlli la batteria, la scelta più sicura è disinstallare Predbat (o le sue entità dummy) — la pianificazione TOU manuale appartiene all'app EP Cube.",
+            "submit": "Cancella slot manuali"
+          }
+        }
+      }
+    }
   }
 }

@@ -11,6 +11,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import DeviceStatus, EPCubeClient, EPCubeError
 from .const import DEFAULT_POLL_INTERVAL_SECONDS, DOMAIN
+from .repairs import evaluate_predbat_priority_issue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,11 +25,13 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
             update_interval=timedelta(seconds=DEFAULT_POLL_INTERVAL_SECONDS),
         )
         self.client = client
-        # Cached raw getSwitchMode response — used by the operating-mode select
-        # to expose the cube's current TOU schedule as entity attributes (so
-        # the editor card can hydrate from real state). Best-effort: a failed
+        self._entry_id = entry.entry_id
+        # Cached raw getSwitchMode response. Used by the v1.0 Predbat-priority
+        # repair flow to detect user-painted (non-shim) TOU slots that
+        # conflict with Predbat's control of the cube. Best-effort: a failed
         # schedule fetch doesn't fail the whole poll (homeDeviceInfo is the
-        # critical path).
+        # critical path); we keep the previous snapshot so a transient
+        # network blip doesn't flip the repair flow on and off.
         self._switch_mode: dict[str, Any] | None = None
 
     @property
@@ -47,5 +50,9 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
             self._switch_mode = await self.client.get_switch_mode()
         except EPCubeError as err:
             _LOGGER.debug("get_switch_mode failed (keeping cached): %s", err)
+
+        # Raise / clear the Predbat-priority repair issue based on the
+        # latest snapshot. Idempotent — safe to call every tick.
+        evaluate_predbat_priority_issue(self.hass, self._entry_id, self._switch_mode)
 
         return status

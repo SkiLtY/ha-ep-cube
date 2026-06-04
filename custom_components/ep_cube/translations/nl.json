@@ -82,5 +82,19 @@
       "backup_reserve": {"name": "Back-up-reserve"},
       "predbat_charge_limit": {"name": "Predbat laadlimiet"}
     }
+  },
+  "issues": {
+    "predbat_priority": {
+      "title": "Handmatige TOU-slots op de cube terwijl Predbat actief is",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Geef TOU-besturing terug aan Predbat",
+            "description": "De EP Cube heeft op dit moment door de gebruiker ingestelde Time-of-Use-slots, en Predbat is geïnstalleerd op deze Home Assistant. Vanaf v1.0 beschouwt de EP Cube-integratie Predbat als de enige bron van waarheid voor TOU-besturing — elk handmatig schema op de cube kan ervoor zorgen dat het Predbat-plan afwijkt van wat de batterij daadwerkelijk doet.\n\nDoor Bevestigen te kiezen worden de zes niet-zomertijd-tariefslijsten (werkdag + weekend × piek / middel / dal) op de cube geleegd. Zomertijd-lijsten, reserves en de huidige bedrijfsmodus blijven ongewijzigd. Predbat behoudt volledige controle via de shim-services (charge / discharge / freeze).\n\nWil je het handmatige schema houden en niet dat Predbat de batterij aanstuurt, dan is het veiliger om Predbat (of zijn dummy-entiteiten) te verwijderen — handmatige TOU-instelling hoort thuis in de EP Cube-app.",
+            "submit": "Handmatige slots wissen"
+          }
+        }
+      }
+    }
   }
 }
