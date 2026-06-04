@@ -193,6 +193,11 @@ views:
           # that write in TOU mode is provisional — the number entity is
           # permissively available in TOU; if the cube rejects it the
           # WriteVerificationError will surface in the HA log.
+          #
+          # No in-dashboard TOU schedule editor: from v1.0 the integration
+          # is opinionated about Predbat being the single source of truth
+          # for TOU. Use the EP Cube mobile app (or Bobsilvio's
+          # `bobsilvio/epcube` HACS integration) if you need manual TOU.
           - type: conditional
             conditions:
               - entity: select.ep_cube_operating_mode
@@ -208,18 +213,3 @@ views:
                   name: Allow charging from grid
                 - entity: switch.ep_cube_daylight_saving_time
                   name: Daylight saving time
-
-          # ───────── TOU schedule editor (always visible) ─────────
-          # Phase 4.1 — TOU schedule editor card (companion to the
-          # ep_cube.set_tou_schedule service). Deliberately OUTSIDE the
-          # operating-mode conditional so users can set up their TOU
-          # schedule *before* switching modes. The card's "Switch the
-          # cube into Time-of-Use mode when saving" checkbox handles
-          # the activate-on-save case.
-          # Install per README: bind-mount or copy
-          # www/ep-cube-tou-editor.js to /config/www/ and register as a
-          # JS module Lovelace resource. If the resource isn't
-          # registered yet this card renders as "Custom element doesn't
-          # exist" — safe to ignore until you add the resource.
-          - type: custom:ep-cube-tou-editor
-            title: TOU schedule
