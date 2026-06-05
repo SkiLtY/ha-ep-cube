@@ -189,6 +189,25 @@ async def get_switch_mode(
     return envelope(dev.to_switch_mode())
 
 
+@app.get("/api/device/queryDataElectricityV2")
+async def query_data_electricity_v2(
+    devId: str,
+    queryDateStr: str,
+    scopeType: int,
+    authorization: str | None = Header(default=None),
+):
+    """Cube's own electricity rollups (Phase 4.2).
+
+    scopeType: 0 = total/lifetime (YYYY), 1 = daily (YYYY-MM-DD),
+               2 = monthly (YYYY-MM), 3 = annual (YYYY).
+    The mock doesn't validate queryDateStr format — passes it through to
+    DeviceState.to_query_data_electricity_v2 which picks values per scope.
+    """
+    _require_bearer(authorization)
+    dev = _require_devid(devId)
+    return envelope(dev.to_query_data_electricity_v2(scopeType, queryDateStr))
+
+
 @app.post("/api/device/switchMode")
 async def switch_mode(
     payload: dict[str, Any],
