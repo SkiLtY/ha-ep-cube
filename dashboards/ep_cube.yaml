@@ -147,6 +147,10 @@ views:
       # surfaced as the single direction-ambiguous `grid_today` sensor
       # (deleted in v1.1.0) now lives here as two clean counters that wire
       # straight into HA's Energy Dashboard.
+      # Entity IDs are slugified from the *display name* (after translation),
+      # not the description's `key=`. So translation "Backup loads today" →
+      # `sensor.ep_cube_backup_loads_today`, NOT `_backup_today`. Same trap
+      # tripped session 17 with `power-flow-card-plus`.
       - type: entities
         title: Energy today
         show_header_toggle: false
@@ -157,7 +161,7 @@ views:
             name: Grid import
           - entity: sensor.ep_cube_grid_export_today
             name: Grid export
-          - entity: sensor.ep_cube_backup_today
+          - entity: sensor.ep_cube_backup_loads_today
             name: Backed loads
           - entity: sensor.ep_cube_self_consumption_pct
             name: Self-consumption
@@ -172,7 +176,7 @@ views:
             name: Grid import
           - entity: sensor.ep_cube_grid_export_yesterday
             name: Grid export
-          - entity: sensor.ep_cube_backup_yesterday
+          - entity: sensor.ep_cube_backup_loads_yesterday
             name: Backed loads
 
       # ───────────────────────────────────────────────────────────────

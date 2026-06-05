@@ -13,7 +13,7 @@ Six new sensors fed by a second background coordinator polling the cube's stats 
 | `sensor.ep_cube_grid_import_yesterday` | kWh | `TOTAL` | `gridElectricityFrom` (scope=1 yesterday) |
 | `sensor.ep_cube_grid_export_yesterday` | kWh | `TOTAL` | `gridElectricityTo` (scope=1 yesterday) |
 | `sensor.ep_cube_solar_yesterday` | kWh | `TOTAL` | `solarElectricity` (scope=1 yesterday) |
-| `sensor.ep_cube_backup_yesterday` | kWh | `TOTAL` | `backUpElectricity` (scope=1 yesterday) |
+| `sensor.ep_cube_backup_loads_yesterday` | kWh | `TOTAL` | `backUpElectricity` (scope=1 yesterday) |
 
 Today's pair (`grid_import_today` / `grid_export_today`) is the direct fix for the v0.5.0 limitation that v1.0 inherited: the cube's `homeDeviceInfo` field `gridElectricity` is direction-ambiguous — equals export on export-heavy days, import on import-heavy days. The new pair reads from the stats endpoint which exposes both directions cleanly, so HA's Energy Dashboard wires up correctly without Riemann tricks.
 
