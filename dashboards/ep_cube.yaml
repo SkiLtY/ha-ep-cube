@@ -140,6 +140,42 @@ views:
             name: Active reserve
 
       # ───────────────────────────────────────────────────────────────
+      # Daily energy (Phase 4.2 stats sensors)
+      # ───────────────────────────────────────────────────────────────
+      # Sourced from queryDataElectricityV2, refreshed every 5 min. Grid
+      # import vs export are direction-split at the cube — what previously
+      # surfaced as the single direction-ambiguous `grid_today` sensor
+      # (deleted in v1.1.0) now lives here as two clean counters that wire
+      # straight into HA's Energy Dashboard.
+      - type: entities
+        title: Energy today
+        show_header_toggle: false
+        entities:
+          - entity: sensor.ep_cube_solar_today
+            name: Solar
+          - entity: sensor.ep_cube_grid_import_today
+            name: Grid import
+          - entity: sensor.ep_cube_grid_export_today
+            name: Grid export
+          - entity: sensor.ep_cube_backup_today
+            name: Backed loads
+          - entity: sensor.ep_cube_self_consumption_pct
+            name: Self-consumption
+
+      - type: entities
+        title: Energy yesterday
+        show_header_toggle: false
+        entities:
+          - entity: sensor.ep_cube_solar_yesterday
+            name: Solar
+          - entity: sensor.ep_cube_grid_import_yesterday
+            name: Grid import
+          - entity: sensor.ep_cube_grid_export_yesterday
+            name: Grid export
+          - entity: sensor.ep_cube_backup_yesterday
+            name: Backed loads
+
+      # ───────────────────────────────────────────────────────────────
       # Operating-mode picker + mode-specific controls
       # ───────────────────────────────────────────────────────────────
       # Wrapped in a vertical-stack so HA's masonry treats them as a
