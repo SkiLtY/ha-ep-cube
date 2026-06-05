@@ -43,9 +43,7 @@
       "operating_mode": {"name": "Modalità operativa"},
       "reserve_soc": {"name": "Riserva di carica"},
       "solar_today": {"name": "Solare oggi"},
-      "grid_today": {"name": "Energia rete oggi (netta)"},
       "backup_today": {"name": "Carichi backup oggi"},
-      "nonbackup_today": {"name": "Carichi non-backup oggi"},
       "self_consumption_pct": {"name": "Autoconsumo"},
       "solar_dc_today": {"name": "Solare DC oggi"},
       "solar_ac_today": {"name": "Solare AC oggi"},
@@ -54,7 +52,13 @@
       "grid_outage_count": {"name": "Interruzioni di rete (totale)"},
       "off_grid_seconds": {"name": "Tempo off-grid (totale)"},
       "battery_charge_today": {"name": "Batteria caricata oggi"},
-      "battery_discharge_today": {"name": "Batteria scaricata oggi"}
+      "battery_discharge_today": {"name": "Batteria scaricata oggi"},
+      "grid_import_today": {"name": "Prelievo rete oggi"},
+      "grid_export_today": {"name": "Immissione rete oggi"},
+      "grid_import_yesterday": {"name": "Prelievo rete ieri"},
+      "grid_export_yesterday": {"name": "Immissione rete ieri"},
+      "solar_yesterday": {"name": "Solare ieri"},
+      "backup_yesterday": {"name": "Carichi backup ieri"}
     },
     "select": {
       "operating_mode": {

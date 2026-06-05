@@ -43,9 +43,7 @@
       "operating_mode": {"name": "Operating mode"},
       "reserve_soc": {"name": "Reserve SoC"},
       "solar_today": {"name": "Solar today"},
-      "grid_today": {"name": "Grid energy today (net)"},
       "backup_today": {"name": "Backup loads today"},
-      "nonbackup_today": {"name": "Non-backup loads today"},
       "self_consumption_pct": {"name": "Self-consumption"},
       "solar_dc_today": {"name": "Solar DC today"},
       "solar_ac_today": {"name": "Solar AC today"},
@@ -54,7 +52,13 @@
       "grid_outage_count": {"name": "Grid outages (lifetime)"},
       "off_grid_seconds": {"name": "Off-grid runtime (lifetime)"},
       "battery_charge_today": {"name": "Battery charged today"},
-      "battery_discharge_today": {"name": "Battery discharged today"}
+      "battery_discharge_today": {"name": "Battery discharged today"},
+      "grid_import_today": {"name": "Grid import today"},
+      "grid_export_today": {"name": "Grid export today"},
+      "grid_import_yesterday": {"name": "Grid import yesterday"},
+      "grid_export_yesterday": {"name": "Grid export yesterday"},
+      "solar_yesterday": {"name": "Solar yesterday"},
+      "backup_yesterday": {"name": "Backup loads yesterday"}
     },
     "select": {
       "operating_mode": {

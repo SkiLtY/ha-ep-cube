@@ -25,12 +25,23 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import DeviceStatus
 from .const import DOMAIN
-from .coordinator import EPCubeCoordinator
+from .coordinator import EPCubeCoordinator, EPCubeStatsCoordinator
 
 
 @dataclass(frozen=True, kw_only=True)
 class EPCubeSensorDescription(SensorEntityDescription):
     value_fn: Callable[[DeviceStatus], float | str | None]
+
+
+@dataclass(frozen=True, kw_only=True)
+class EPCubeStatsSensorDescription(SensorEntityDescription):
+    """Description for sensors fed by EPCubeStatsCoordinator.
+
+    `value_fn` takes the bucket-keyed dict from the stats coordinator
+    (`{"today": {...}, "yesterday": {...}, ...}`) and returns the value.
+    """
+
+    value_fn: Callable[[dict[str, dict]], float | str | None]
 
 
 SENSORS: tuple[EPCubeSensorDescription, ...] = (
@@ -133,15 +144,13 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=lambda s: s.solar_today_kwh,
     ),
-    EPCubeSensorDescription(
-        key="grid_today",
-        translation_key="grid_today",
-        device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.TOTAL_INCREASING,
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        suggested_display_precision=2,
-        value_fn=lambda s: s.grid_today_kwh,
-    ),
+    # `grid_today` deleted in v1.1.0: the homeDeviceInfo `gridElectricity`
+    # field is direction-ambiguous (equals import on import-heavy days,
+    # export on export-heavy days). Replaced by `grid_import_today` +
+    # `grid_export_today` stats sensors sourced from queryDataElectricityV2,
+    # which split the directions cleanly.
+    # `nonbackup_today` deleted in v1.1.0: the cube reports 0 across all
+    # rollups on EU firmware (verified 2026-06-04). Field was misleading.
     EPCubeSensorDescription(
         key="backup_today",
         translation_key="backup_today",
@@ -150,15 +159,6 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=2,
         value_fn=lambda s: s.backup_today_kwh,
-    ),
-    EPCubeSensorDescription(
-        key="nonbackup_today",
-        translation_key="nonbackup_today",
-        device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.TOTAL_INCREASING,
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        suggested_display_precision=2,
-        value_fn=lambda s: s.nonbackup_today_kwh,
     ),
     EPCubeSensorDescription(
         key="self_consumption_pct",
@@ -205,9 +205,9 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         value_fn=lambda s: s.winter_protect_pct,
     ),
     # ------------------------------------------------------------------
-    # Phase 3.5 — Bobsilvio-parity metric additions. All read-only, all
-    # piggybacking the existing homeDeviceInfo poll except battery_*_today
-    # which are computed client-side (cube doesn't expose signed flow).
+    # Phase 3.5 metric additions. All read-only, all piggybacking the
+    # existing homeDeviceInfo poll except battery_*_today which are
+    # computed client-side (cube doesn't expose signed flow).
     # ------------------------------------------------------------------
     # Yesterday's revenue per cube's own accounting. Currency-typed (£ on EU
     # firmware via unitDefault). Most users on Predbat will get richer data
@@ -279,15 +279,112 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
 )
 
 
+# ----------------------------------------------------------------------
+# Stats sensors (Phase 4.2). Fed by EPCubeStatsCoordinator which polls the
+# cube's queryDataElectricityV2 endpoint on a 5-min cadence for today + slower
+# cadences for the wider rollups. Today's pair closes the v0.5.0 direction-
+# ambiguity gap (`grid_today` was net-ish; now we get explicit import + export).
+# Yesterday's quartet is genuinely new — useful for daily-summary automations.
+# ----------------------------------------------------------------------
+def _bucket_field(bucket: str, field: str) -> Callable[[dict[str, dict]], float | None]:
+    """Returns a value_fn that pulls `field` from `bucket` of the stats dict.
+
+    Both lowercase. Returns None if the bucket hasn't populated yet (e.g.
+    early in startup before the first scope=1 fetch lands) so the sensor
+    reads `unknown` rather than crashing.
+    """
+    def _get(data: dict[str, dict]) -> float | None:
+        if not data:
+            return None
+        value = data.get(bucket, {}).get(field)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+    return _get
+
+
+STATS_SENSORS: tuple[EPCubeStatsSensorDescription, ...] = (
+    EPCubeStatsSensorDescription(
+        key="grid_import_today",
+        translation_key="grid_import_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("today", "gridelectricityfrom"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="grid_export_today",
+        translation_key="grid_export_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("today", "gridelectricityto"),
+    ),
+    # Yesterday's frozen snapshots. STATE_CLASS=TOTAL with no last_reset —
+    # the value steps once per midnight roll, never accumulates within a day.
+    # HA's statistics engine handles this correctly: the daily change shows up
+    # as one delta on the day-roll, no spurious counter-reset detection.
+    EPCubeStatsSensorDescription(
+        key="grid_import_yesterday",
+        translation_key="grid_import_yesterday",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("yesterday", "gridelectricityfrom"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="grid_export_yesterday",
+        translation_key="grid_export_yesterday",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("yesterday", "gridelectricityto"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="solar_yesterday",
+        translation_key="solar_yesterday",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("yesterday", "solarelectricity"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="backup_yesterday",
+        translation_key="backup_yesterday",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("yesterday", "backupelectricity"),
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: EPCubeCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    async_add_entities(
+    stored = hass.data[DOMAIN][entry.entry_id]
+    coordinator: EPCubeCoordinator = stored["coordinator"]
+    stats_coordinator: EPCubeStatsCoordinator = stored["stats_coordinator"]
+    entities: list[CoordinatorEntity] = []
+    entities.extend(
         EPCubeSensor(coordinator, entry.entry_id, desc) for desc in SENSORS
     )
+    entities.extend(
+        EPCubeStatsSensor(stats_coordinator, entry.entry_id, desc)
+        for desc in STATS_SENSORS
+    )
+    async_add_entities(entities)
 
 
 class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], RestoreSensor):
@@ -321,6 +418,46 @@ class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], RestoreSensor):
         # needing to hard-code a per-account devId slug. Multi-account / dual
         # mock+cloud users disambiguate via the config-entry title
         # (`EP Cube ({dev_id})`) and HA's auto-appended `_2` suffix.
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name="EP Cube",
+            manufacturer="Canadian Solar",
+            model="EP Cube",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_sensor_data()) is not None:
+            self._restored_value = last.native_value
+
+    @property
+    def native_value(self) -> float | str | None:
+        if self.coordinator.data is None:
+            return self._restored_value
+        return self.entity_description.value_fn(self.coordinator.data)
+
+
+class EPCubeStatsSensor(CoordinatorEntity[EPCubeStatsCoordinator], RestoreSensor):
+    """Sensor backed by the stats coordinator (queryDataElectricityV2).
+
+    Mirrors EPCubeSensor's restore-on-restart semantics so wider rollups
+    (yesterday/month/year/total) don't flicker to `unknown` for the 5-min
+    window between HA restart and the first stats fetch.
+    """
+
+    _attr_has_entity_name = True
+    entity_description: EPCubeStatsSensorDescription
+
+    def __init__(
+        self,
+        coordinator: EPCubeStatsCoordinator,
+        entry_id: str,
+        description: EPCubeStatsSensorDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry_id}_{description.key}"
+        self._restored_value: float | str | None = None
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry_id)},
             name="EP Cube",

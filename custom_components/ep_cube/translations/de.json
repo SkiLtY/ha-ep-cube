@@ -43,9 +43,7 @@
       "operating_mode": {"name": "Betriebsmodus"},
       "reserve_soc": {"name": "Reserve-Ladezustand"},
       "solar_today": {"name": "Solar heute"},
-      "grid_today": {"name": "Netzenergie heute (netto)"},
       "backup_today": {"name": "Notstromverbraucher heute"},
-      "nonbackup_today": {"name": "Normalverbraucher heute"},
       "self_consumption_pct": {"name": "Eigenverbrauchsquote"},
       "solar_dc_today": {"name": "Solar DC heute"},
       "solar_ac_today": {"name": "Solar AC heute"},
@@ -54,7 +52,13 @@
       "grid_outage_count": {"name": "Stromausfälle (gesamt)"},
       "off_grid_seconds": {"name": "Inselbetriebsdauer (gesamt)"},
       "battery_charge_today": {"name": "Batterie heute geladen"},
-      "battery_discharge_today": {"name": "Batterie heute entladen"}
+      "battery_discharge_today": {"name": "Batterie heute entladen"},
+      "grid_import_today": {"name": "Netzbezug heute"},
+      "grid_export_today": {"name": "Netzeinspeisung heute"},
+      "grid_import_yesterday": {"name": "Netzbezug gestern"},
+      "grid_export_yesterday": {"name": "Netzeinspeisung gestern"},
+      "solar_yesterday": {"name": "Solar gestern"},
+      "backup_yesterday": {"name": "Notstromverbraucher gestern"}
     },
     "select": {
       "operating_mode": {

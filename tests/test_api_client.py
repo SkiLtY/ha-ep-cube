@@ -315,9 +315,9 @@ class TestGetStatus:
         assert status.allow_grid_charge is True
         assert status.dst_active is False
 
-        # Daily kWh totals from homeDeviceInfo
+        # Daily kWh totals from homeDeviceInfo (grid_today + nonbackup_today
+        # deleted in v1.1.0 — see sensor.py STATS_SENSORS for replacements).
         assert status.solar_today_kwh == 0.35
-        assert status.grid_today_kwh == 0.85
         assert status.backup_today_kwh == 1.26
 
         # Phase 3.5 fields

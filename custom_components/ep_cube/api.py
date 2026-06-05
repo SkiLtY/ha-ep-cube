@@ -104,32 +104,22 @@ class DeviceStatus:
     backup_reserve_pct: float            # always-on backup mode reserve
     dst_active: bool                     # mirrors cube's dayLightSavingTime
     # Daily kWh counters from homeDeviceInfo. Cube's onboard accounting,
-    # resets at midnight cube-local. Independent of HA's Riemann-integrated
-    # *_today sensors (which exist for Predbat) — these match the EP Cube
-    # mobile app's daily totals. grid_today_kwh is DIRECTION-AMBIGUOUS:
-    # verified 2026-05-24 against the log math (gridElectricity grew by
-    # 0.37 kWh over 8.5 min while gridPower held at ~-265W sustained
-    # export, matching the ~0.38 kWh export expected from a power integral).
-    # So on an export-heavy day it equals export, on an import-heavy day it
-    # equals import. For HA's Energy Dashboard (which needs clean import vs
-    # export split), use the Riemann-derived sensor.ep_cube_grid_import_energy
-    # / ..._export_energy in ha_config/packages/ep_cube.yaml.
+    # resets at midnight cube-local. solar_today + backup_today match the EP
+    # Cube mobile app's daily totals; for clean grid import vs export split
+    # use the Phase 4.2 stats sensors (sensor.ep_cube_grid_import_today /
+    # ..._export_today) which read from queryDataElectricityV2.
     # solar_dc / solar_ac are pre-/post-inverter for diagnostic surface only.
     solar_today_kwh: float
-    grid_today_kwh: float
     backup_today_kwh: float
-    nonbackup_today_kwh: float
     solar_dc_today_kwh: float
     solar_ac_today_kwh: float
     self_consumption_pct: float   # cube's selfHelpRate — self-consumption KPI
     winter_protect_pct: float     # winter SoC floor; read-only (write path unconfirmed)
-    # Bobsilvio-parity additions (Phase 3.5). Three direct-from-cloud fields
-    # piggyback on the existing homeDeviceInfo poll, plus two client-side
-    # accumulators that delta-track batteryCurrentElectricity between polls
-    # (Bobsilvio uses the same approach in their state.py — the cloud doesn't
-    # expose pre-split battery flow on this endpoint). Lifetime totals are
-    # NOT added here — they need the queryDataElectricityV2 endpoint we have
-    # not yet captured (deferred to Phase 4.2 / 5).
+    # Phase 3.5 additions. Three direct-from-cloud fields piggyback on the
+    # existing homeDeviceInfo poll, plus two client-side accumulators that
+    # delta-track batteryCurrentElectricity between polls (the cloud
+    # doesn't expose pre-split battery flow on this endpoint). Lifetime
+    # totals NOT added here — they need queryDataElectricityV2 (Phase 4.2).
     earning_yesterday: float       # £ — cube's own revenue accounting (currency from unitDefault)
     grid_outage_count: int         # gridPowerFailureNum — diagnostic; lifetime count
     off_grid_seconds: int          # offGridPowerSupplyTime — diagnostic; lifetime seconds on backup
@@ -348,8 +338,8 @@ class EPCubeClient:
         # batteryCurrentElectricity (current stored energy, kWh) but not
         # signed charge/discharge flow. We delta-track between successive
         # polls — positive delta = charge, negative = discharge — into
-        # per-day accumulators that reset on local midnight. Same approach
-        # Bobsilvio uses; threshold (0.05 kWh) filters API jitter.
+        # per-day accumulators that reset on local midnight. Threshold
+        # (0.05 kWh) filters API jitter.
         self._battery_flow_last_kwh: float | None = None
         self._battery_charge_today_kwh: float = 0.0
         self._battery_discharge_today_kwh: float = 0.0
@@ -416,7 +406,7 @@ class EPCubeClient:
     # ------------------------------------------------------------------
     # Noise threshold (kWh). Below this, treat as measurement jitter and
     # leave _battery_flow_last_kwh anchored so a slow real drift still
-    # eventually crosses the threshold and gets counted. Matches Bobsilvio.
+    # eventually crosses the threshold and gets counted.
     _BATTERY_FLOW_THRESHOLD_KWH = 0.05
 
     def _update_battery_flow(self, battery_now_kwh: float) -> None:
@@ -526,9 +516,7 @@ class EPCubeClient:
             backup_reserve_pct=backup_reserve,
             dst_active=dst_active,
             solar_today_kwh=_kwh_str_to_float(info.get("solarElectricity")),
-            grid_today_kwh=_kwh_str_to_float(info.get("gridElectricity")),
             backup_today_kwh=_kwh_str_to_float(info.get("backUpElectricity")),
-            nonbackup_today_kwh=_kwh_str_to_float(info.get("nonBackUpElectricity")),
             solar_dc_today_kwh=_kwh_str_to_float(info.get("solarDcElectricity")),
             solar_ac_today_kwh=_kwh_str_to_float(info.get("solarAcElectricity")),
             self_consumption_pct=float(info.get("selfHelpRate", 0) or 0),
@@ -561,9 +549,9 @@ class EPCubeClient:
         scope_type per STATS_SCOPE_* constants in const.py. date_str format
         depends on scope: daily=YYYY-MM-DD, monthly=YYYY-MM, annual/total=YYYY.
 
-        Keys in the returned dict are normalised to lowercase to match the
-        Bobsilvio convention — cube's wire keys are camelCase but lowering them
-        once at the boundary keeps every consumer's lookup code consistent.
+        Keys in the returned dict are normalised to lowercase — cube's wire
+        keys are camelCase but lowering them once at the boundary keeps
+        every consumer's lookup code consistent.
         """
         path = (
             f"{self._api_prefix}/device/queryDataElectricityV2"

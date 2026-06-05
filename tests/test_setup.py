@@ -76,8 +76,9 @@ class TestSetupEntry:
             "load_power",
             "operating_mode",
             "reserve_soc",
-            # Phase 3.4 daily kWh
-            "solar_today", "grid_today", "backup_today", "nonbackup_today",
+            # Phase 3.4 daily kWh (grid_today + nonbackup_today removed in
+            # v1.1.0 — replaced by the Phase 4.2 stats sensors below).
+            "solar_today", "backup_today",
             "self_consumption_pct",
             "solar_dc_today", "solar_ac_today",
             "winter_protect",
@@ -85,6 +86,10 @@ class TestSetupEntry:
             "earning_yesterday",
             "grid_outage_count", "off_grid_seconds",
             "battery_charge_today", "battery_discharge_today",
+            # Phase 4.2 stats sensors (queryDataElectricityV2)
+            "grid_import_today", "grid_export_today",
+            "grid_import_yesterday", "grid_export_yesterday",
+            "solar_yesterday", "backup_yesterday",
         }
         registry = er.async_get(hass)
         entry_id = setup_integration.entry_id
