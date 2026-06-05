@@ -25,7 +25,7 @@ from .const import (
     REGION_OTHER,
     REGIONS,
 )
-from .coordinator import EPCubeCoordinator
+from .coordinator import EPCubeCoordinator, EPCubeStatsCoordinator
 from .services import (
     PredbatShim,
     async_register_services,
@@ -88,10 +88,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = EPCubeCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
 
+    # Stats coordinator (Phase 4.2). Polls queryDataElectricityV2 on a
+    # 5-min cadence for today's totals plus slower cadences for monthly /
+    # annual / lifetime rollups. Failure on first refresh raises so HA
+    # flags the integration — primary `coordinator` already succeeded, so
+    # this is a clean signal that the new endpoint is unhappy.
+    stats_coordinator = EPCubeStatsCoordinator(hass, entry, client)
+    await stats_coordinator.async_config_entry_first_refresh()
+
     shim = PredbatShim(hass=hass, entry_id=entry.entry_id, client=client)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "coordinator": coordinator,
+        "stats_coordinator": stats_coordinator,
         "client": client,
         "shim": shim,
     }

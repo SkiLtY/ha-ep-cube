@@ -400,9 +400,10 @@ class TestGetStats:
         result = await client_factory().get_stats(1, "2026-06-04")
 
         method, url, data, headers = aioclient_mock.mock_calls[0]
-        assert "devId=5613" in url
-        assert "queryDateStr=2026-06-04" in url
-        assert "scopeType=1" in url
+        url_s = str(url)
+        assert "devId=5613" in url_s
+        assert "queryDateStr=2026-06-04" in url_s
+        assert "scopeType=1" in url_s
         # Keys lowercased so downstream lookups don't carry camelCase noise.
         assert result["gridelectricityfrom"] == 0.44
         assert result["gridelectricityto"] == 7.88
@@ -416,8 +417,9 @@ class TestGetStats:
         )
         await client_factory().get_stats(2, "2026-06")
         _, url, _, _ = aioclient_mock.mock_calls[0]
-        assert "queryDateStr=2026-06" in url
-        assert "scopeType=2" in url
+        url_s = str(url)
+        assert "queryDateStr=2026-06" in url_s
+        assert "scopeType=2" in url_s
 
     async def test_annual_scope_takes_yyyy(self, aioclient_mock, client_factory):
         aioclient_mock.get(
@@ -426,8 +428,9 @@ class TestGetStats:
         )
         await client_factory().get_stats(3, "2026")
         _, url, _, _ = aioclient_mock.mock_calls[0]
-        assert "queryDateStr=2026" in url
-        assert "scopeType=3" in url
+        url_s = str(url)
+        assert "queryDateStr=2026" in url_s
+        assert "scopeType=3" in url_s
 
     async def test_total_scope_zero(self, aioclient_mock, client_factory):
         aioclient_mock.get(
@@ -436,7 +439,7 @@ class TestGetStats:
         )
         await client_factory().get_stats(0, "2026")
         _, url, _, _ = aioclient_mock.mock_calls[0]
-        assert "scopeType=0" in url
+        assert "scopeType=0" in str(url)
 
     async def test_empty_data_returns_empty_dict(
         self, aioclient_mock, client_factory
@@ -470,7 +473,7 @@ class TestGetStats:
         )
         await client_factory(api_prefix="/app-api").get_stats(1, "2026-06-04")
         _, url, _, _ = aioclient_mock.mock_calls[0]
-        assert "/app-api/device/queryDataElectricityV2" in url
+        assert "/app-api/device/queryDataElectricityV2" in str(url)
 
     async def test_403_triggers_reauth_callback(
         self, aioclient_mock, client_factory

@@ -76,6 +76,19 @@ def fake_client(get_switch_mode, device_list):
     client.get_device_list = AsyncMock(return_value=device_list)
     client.get_switch_mode = AsyncMock(return_value=dict(get_switch_mode))
     client.switch_mode = AsyncMock(return_value=dict(get_switch_mode))
+    # Phase 4.2 stats endpoint. Returns a small but representative payload
+    # so the stats coordinator's first_refresh succeeds and STATS_SENSORS
+    # get registered. Same dict for every scope — tests that care about the
+    # cadence logic stub this per-call in test_stats_coordinator.py.
+    client.get_stats = AsyncMock(return_value={
+        "gridelectricityfrom": 0.44,
+        "gridelectricityto": 7.88,
+        "solarelectricity": 27.87,
+        "backupelectricity": 18.47,
+        "selfhelprate": 98,
+        "treenum": 1.01585,
+        "coal": 7.388,
+    })
 
     client.get_status = AsyncMock(
         return_value=DeviceStatus(

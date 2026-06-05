@@ -54,9 +54,11 @@ async def setup_integration(hass, mock_config_entry, fake_client):
 class TestSetupEntry:
     async def test_all_platforms_loaded(self, hass, setup_integration):
         entry = setup_integration
-        # Coordinator + client + shim all stashed on hass.data.
+        # Coordinator + stats_coordinator (Phase 4.2) + client + shim all
+        # stashed on hass.data.
         bucket = hass.data[DOMAIN][entry.entry_id]
         assert "coordinator" in bucket
+        assert "stats_coordinator" in bucket
         assert "client" in bucket
         assert "shim" in bucket
 
