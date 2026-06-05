@@ -217,18 +217,18 @@ class TestStaleEntityPurge:
         entry.add_to_hass(hass)
 
         # Pre-seed the registry as if the user had upgraded from v1.0 →
-        # v1.1.1: stale rows pointing at the deleted unique_ids. The
-        # platform=DOMAIN argument ties them to this integration so
-        # async_entries_for_config_entry picks them up.
+        # v1.1.1: stale rows pointing at the deleted unique_ids. Signature
+        # is async_get_or_create(domain, platform, unique_id, ...) — first
+        # positional is the *entity* domain ("sensor"); second is the
+        # *integration's* platform (DOMAIN = "ep_cube"); the config_entry
+        # link is what lets async_entries_for_config_entry find them later.
         registry = er.async_get(hass)
         registry.async_get_or_create(
-            "sensor", domain=DOMAIN, platform=DOMAIN,
-            unique_id=f"{entry.entry_id}_grid_today",
+            "sensor", DOMAIN, f"{entry.entry_id}_grid_today",
             config_entry=entry,
         )
         registry.async_get_or_create(
-            "sensor", domain=DOMAIN, platform=DOMAIN,
-            unique_id=f"{entry.entry_id}_nonbackup_today",
+            "sensor", DOMAIN, f"{entry.entry_id}_nonbackup_today",
             config_entry=entry,
         )
 
