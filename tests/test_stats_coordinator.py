@@ -36,10 +36,12 @@ def filter_aiohttp_shutdown_thread(monkeypatch):
     monkeypatch.setattr(threading, "enumerate", _filtered_enumerate)
 
 
-# Fixed reference time used by all tests. HA-local TZ doesn't matter here —
-# the coordinator uses dt_util.now() which respects HA's configured TZ; we
-# patch that to return whatever each test needs.
-_T0 = datetime(2026, 6, 4, 12, 0, 0, tzinfo=timezone.utc)
+# Fixed reference time used by all tests. Anchored at 06:00 UTC (early in
+# the UTC day) so that the various T0+Nh patches in the cadence tests stay
+# within the same UTC date, except where a test deliberately crosses
+# midnight to exercise the day-roll path. The coordinator uses dt_util.now()
+# which respects HA's configured TZ; PHCC's default TZ is UTC.
+_T0 = datetime(2026, 6, 4, 6, 0, 0, tzinfo=timezone.utc)
 
 
 def _make_coordinator(hass, *, stats_returns: dict[str, dict] | None = None):
@@ -183,28 +185,28 @@ class TestCadenceLogic:
         assert scopes == [0, 1, 2, 3]  # all of them
 
     async def test_yesterday_refetches_on_date_roll(self, hass, patched_now):
-        # Day 1 — initial fetch.
+        # Day 1 — initial fetch at T0 = 2026-06-04 06:00 UTC.
         patched_now(_T0)
         coord, client = _make_coordinator(hass)
         await coord._async_update_data()
         client.get_stats.reset_mock()
 
-        # 23 hours later, still same date — yesterday should NOT re-fetch.
-        patched_now(_T0 + timedelta(hours=23))
+        # 12 hours later — still 2026-06-04 (18:00 UTC). Yesterday should
+        # NOT re-fetch.
+        patched_now(_T0 + timedelta(hours=12))
         await coord._async_update_data()
-        scopes = sorted(c.args[0] for c in client.get_stats.await_args_list)
-        # Today refreshes always; month/year/total may also fire by now.
         # The point is: scope=1 should appear exactly ONCE (today, not
-        # today+yesterday).
+        # today+yesterday). Today refreshes every tick; other buckets may
+        # also fire depending on cadence — we filter to scope=1 only.
         daily_calls = [
             c.args for c in client.get_stats.await_args_list if c.args[0] == 1
         ]
         assert len(daily_calls) == 1
         assert daily_calls[0] == (1, "2026-06-04")
 
-        # Cross the day boundary.
+        # Cross the day boundary — T0 + 19h = 2026-06-05 01:00 UTC.
         client.get_stats.reset_mock()
-        patched_now(_T0 + timedelta(hours=25))  # 2026-06-05 13:00 UTC
+        patched_now(_T0 + timedelta(hours=19))
         await coord._async_update_data()
 
         daily_calls = [
