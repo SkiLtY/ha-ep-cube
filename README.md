@@ -33,7 +33,7 @@
 
 ## ✨ What You Get
 
-- 🔋 **22 sensors + 5 control entities** surfacing every cube state — SoC, power flow, mode, reserves, daily energy, lifetime stats
+- 🔋 **26 sensors + 5 control entities** surfacing every cube state — SoC, power flow, mode, reserves, daily + yesterday energy, lifetime stats
 - ⚡ **Predbat shim** translates rate-based commands into the cube's TOU model — full **Octopus Agile** optimisation, no manual scheduling
 - 🎨 **Drop-in animated dashboard** mirroring the EP Cube mobile app — power flow, mode picker, mode-specific control cards
 - 🌍 **Multi-region** — EU live, US/JP/Other supported via config-flow region picker
@@ -62,7 +62,7 @@ cp -r /tmp/ha-ep-cube/custom_components/ep_cube custom_components/
 
 Settings → *Devices & services* → *Add integration* → search **Canadian Solar EP Cube** → enter your **region**, the **email + password** for the EP Cube mobile app, and submit.
 
-The integration runs the captcha-solving login flow, fetches your device list, and registers 22 sensors + 5 control entities under one device.
+The integration runs the captcha-solving login flow, fetches your device list, and registers 26 sensors + 5 control entities under one device.
 
 > [!TIP]
 > **Want Predbat / Octopus Agile optimisation too?** After the integration is live, also:
@@ -86,13 +86,14 @@ The integration runs the captcha-solving login flow, fetches your device list, a
 
 ## 📡 Sensors
 
-22 sensors, all grouped under one device per EP Cube:
+26 sensors, all grouped under one device per EP Cube:
 
 | Group | Sensors |
 |-------|---------|
 | **Battery** | `battery_soc` · `battery_soc_kwh` · `battery_capacity_kwh` · `battery_power` · `battery_charge_today` · `battery_discharge_today` |
 | **Power flow** | `grid_power` · `solar_power` · `load_power` |
-| **Daily energy (kWh)** | `solar_today` · `grid_today` · `backup_today` · `nonbackup_today` · `solar_dc_today` · `solar_ac_today` |
+| **Daily energy (kWh)** | `solar_today` · `backup_today` · `grid_import_today` · `grid_export_today` · `solar_dc_today` · `solar_ac_today` |
+| **Yesterday energy (kWh)** | `solar_yesterday` · `backup_yesterday` · `grid_import_yesterday` · `grid_export_yesterday` |
 | **Mode + reserve** | `operating_mode` · `reserve_soc` |
 | **Lifetime / KPI** | `self_consumption_pct` · `earning_yesterday` · `grid_outage_count` · `off_grid_seconds` · `winter_protect` |
 
@@ -203,7 +204,7 @@ graph TB
         INT[ep_cube integration]
         SHIM[Predbat shim<br/>services.py]
         STATE[predbat_state.py]
-        SENS[22 sensors + control entities]
+        SENS[26 sensors + control entities]
     end
 
     subgraph Predbat ["📈 Predbat container"]
@@ -308,7 +309,7 @@ This stack uses **HA Container** (lightweight, no Supervisor). HA Container cann
 | **4** | ✅ | **HACS distribution** — first release [`v0.5.0`](https://github.com/SkiLtY/ha-ep-cube/releases/tag/v0.5.0) shipped 2026-05-28. 150-test pytest suite + CI matrix, demo-first README, curated release-notes workflow, brand assets self-hosted, helpers shipped. HACS Default submission held for next session. |
 | 4.1 | ✅ | **TOU schedule editor** — shipped in [`v0.6.0`](https://github.com/SkiLtY/ha-ep-cube/releases/tag/v0.6.0) → [`v0.7.0`](https://github.com/SkiLtY/ha-ep-cube/releases/tag/v0.7.0). Subsequently **removed in v1.0** — see below. |
 | **v1.0** | ✅ | **Opinionated Predbat bridge** — TOU editor card + `set_tou_schedule` service removed; HA Repair flow added that detects user-painted TOU slots while Predbat is installed and offers a one-click wipe. Predbat is the single source of truth for TOU. Manual TOU painting belongs in the EP Cube mobile app or [Bobsilvio/epcube](https://github.com/Bobsilvio/epcube). |
-| 4.2 | ⏸️ | Cloud-stats expansion — `queryDataElectricityV2`, signed grid import/export, `*_yesterday` variants, lifetime totals |
+| 4.2 | ✅ | Cloud-stats expansion — `queryDataElectricityV2` shipped in [`v1.1.0`](https://github.com/SkiLtY/ha-ep-cube/releases/tag/v1.1.0): signed grid import/export, yesterday's energy quartet, 5-min stats coordinator |
 | 4+ | ⏸️ | [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) — half-hourly smart-meter consumption replaces Riemann `load_today`. Gated on Octopus Home Mini arrival. |
 
 ---
