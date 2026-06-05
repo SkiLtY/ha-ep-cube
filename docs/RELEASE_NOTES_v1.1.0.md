@@ -31,7 +31,7 @@ The yesterday quartet is genuinely new — no previous integration version surfa
 
 ### 🧪 Tests
 
-Suite grows from 160 → 178 cases. 8 new in `tests/test_api_client.py::TestGetStats` covering the helper (URL composition per scope, lowercase normalisation, 403 reauth retry path, US `/app-api` prefix). 11 new in `tests/test_stats_coordinator.py` covering the cadence logic (per-bucket refresh thresholds, day-roll yesterday refetch, today-failure-raises-vs-non-today-best-effort error handling). All green on Python 3.12.
+Suite grows from 160 → 176 cases. 8 new in `tests/test_api_client.py::TestGetStats` covering the helper (URL composition per scope, lowercase normalisation, 403 reauth retry path, US `/app-api` prefix). 8 new in `tests/test_stats_coordinator.py` covering the cadence logic (per-bucket refresh thresholds, day-roll yesterday refetch, today-failure-raises-vs-non-today-best-effort error handling). All green on Python 3.12.
 
 ### 📦 Upgrading
 
