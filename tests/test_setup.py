@@ -205,7 +205,23 @@ class TestSensorValues:
 class TestStaleEntityPurge:
     """v1.1.1 cleanup: removes registry entries for sensors deleted in v1.1.0
     (grid_today + nonbackup_today). Ghosts otherwise sit as `unavailable`
-    until a user manually deletes them in HA's UI."""
+    until a user manually deletes them in HA's UI.
+
+    aiohttp 3.13+ spawns a `_run_safe_shutdown_loop` daemon thread on
+    ClientSession creation that PHCC's verify_cleanup flags as lingering.
+    Same filter test_api_client.py uses — scoped here to keep the existing
+    TestSetupEntry / TestSensorValues teardown semantics unchanged."""
+
+    @pytest.fixture(autouse=True)
+    def filter_aiohttp_shutdown_thread(self, monkeypatch):
+        import threading
+
+        orig = threading.enumerate
+
+        def _filtered():
+            return [t for t in orig() if "_run_safe_shutdown_loop" not in t.name]
+
+        monkeypatch.setattr(threading, "enumerate", _filtered)
 
     async def test_pre_existing_grid_today_entry_purged_on_setup(
         self, hass, mock_config_entry, fake_client,
