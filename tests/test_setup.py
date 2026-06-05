@@ -200,3 +200,85 @@ class TestSensorValues:
         assert float(state_for("battery_soc").state) == 55.0
         assert float(state_for("solar_power").state) == 1200.0
         assert float(state_for("earning_yesterday").state) == 1.23
+
+
+class TestStaleEntityPurge:
+    """v1.1.1 cleanup: removes registry entries for sensors deleted in v1.1.0
+    (grid_today + nonbackup_today). Ghosts otherwise sit as `unavailable`
+    until a user manually deletes them in HA's UI."""
+
+    async def test_pre_existing_grid_today_entry_purged_on_setup(
+        self, hass, mock_config_entry, fake_client,
+    ):
+        from unittest.mock import AsyncMock, patch
+        from homeassistant.helpers import entity_registry as er
+
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+
+        # Pre-seed the registry as if the user had upgraded from v1.0 →
+        # v1.1.1: stale rows pointing at the deleted unique_ids. The
+        # platform=DOMAIN argument ties them to this integration so
+        # async_entries_for_config_entry picks them up.
+        registry = er.async_get(hass)
+        registry.async_get_or_create(
+            "sensor", domain=DOMAIN, platform=DOMAIN,
+            unique_id=f"{entry.entry_id}_grid_today",
+            config_entry=entry,
+        )
+        registry.async_get_or_create(
+            "sensor", domain=DOMAIN, platform=DOMAIN,
+            unique_id=f"{entry.entry_id}_nonbackup_today",
+            config_entry=entry,
+        )
+
+        with (
+            patch(
+                "custom_components.ep_cube.EPCubeClient",
+                return_value=fake_client,
+            ),
+            patch(
+                "custom_components.ep_cube.make_reauth_callback",
+                return_value=AsyncMock(return_value=None),
+            ),
+        ):
+            assert await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+
+        # Both ghost entries removed. Look up by unique_id should return None.
+        assert registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_grid_today",
+        ) is None
+        assert registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_nonbackup_today",
+        ) is None
+
+        # Teardown — release the coordinator timer.
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    async def test_purge_is_idempotent_when_registry_clean(
+        self, hass, mock_config_entry, fake_client,
+    ):
+        # Fresh install: registry doesn't have the ghost entries. Setup
+        # should succeed with the purge as a no-op.
+        from unittest.mock import AsyncMock, patch
+
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+
+        with (
+            patch(
+                "custom_components.ep_cube.EPCubeClient",
+                return_value=fake_client,
+            ),
+            patch(
+                "custom_components.ep_cube.make_reauth_callback",
+                return_value=AsyncMock(return_value=None),
+            ),
+        ):
+            assert await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()

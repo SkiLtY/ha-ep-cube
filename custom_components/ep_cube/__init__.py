@@ -6,6 +6,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import EPCubeClient
@@ -85,6 +86,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         reauth_callback=reauth_callback,
     )
 
+    # Sweep stale entity-registry entries from sensors deleted in v1.1.0.
+    # The shipping integration no longer registers grid_today + nonbackup_today,
+    # so HA would leave the prior registry rows as `unavailable` forever
+    # unless a user manually deletes them via Settings → Devices → Entities.
+    # Cleanest fix: remove them here on every setup. Idempotent — running
+    # against an already-clean registry is a no-op.
+    _purge_stale_entities(hass, entry, dead_unique_id_suffixes=(
+        "_grid_today",      # deleted v1.1.0: gridElectricity is direction-ambiguous
+        "_nonbackup_today", # deleted v1.1.0: reports 0 on EU firmware
+    ))
+
     coordinator = EPCubeCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
 
@@ -147,6 +159,34 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.entry_id, region, api_prefix,
     )
     return True
+
+
+def _purge_stale_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    *,
+    dead_unique_id_suffixes: tuple[str, ...],
+) -> None:
+    """Drop entity-registry entries whose unique_id ends with any of the
+    listed suffixes. Used to clean up sensors deleted between releases —
+    HA leaves them as `unavailable` ghosts otherwise.
+
+    Matches on entries scoped to this config_entry only (so a multi-entry
+    setup where one entry was upgraded ahead of others doesn't yank
+    entries from the other entry).
+    """
+    registry = er.async_get(hass)
+    expected_prefix = f"{entry.entry_id}_"
+    to_remove: list[str] = []
+    for re_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if not re_entry.unique_id.startswith(expected_prefix):
+            continue
+        suffix = re_entry.unique_id[len(expected_prefix) - 1 :]  # keep leading _
+        if suffix in dead_unique_id_suffixes:
+            to_remove.append(re_entry.entity_id)
+    for entity_id in to_remove:
+        _LOGGER.info("purging stale entity %s (deleted in a prior release)", entity_id)
+        registry.async_remove(entity_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
