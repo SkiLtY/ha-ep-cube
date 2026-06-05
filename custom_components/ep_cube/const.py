@@ -31,8 +31,7 @@ STATS_SCOPE_DAILY = 1    # YYYY-MM-DD
 STATS_SCOPE_MONTHLY = 2  # YYYY-MM
 STATS_SCOPE_ANNUAL = 3   # YYYY
 
-# Region endpoints — cross-referenced against Bobsilvio/epcube/const.py
-# (BASE_URLS dict). The US region notably uses a different hostname AND a
+# Region endpoints. The US region notably uses a different hostname AND a
 # different path prefix ("/app-api" instead of "/api"), so both pieces are
 # stored and threaded through api.py + captcha.py.
 REGION_EU = "EU"

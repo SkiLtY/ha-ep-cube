@@ -320,7 +320,7 @@ class TestGetStatus:
         assert status.grid_today_kwh == 0.85
         assert status.backup_today_kwh == 1.26
 
-        # Phase 3.5 Bobsilvio-parity fields
+        # Phase 3.5 fields
         assert status.earning_yesterday == 1.23
         assert status.grid_outage_count == 2
         assert status.off_grid_seconds == 1837

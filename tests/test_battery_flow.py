@@ -3,7 +3,7 @@
 Phase 3.5's delta-tracker: the cube doesn't expose signed battery flow on
 homeDeviceInfo, so we delta-track `batteryCurrentElectricity` between polls
 into per-day charge/discharge accumulators. Threshold (0.05 kWh) filters
-API jitter the way Bobsilvio does.
+API jitter.
 """
 from __future__ import annotations
 

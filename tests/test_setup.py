@@ -81,7 +81,7 @@ class TestSetupEntry:
             "self_consumption_pct",
             "solar_dc_today", "solar_ac_today",
             "winter_protect",
-            # Phase 3.5 Bobsilvio-parity
+            # Phase 3.5
             "earning_yesterday",
             "grid_outage_count", "off_grid_seconds",
             "battery_charge_today", "battery_discharge_today",

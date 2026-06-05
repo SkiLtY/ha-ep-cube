@@ -166,9 +166,9 @@ def make_reauth_callback(
 # ----------------------------------------------------------------------
 # Captcha solver — see docs/PHASE_3_2.md "Captcha-solver feasibility spike"
 # ----------------------------------------------------------------------
-# Sliders are horizontal-only; the renderer fixes y. Bobsilvio's tool uses
-# 5 and the cube accepts it — y is reported back in the check payload but
-# only x affects whether the match validates.
+# Sliders are horizontal-only; the renderer fixes y. The cube accepts y=5;
+# y is reported back in the check payload but only x affects whether the
+# match validates.
 _CAPTCHA_REPORT_Y = 5
 
 
@@ -265,11 +265,10 @@ def _decode_b64_image_grey(b64: str) -> np.ndarray:
     leaving palette indices alone gives mean ~44 and 80% acceptance. See
     docs/PHASE_3_2.md spike notes.
 
-    RGBA puzzles get Bobsilvio's exact OpenCV path replicated: the
-    BGR2GRAY weight swap means we apply gray = 0.114R + 0.587G + 0.299B
-    (note R/B are swapped vs the standard ITU-R 601 weights — this is a
-    deliberate cv2 quirk we mirror so scores stay bit-exact with the
-    reference implementation)."""
+    RGBA puzzles use OpenCV's BGR2GRAY weight order: we apply
+    gray = 0.114R + 0.587G + 0.299B (note R/B are swapped vs the standard
+    ITU-R 601 weights — this is a deliberate cv2 quirk we mirror so scores
+    stay bit-exact with the cube's expected match path)."""
     raw = base64.b64decode(b64)
     pil = Image.open(BytesIO(raw))
     arr = np.array(pil)
@@ -308,8 +307,7 @@ def _build_captcha_verification(
         AES_ECB(secret_key, f"{token}---{json({x,y})}")  base64-encoded
     i.e. AES-encrypt the whole literal `token---plaintext_json` string,
     not just the {x,y} point. Same `secret_key` as used for pointJson.
-    Source: Bobsilvio/epcube-token app.py `generate_captcha_verification`,
-    confirmed against the live cube 2026-05-21."""
+    Confirmed against the live cube 2026-05-21."""
     json_point = json.dumps({"x": float(x), "y": float(y)}, separators=(",", ":"))
     raw = f"{token}---{json_point}".encode("utf-8")
     return _aes_ecb_base64(raw, secret_key)
