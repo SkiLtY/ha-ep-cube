@@ -161,6 +161,15 @@ views:
             name: Grid import
           - entity: sensor.ep_cube_grid_export_today
             name: Grid export
+          # `backup_loads_today` meters kWh delivered through the cube's
+          # backup-output AC terminal, NOT "loads that stayed up during an
+          # outage". If your installer wired the whole house behind the
+          # backup panel (common in the UK) this reads as total household
+          # consumption — feel free to rename `Backed loads` → `Total
+          # consumption` / `House load`. If only essential circuits are
+          # behind the backup output (typical contractor install), this is
+          # just those circuits. See README's "Sensors" NOTE for the full
+          # backup-loads / EPS Gateway semantics.
           - entity: sensor.ep_cube_backup_loads_today
             name: Backed loads
           - entity: sensor.ep_cube_self_consumption
