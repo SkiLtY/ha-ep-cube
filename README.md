@@ -38,16 +38,31 @@
 - 🎨 **Drop-in animated dashboard** mirroring the EP Cube mobile app — power flow, mode picker, mode-specific control cards
 - 🌍 **Multi-region** — EU live, US/JP/Other supported via config-flow region picker
 - 🔐 **One-time email + password setup** with silent re-auth on token expiry — no JSESSIONID-paste UX, no recurring auth chores
-- 🧪 **150-test pytest suite + CI** on every PR
+- 🧪 **178-test pytest suite + CI** on every PR
 
 ---
 
 ## ⚡ Quick Start
 
 > [!IMPORTANT]
-> HACS auto-install isn't live yet (HACS Default submission held until v1.0 — the integration has shipped semver releases since [`v0.5.0`](https://github.com/SkiLtY/ha-ep-cube/releases/tag/v0.5.0)). Manual install for now:
+> HACS Default submission is in flight ([`hacs/default#8364`](https://github.com/hacs/default/pull/8364), in the maintainer queue). Until it merges, install via HACS Custom Repository — same one-click install path, just an extra "add repo URL" step the first time.
 
-**1. Install the integration**
+**1. Add the repository in HACS**
+
+HACS sidebar → ⋮ → *Custom repositories* → add `https://github.com/SkiLtY/ha-ep-cube` as type *Integration* → Add.
+
+**2. Install + restart**
+
+Find *Canadian Solar EP Cube* in HACS → Download → restart Home Assistant when prompted.
+
+**3. Add the integration**
+
+Settings → *Devices & services* → *Add integration* → search **Canadian Solar EP Cube** → enter your **region**, the **email + password** for the EP Cube mobile app, and submit.
+
+The integration runs the captcha-solving login flow, fetches your device list, and registers 26 sensors + 5 control entities under one device.
+
+<details>
+<summary>Manual install (without HACS)</summary>
 
 ```bash
 cd /path/to/homeassistant/config
@@ -56,13 +71,9 @@ git clone https://github.com/SkiLtY/ha-ep-cube /tmp/ha-ep-cube
 cp -r /tmp/ha-ep-cube/custom_components/ep_cube custom_components/
 ```
 
-**2. Restart Home Assistant**
+Restart HA, then continue from step 3 above.
 
-**3. Add the integration**
-
-Settings → *Devices & services* → *Add integration* → search **Canadian Solar EP Cube** → enter your **region**, the **email + password** for the EP Cube mobile app, and submit.
-
-The integration runs the captcha-solving login flow, fetches your device list, and registers 26 sensors + 5 control entities under one device.
+</details>
 
 > [!TIP]
 > **Want Predbat / Octopus Agile optimisation too?** After the integration is live, also:
@@ -153,7 +164,7 @@ The integration installs cleanly on a default HA setup. Two optional extras live
 
 ## 📊 Dashboard
 
-[`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) is a drop-in Lovelace dashboard mirroring the EP Cube mobile app: animated power flow, battery status, operating-mode picker, and mode-specific control cards that swap automatically when you change mode. (See the [animated demo](#) at the top of this README.)
+[`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) is a drop-in Lovelace dashboard mirroring the EP Cube mobile app: animated power flow, battery status, operating-mode picker, and mode-specific control cards that swap automatically when you change mode.
 
 **Install steps:**
 
@@ -168,19 +179,17 @@ The integration installs cleanly on a default HA setup. Two optional extras live
 
 ## ⚡ Energy Dashboard
 
-The integration ships four daily kWh sensors mirroring the cube's onboard counters, plus a self-consumption KPI. Monthly/yearly rollups are added via `utility_meter` in the helper package.
+The integration ships cube-native daily kWh sensors that wire straight into HA's **Energy dashboard** (Settings → Dashboards → Energy) — no helper package needed.
 
-Wire them into HA's **Energy dashboard** (Settings → Dashboards → Energy):
+| Slot | Entity |
+|------|--------|
+| Solar production | `sensor.ep_cube_solar_today` |
+| Grid consumption | `sensor.ep_cube_grid_import_today` |
+| Return to grid | `sensor.ep_cube_grid_export_today` |
+| Home battery SoC | `sensor.ep_cube_battery_soc_kwh` |
 
-| Slot | Entity | Notes |
-|------|--------|-------|
-| Solar production | `sensor.ep_cube_solar_today` | Built-in |
-| Grid consumption | `sensor.ep_cube_import_today` | ⚠️ Requires the [helper package](#-helper-config-optional) — Riemann-integrated, monotonic import, resets daily |
-| Return to grid | `sensor.ep_cube_export_today` | ⚠️ Requires the helper package — Riemann-integrated, monotonic export, resets daily |
-| Home battery SoC | `sensor.ep_cube_battery_soc_kwh` | Built-in |
-
-> [!WARNING]
-> **Do not use `sensor.ep_cube_grid_today`** in the Energy dashboard. The cube-native counter reports total grid throughput as a direction-ambiguous magnitude — on mixed import/export days, direction is hidden. Verified 2026-05-24. Use the Riemann sensors above instead.
+> [!TIP]
+> Prefer Riemann-integrated power-to-energy sensors instead? The optional [helper package](#-helper-config-optional) ships `sensor.ep_cube_import_today` / `sensor.ep_cube_export_today` derived from `sensor.ep_cube_grid_power`. Useful if you don't trust the cube's daily-counter midnight roll, or want sub-minute resolution.
 
 ---
 
@@ -229,7 +238,7 @@ graph TB
 
 ```
 ha-ep-cube/
-├── custom_components/ep_cube/      ← HA integration (HACS-installable, Phase 4)
+├── custom_components/ep_cube/      ← HA integration
 │   ├── services.py                 ← Predbat shim service handlers
 │   └── predbat_state.py            ← Reads predbat.best_charge_* / best_export_* entities
 ├── mock_server/                    ← FastAPI mock of the EP Cube cloud (dev without hardware)
