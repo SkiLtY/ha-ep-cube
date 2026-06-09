@@ -9,15 +9,15 @@
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Build](https://img.shields.io/github/actions/workflow/status/SkiLtY/ha-ep-cube/validate.yml?label=CI)](../../actions)
-[![Phase](https://img.shields.io/badge/Phase-4%20(pre--HACS)-orange)](#-roadmap)
-[![Status](https://img.shields.io/badge/Status-pre--alpha-red)](#-roadmap)
+[![Release](https://img.shields.io/github/v/release/SkiLtY/ha-ep-cube?label=Release&color=41BDF5)](https://github.com/SkiLtY/ha-ep-cube/releases)
+[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5?logo=home-assistant&logoColor=white)](https://github.com/hacs/default/pull/8364)
 
 </div>
 
 ---
 
 > [!WARNING]
-> **Pre-alpha.** APIs and entity shapes will change before HACS distribution (Phase 4). Not yet recommended for production setups.
+> **Heads-up: v1.2 will rename `sensor.ep_cube_self_consumption_pct` → `sensor.ep_cube_self_sufficiency_pct`** to fix a long-standing mislabel — the current sensor reports self-sufficiency (% of load met from own generation), not self-consumption (% of generation used onsite). HA's entity-rename flow keeps existing dashboards + automations working; full migration notes will ship in the v1.2 release.
 
 ---
 
