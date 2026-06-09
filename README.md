@@ -97,6 +97,9 @@ The integration runs the captcha-solving login flow, fetches your device list, a
 | **Mode + reserve** | `operating_mode` · `reserve_soc` |
 | **Lifetime / KPI** | `self_consumption_pct` · `earning_yesterday` · `grid_outage_count` · `off_grid_seconds` · `winter_protect` |
 
+> [!NOTE]
+> **`backup_today` / `backup_yesterday` are install-dependent.** They count kWh delivered through the cube's backup-output terminal — *not* "loads that stayed up during an outage". If your installer wired the whole house through the backup terminal (common in the UK with a critical-loads panel), these sensors read as whole-house consumption. If only essential circuits are wired through the backup output, you'll see just fridge / lighting / router etc. Outage-resilience under UK G99/G100 regs requires a separate **EPS Gateway**; without one the cube refuses to supply via the backup terminal during an actual grid outage even though it meters kWh through it under normal grid-up operation.
+
 ---
 
 ## ⚙️ Services
