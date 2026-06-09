@@ -70,11 +70,7 @@
         }
       },
       "predbat_inverter_mode": {
-        "name": "Predbat omvormermodus",
-        "state": {
-          "Eco": "Eco",
-          "Timed Export": "Geplande export"
-        }
+        "name": "Predbat omvormermodus"
       }
     },
     "switch": {
