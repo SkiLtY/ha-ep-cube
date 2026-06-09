@@ -163,7 +163,7 @@ views:
             name: Grid export
           - entity: sensor.ep_cube_backup_loads_today
             name: Backed loads
-          - entity: sensor.ep_cube_self_consumption_pct
+          - entity: sensor.ep_cube_self_consumption
             name: Self-consumption
 
       - type: entities
