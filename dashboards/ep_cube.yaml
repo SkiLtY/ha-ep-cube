@@ -72,6 +72,15 @@ views:
           # gauge hides cleanly during those windows — overnight for SC
           # (no solar), or an entirely-empty house for SS. Grid flow is
           # always numeric so it doesn't need the wrap.
+          #
+          # No severity bands. SC + SS are informational metrics that
+          # mean different things on different tariffs / system sizes:
+          # 30% self-consumption is poor on a flat-rate setup but fine
+          # on Octopus Outgoing where exports pay; 99% self-sufficiency
+          # is great in summer but unattainable for heat-pump-heavy
+          # installs in winter. Severity grading would either lie to
+          # the user or red-flag their gauge perpetually. HA's own
+          # Energy Dashboard gauges follow the same convention.
           - type: conditional
             conditions:
               - condition: numeric_state
@@ -85,10 +94,6 @@ views:
               max: 100
               unit: "%"
               needle: true
-              severity:
-                red: 0
-                yellow: 30
-                green: 70
           - type: conditional
             conditions:
               - condition: numeric_state
@@ -102,10 +107,6 @@ views:
               max: 100
               unit: "%"
               needle: true
-              severity:
-                red: 0
-                yellow: 30
-                green: 70
           - type: gauge
             entity: sensor.ep_cube_grid_flow_right_now
             name: Grid flow
@@ -116,10 +117,6 @@ views:
             max: 6500
             unit: W
             needle: true
-            severity:
-              green: -6500
-              yellow: 0
-              red: 3000
 
       # ───────────────────────────────────────────────────────────────
       # Live power flow
