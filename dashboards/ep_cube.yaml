@@ -65,28 +65,47 @@ views:
       # ───────────────────────────────────────────────────────────────
       - type: horizontal-stack
         cards:
-          - type: gauge
-            entity: sensor.ep_cube_self_consumption_right_now
-            name: Self-consumption
-            min: 0
-            max: 100
-            unit: "%"
-            needle: true
-            severity:
-              red: 0
-              yellow: 30
-              green: 70
-          - type: gauge
-            entity: sensor.ep_cube_self_sufficiency_right_now
-            name: Self-sufficiency
-            min: 0
-            max: 100
-            unit: "%"
-            needle: true
-            severity:
-              red: 0
-              yellow: 30
-              green: 70
+          # HA's built-in gauge card errors with "Entity is non-numeric"
+          # if the entity reads `unknown`, which the instant SC/SS sensors
+          # return when their divisor (solar / load) falls below the
+          # 50 W jitter floor. Wrap each in a conditional card so the
+          # gauge hides cleanly during those windows — overnight for SC
+          # (no solar), or an entirely-empty house for SS. Grid flow is
+          # always numeric so it doesn't need the wrap.
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: sensor.ep_cube_solar_power
+                above: 50
+            card:
+              type: gauge
+              entity: sensor.ep_cube_self_consumption_right_now
+              name: Self-consumption
+              min: 0
+              max: 100
+              unit: "%"
+              needle: true
+              severity:
+                red: 0
+                yellow: 30
+                green: 70
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: sensor.ep_cube_load_power
+                above: 50
+            card:
+              type: gauge
+              entity: sensor.ep_cube_self_sufficiency_right_now
+              name: Self-sufficiency
+              min: 0
+              max: 100
+              unit: "%"
+              needle: true
+              severity:
+                red: 0
+                yellow: 30
+                green: 70
           - type: gauge
             entity: sensor.ep_cube_grid_flow_right_now
             name: Grid flow
