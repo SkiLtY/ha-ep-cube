@@ -70,7 +70,10 @@
       "grid_import_year": {"name": "Netzbezug dieses Jahr"},
       "grid_export_year": {"name": "Netzeinspeisung dieses Jahr"},
       "solar_year": {"name": "Solar dieses Jahr"},
-      "backup_year": {"name": "Notstromverbraucher dieses Jahr"}
+      "backup_year": {"name": "Notstromverbraucher dieses Jahr"},
+      "instant_self_consumption_pct": {"name": "Eigenverbrauch jetzt"},
+      "instant_self_sufficiency_pct": {"name": "Autarkiegrad jetzt"},
+      "instant_grid_flow_w": {"name": "Netzfluss jetzt"}
     },
     "select": {
       "operating_mode": {

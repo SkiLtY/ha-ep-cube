@@ -70,7 +70,10 @@
       "grid_import_year": {"name": "Prelievo rete quest'anno"},
       "grid_export_year": {"name": "Immissione rete quest'anno"},
       "solar_year": {"name": "Solare quest'anno"},
-      "backup_year": {"name": "Carichi backup quest'anno"}
+      "backup_year": {"name": "Carichi backup quest'anno"},
+      "instant_self_consumption_pct": {"name": "Autoconsumo in tempo reale"},
+      "instant_self_sufficiency_pct": {"name": "Autosufficienza in tempo reale"},
+      "instant_grid_flow_w": {"name": "Flusso rete in tempo reale"}
     },
     "select": {
       "operating_mode": {

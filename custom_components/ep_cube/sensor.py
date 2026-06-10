@@ -44,6 +44,58 @@ class EPCubeStatsSensorDescription(SensorEntityDescription):
     value_fn: Callable[[dict[str, dict]], float | str | None]
 
 
+# Instant-KPI helpers (v1.2). Operate over DeviceStatus power-W readings
+# from the existing homeDeviceInfo poll — no new cloud calls. Below these
+# noise floors the ratios are meaningless (overnight, empty house, or the
+# cube's own sub-W jitter on the power channels), so return None ⇒ HA
+# renders `unknown` rather than flapping the gauge between 0 and 100.
+_INSTANT_MIN_POWER_W = 50.0
+# Bands tighter than ±200 W on grid_flow surface a lot of in-house load
+# transients to the gauge (kettle, microwave, fridge cycle) that aren't
+# really "import vs export" — they're momentary mismatches the battery is
+# about to absorb. Round to zero inside the band to keep the tile stable.
+_INSTANT_GRID_FLOW_DEADBAND_W = 200.0
+
+
+def _instant_self_consumption_pct(s: DeviceStatus) -> float | None:
+    """(solar - export) / solar × 100, derived from current power readings.
+
+    Export at the current moment = max(0, -grid_power_w) — cube reports grid
+    as signed (>0 import, <0 export). Returns None below the sub-noise solar
+    threshold so the gauge reads `unknown` overnight rather than ±inf.
+    """
+    if s.solar_power_w < _INSTANT_MIN_POWER_W:
+        return None
+    export_w = max(0.0, -s.grid_power_w)
+    return max(0.0, min(100.0, (s.solar_power_w - export_w) / s.solar_power_w * 100))
+
+
+def _instant_self_sufficiency_pct(s: DeviceStatus) -> float | None:
+    """(load - import) / load × 100, derived from current power readings.
+
+    Import = max(0, grid_power_w). Returns None when load is below the noise
+    floor (empty house / off-grid) — the gauge reads `unknown` rather than
+    surfacing a meaningless 100% from a 5W idle reading.
+    """
+    if s.load_power_w < _INSTANT_MIN_POWER_W:
+        return None
+    import_w = max(0.0, s.grid_power_w)
+    return max(0.0, min(100.0, (s.load_power_w - import_w) / s.load_power_w * 100))
+
+
+def _instant_grid_flow_w(s: DeviceStatus) -> float:
+    """Signed grid flow with ±200 W dead-band rounded to 0 for display stability.
+
+    The cube already exposes `grid_power` raw; this sensor is the user-facing
+    "is the house importing or exporting right now?" tile. Dead-banding past
+    the kettle / fridge / microwave transient range keeps it from oscillating
+    between +/- values during normal in-house load shifts.
+    """
+    if abs(s.grid_power_w) < _INSTANT_GRID_FLOW_DEADBAND_W:
+        return 0.0
+    return s.grid_power_w
+
+
 SENSORS: tuple[EPCubeSensorDescription, ...] = (
     EPCubeSensorDescription(
         key="battery_soc",
@@ -109,6 +161,36 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPower.WATT,
         value_fn=lambda s: s.load_power_w,
+    ),
+    # Instant-KPI tiles (v1.2). Three sensors derived from the same poll the
+    # raw power channels above feed, so updates land on the same 30s cadence
+    # the user already sees in the power-flow card. Dashboard pairs each
+    # with a type: gauge card so users get an at-a-glance "what's the house
+    # doing right now?" view alongside the Energy Dashboard's daily totals.
+    EPCubeSensorDescription(
+        key="instant_self_consumption_pct",
+        translation_key="instant_self_consumption_pct",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=0,
+        value_fn=_instant_self_consumption_pct,
+    ),
+    EPCubeSensorDescription(
+        key="instant_self_sufficiency_pct",
+        translation_key="instant_self_sufficiency_pct",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=0,
+        value_fn=_instant_self_sufficiency_pct,
+    ),
+    EPCubeSensorDescription(
+        key="instant_grid_flow_w",
+        translation_key="instant_grid_flow_w",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+        value_fn=_instant_grid_flow_w,
     ),
     EPCubeSensorDescription(
         key="operating_mode",

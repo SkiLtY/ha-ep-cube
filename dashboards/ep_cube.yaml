@@ -50,6 +50,59 @@ views:
     icon: mdi:home-battery
     cards:
       # ───────────────────────────────────────────────────────────────
+      # Right now — instant KPI tiles
+      # Three gauges that answer "what's the house doing right now?"
+      # without users having to read the power-flow card. Each updates
+      # on the 30s coordinator cadence and dead-bands sub-W jitter so
+      # the needles don't twitch. The integration computes the values
+      # from the existing homeDeviceInfo poll — no extra cloud calls.
+      # Self-consumption: green when you're consuming most of what
+      # you're generating; self-sufficiency: green when most of your
+      # load is met from solar/battery (not the grid). Grid flow
+      # severity flips around 0 — negative (exporting) reads green
+      # because the cube is making money, positive (importing) yellow
+      # → red as it grows.
+      # ───────────────────────────────────────────────────────────────
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            entity: sensor.ep_cube_self_consumption_right_now
+            name: Self-consumption
+            min: 0
+            max: 100
+            unit: "%"
+            needle: true
+            severity:
+              red: 0
+              yellow: 30
+              green: 70
+          - type: gauge
+            entity: sensor.ep_cube_self_sufficiency_right_now
+            name: Self-sufficiency
+            min: 0
+            max: 100
+            unit: "%"
+            needle: true
+            severity:
+              red: 0
+              yellow: 30
+              green: 70
+          - type: gauge
+            entity: sensor.ep_cube_grid_flow_right_now
+            name: Grid flow
+            # Range matches power-flow-card-plus's max_expected_power
+            # below (6.51 kWp array ceiling). Edit if your install
+            # has a different inverter ceiling.
+            min: -6500
+            max: 6500
+            unit: W
+            needle: true
+            severity:
+              green: -6500
+              yellow: 0
+              red: 3000
+
+      # ───────────────────────────────────────────────────────────────
       # Live power flow
       # ───────────────────────────────────────────────────────────────
       - type: custom:power-flow-card-plus

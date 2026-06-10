@@ -98,6 +98,10 @@ class TestSetupEntry:
             "solar_month", "backup_month",
             "grid_import_year", "grid_export_year",
             "solar_year", "backup_year",
+            # v1.2 instant-KPI tiles (derived from homeDeviceInfo power channels)
+            "instant_self_consumption_pct",
+            "instant_self_sufficiency_pct",
+            "instant_grid_flow_w",
         }
         registry = er.async_get(hass)
         entry_id = setup_integration.entry_id

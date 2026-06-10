@@ -70,7 +70,10 @@
       "grid_import_year": {"name": "Netafname dit jaar"},
       "grid_export_year": {"name": "Netinjectie dit jaar"},
       "solar_year": {"name": "Zon dit jaar"},
-      "backup_year": {"name": "Back-up-verbruikers dit jaar"}
+      "backup_year": {"name": "Back-up-verbruikers dit jaar"},
+      "instant_self_consumption_pct": {"name": "Zelfverbruik nu"},
+      "instant_self_sufficiency_pct": {"name": "Zelfvoorziening nu"},
+      "instant_grid_flow_w": {"name": "Netstroom nu"}
     },
     "select": {
       "operating_mode": {

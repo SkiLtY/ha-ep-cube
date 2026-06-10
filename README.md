@@ -33,7 +33,7 @@
 
 ## ✨ What You Get
 
-- 🔋 **38 sensors + 5 control entities** surfacing every cube state — SoC, power flow, mode, reserves, daily / yesterday / monthly / yearly energy, self-consumption + sufficiency %, lifetime stats
+- 🔋 **41 sensors + 5 control entities** surfacing every cube state — SoC, power flow, instant KPIs, mode, reserves, daily / yesterday / monthly / yearly energy, self-consumption + sufficiency %, lifetime stats
 - ⚡ **Predbat shim** translates rate-based commands into the cube's TOU model — full **Octopus Agile** optimisation, no manual scheduling
 - 🎨 **Drop-in animated dashboard** mirroring the EP Cube mobile app — power flow, mode picker, mode-specific control cards
 - 🌍 **Multi-region** — EU live, US/JP/Other supported via config-flow region picker
@@ -97,12 +97,13 @@ Restart HA, then continue from step 3 above.
 
 ## 📡 Sensors
 
-38 sensors, all grouped under one device per EP Cube:
+41 sensors, all grouped under one device per EP Cube:
 
 | Group | Sensors |
 |-------|---------|
 | **Battery** | `battery_soc` · `battery_soc_kwh` · `battery_capacity_kwh` · `battery_power` · `battery_charge_today` · `battery_discharge_today` |
 | **Power flow** | `grid_power` · `solar_power` · `load_power` |
+| **Right now** | `instant_self_consumption_pct` · `instant_self_sufficiency_pct` · `instant_grid_flow_w` |
 | **Daily energy (kWh)** | `solar_today` · `backup_today` · `grid_import_today` · `grid_export_today` · `solar_dc_today` · `solar_ac_today` |
 | **Yesterday energy (kWh)** | `solar_yesterday` · `backup_yesterday` · `grid_import_yesterday` · `grid_export_yesterday` |
 | **Monthly energy (kWh)** | `solar_month` · `backup_month` · `grid_import_month` · `grid_export_month` |

@@ -70,7 +70,10 @@
       "grid_import_year": {"name": "Grid import this year"},
       "grid_export_year": {"name": "Grid export this year"},
       "solar_year": {"name": "Solar this year"},
-      "backup_year": {"name": "Backup loads this year"}
+      "backup_year": {"name": "Backup loads this year"},
+      "instant_self_consumption_pct": {"name": "Self-consumption right now"},
+      "instant_self_sufficiency_pct": {"name": "Self-sufficiency right now"},
+      "instant_grid_flow_w": {"name": "Grid flow right now"}
     },
     "select": {
       "operating_mode": {
