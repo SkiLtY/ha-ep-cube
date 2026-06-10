@@ -113,7 +113,15 @@ class DeviceStatus:
     backup_today_kwh: float
     solar_dc_today_kwh: float
     solar_ac_today_kwh: float
-    self_consumption_pct: float   # cube's selfHelpRate — self-consumption KPI
+    # cube's `selfHelpRate` field. Despite the EP Cube app's labelling, the
+    # cube reports (load met from own generation) / load — i.e. self-SUFFICIENCY,
+    # not self-consumption. Verified 2026-06-10: live cube showed 99% with
+    # 0.23 kWh import on 14.36 kWh load = 98.4% self-sufficiency, while true
+    # self-consumption (own use / own generation) on the same day was ~60%.
+    # Field renamed in v1.2; sensor's `key` still reads `self_consumption_pct`
+    # so existing users' unique_ids + Energy Dashboard wiring + automations
+    # all survive the rename — only the display name + translation_key change.
+    self_sufficiency_pct: float
     winter_protect_pct: float     # winter SoC floor; read-only (write path unconfirmed)
     # Phase 3.5 additions. Three direct-from-cloud fields piggyback on the
     # existing homeDeviceInfo poll, plus two client-side accumulators that
@@ -519,7 +527,7 @@ class EPCubeClient:
             backup_today_kwh=_kwh_str_to_float(info.get("backUpElectricity")),
             solar_dc_today_kwh=_kwh_str_to_float(info.get("solarDcElectricity")),
             solar_ac_today_kwh=_kwh_str_to_float(info.get("solarAcElectricity")),
-            self_consumption_pct=float(info.get("selfHelpRate", 0) or 0),
+            self_sufficiency_pct=float(info.get("selfHelpRate", 0) or 0),
             winter_protect_pct=float(info.get("winterProtect", 0) or 0),
             earning_yesterday=float(info.get("earningYesterday", 0) or 0),
             grid_outage_count=int(info.get("gridPowerFailureNum", 0) or 0),

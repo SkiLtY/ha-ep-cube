@@ -109,7 +109,7 @@ def fake_client(get_switch_mode, device_list):
             backup_today_kwh=1.26,
             solar_dc_today_kwh=0.36,
             solar_ac_today_kwh=0.34,
-            self_consumption_pct=65.0,
+            self_sufficiency_pct=65.0,
             winter_protect_pct=85.0,
             earning_yesterday=1.23,
             grid_outage_count=2,

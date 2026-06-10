@@ -160,13 +160,21 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=lambda s: s.backup_today_kwh,
     ),
+    # The cube's `selfHelpRate` field — actually self-SUFFICIENCY (load met
+    # from own generation), historically mislabeled in v0.5-v1.1 as "Self-
+    # consumption" because the EP Cube app uses that name. Display name +
+    # translation_key corrected in v1.2; `key` left at the legacy value so
+    # the unique_id stays stable across the rename (existing installs keep
+    # their Energy Dashboard wiring, automations, and history). Fresh
+    # installs get a `sensor.ep_cube_self_sufficiency` entity_id slug; legacy
+    # installs keep `sensor.ep_cube_self_consumption` as a sticky alias.
     EPCubeSensorDescription(
         key="self_consumption_pct",
-        translation_key="self_consumption_pct",
+        translation_key="self_sufficiency_pct",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         suggested_display_precision=1,
-        value_fn=lambda s: s.self_consumption_pct,
+        value_fn=lambda s: s.self_sufficiency_pct,
     ),
     # Pre-/post-inverter daily kWh — exposes inverter losses over time.
     # DIAGNOSTIC because solar_today already covers the headline number;
@@ -306,6 +314,69 @@ def _bucket_field(bucket: str, field: str) -> Callable[[dict[str, dict]], float 
     return _get
 
 
+# Below the cube's own jitter threshold (battery_charge_today uses the same
+# 0.05 kWh floor), the ratio becomes meaningless and tiny numerator noise
+# blows up the percentage. Read `unknown` rather than show 0 / 100 / ±inf.
+_MIN_DENOMINATOR_KWH = 0.05
+
+
+def _self_consumption_pct(bucket: str) -> Callable[[dict[str, dict]], float | None]:
+    """(solar - export) / solar × 100 — share of generated kWh consumed onsite.
+
+    Returns None when solar generation in `bucket` is below the jitter
+    threshold (night, pre-sunrise, or before the first stats fetch lands).
+    Clamps to [0, 100] — a cube that briefly reports export > solar (rare,
+    seen during boot-up) shouldn't surface negative values to dashboards.
+    """
+    def _get(data: dict[str, dict]) -> float | None:
+        if not data:
+            return None
+        b = data.get(bucket, {})
+        solar = b.get("solarelectricity")
+        export = b.get("gridelectricityto")
+        if solar is None or export is None:
+            return None
+        try:
+            solar = float(solar)
+            export = float(export)
+        except (TypeError, ValueError):
+            return None
+        if solar < _MIN_DENOMINATOR_KWH:
+            return None
+        return max(0.0, min(100.0, (solar - export) / solar * 100))
+    return _get
+
+
+def _self_sufficiency_pct(bucket: str) -> Callable[[dict[str, dict]], float | None]:
+    """(load - import) / load × 100 — share of consumed kWh met from own gen.
+
+    Uses `backupelectricity` as the load proxy — accurate for installs where
+    the cube's backup output feeds the whole-house breaker (the standard UK
+    domestic wiring). Installs that wired only critical loads behind the
+    backup terminal will see a fraction of true house load here; surface the
+    sensor as a known-imperfect indicator rather than a billing figure.
+    Returns None when load is below the jitter threshold (empty house / pre-
+    midnight rollover / before the first stats fetch lands).
+    """
+    def _get(data: dict[str, dict]) -> float | None:
+        if not data:
+            return None
+        b = data.get(bucket, {})
+        load = b.get("backupelectricity")
+        imp = b.get("gridelectricityfrom")
+        if load is None or imp is None:
+            return None
+        try:
+            load = float(load)
+            imp = float(imp)
+        except (TypeError, ValueError):
+            return None
+        if load < _MIN_DENOMINATOR_KWH:
+            return None
+        return max(0.0, min(100.0, (load - imp) / load * 100))
+    return _get
+
+
 STATS_SENSORS: tuple[EPCubeStatsSensorDescription, ...] = (
     EPCubeStatsSensorDescription(
         key="grid_import_today",
@@ -364,6 +435,44 @@ STATS_SENSORS: tuple[EPCubeStatsSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=2,
         value_fn=_bucket_field("yesterday", "backupelectricity"),
+    ),
+    # Derived percentages from the stats coordinator's today/yesterday
+    # buckets (v1.2). All four pull from a single bucket dict so they share
+    # the coordinator's existing update cadence — today's pair refreshes
+    # every 5 min, yesterday's pair shifts once per midnight roll. Replaces
+    # the cube's mislabeled `selfHelpRate` for the today + yesterday surface
+    # with mathematically correct splits.
+    EPCubeStatsSensorDescription(
+        key="self_consumption_today",
+        translation_key="self_consumption_today",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=1,
+        value_fn=_self_consumption_pct("today"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="self_consumption_yesterday",
+        translation_key="self_consumption_yesterday",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=1,
+        value_fn=_self_consumption_pct("yesterday"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="self_sufficiency_today",
+        translation_key="self_sufficiency_today",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=1,
+        value_fn=_self_sufficiency_pct("today"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="self_sufficiency_yesterday",
+        translation_key="self_sufficiency_yesterday",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=1,
+        value_fn=_self_sufficiency_pct("yesterday"),
     ),
 )
 

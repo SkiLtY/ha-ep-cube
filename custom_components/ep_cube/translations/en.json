@@ -44,7 +44,7 @@
       "reserve_soc": {"name": "Reserve SoC"},
       "solar_today": {"name": "Solar today"},
       "backup_today": {"name": "Backup loads today"},
-      "self_consumption_pct": {"name": "Self-consumption"},
+      "self_sufficiency_pct": {"name": "Self-sufficiency"},
       "solar_dc_today": {"name": "Solar DC today"},
       "solar_ac_today": {"name": "Solar AC today"},
       "winter_protect": {"name": "Winter protect SoC"},
@@ -58,7 +58,11 @@
       "grid_import_yesterday": {"name": "Grid import yesterday"},
       "grid_export_yesterday": {"name": "Grid export yesterday"},
       "solar_yesterday": {"name": "Solar yesterday"},
-      "backup_yesterday": {"name": "Backup loads yesterday"}
+      "backup_yesterday": {"name": "Backup loads yesterday"},
+      "self_consumption_today": {"name": "Self-consumption today"},
+      "self_consumption_yesterday": {"name": "Self-consumption yesterday"},
+      "self_sufficiency_today": {"name": "Self-sufficiency today"},
+      "self_sufficiency_yesterday": {"name": "Self-sufficiency yesterday"}
     },
     "select": {
       "operating_mode": {

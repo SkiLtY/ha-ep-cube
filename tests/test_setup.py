@@ -90,6 +90,9 @@ class TestSetupEntry:
             "grid_import_today", "grid_export_today",
             "grid_import_yesterday", "grid_export_yesterday",
             "solar_yesterday", "backup_yesterday",
+            # v1.2 derived percentages from stats coordinator buckets
+            "self_consumption_today", "self_consumption_yesterday",
+            "self_sufficiency_today", "self_sufficiency_yesterday",
         }
         registry = er.async_get(hass)
         entry_id = setup_integration.entry_id

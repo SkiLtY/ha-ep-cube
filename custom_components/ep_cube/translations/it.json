@@ -44,7 +44,7 @@
       "reserve_soc": {"name": "Riserva di carica"},
       "solar_today": {"name": "Solare oggi"},
       "backup_today": {"name": "Carichi backup oggi"},
-      "self_consumption_pct": {"name": "Autoconsumo"},
+      "self_sufficiency_pct": {"name": "Autosufficienza"},
       "solar_dc_today": {"name": "Solare DC oggi"},
       "solar_ac_today": {"name": "Solare AC oggi"},
       "winter_protect": {"name": "Riserva protezione invernale"},
@@ -58,7 +58,11 @@
       "grid_import_yesterday": {"name": "Prelievo rete ieri"},
       "grid_export_yesterday": {"name": "Immissione rete ieri"},
       "solar_yesterday": {"name": "Solare ieri"},
-      "backup_yesterday": {"name": "Carichi backup ieri"}
+      "backup_yesterday": {"name": "Carichi backup ieri"},
+      "self_consumption_today": {"name": "Autoconsumo oggi"},
+      "self_consumption_yesterday": {"name": "Autoconsumo ieri"},
+      "self_sufficiency_today": {"name": "Autosufficienza oggi"},
+      "self_sufficiency_yesterday": {"name": "Autosufficienza ieri"}
     },
     "select": {
       "operating_mode": {

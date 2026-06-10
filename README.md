@@ -16,8 +16,8 @@
 
 ---
 
-> [!WARNING]
-> **Heads-up: v1.2 will rename `sensor.ep_cube_self_consumption_pct` → `sensor.ep_cube_self_sufficiency_pct`** to fix a long-standing mislabel — the current sensor reports self-sufficiency (% of load met from own generation), not self-consumption (% of generation used onsite). HA's entity-rename flow keeps existing dashboards + automations working; full migration notes will ship in the v1.2 release.
+> [!NOTE]
+> **v1.2 renamed `sensor.ep_cube_self_consumption` → `sensor.ep_cube_self_sufficiency`** to fix a long-standing mislabel — the cube's `selfHelpRate` field reports self-sufficiency (% of load met from own generation), not self-consumption (% of generation used onsite). The underlying `unique_id` is preserved, so existing dashboards, automations and Energy Dashboard wiring keep working unchanged; only the display name updates. Fresh installs get the corrected `sensor.ep_cube_self_sufficiency` slug. v1.2 also adds 4 derived percentage sensors (today + yesterday × self-consumption / self-sufficiency) for symmetry with the Energy Dashboard's today / yesterday cards.
 
 ---
 
@@ -33,12 +33,12 @@
 
 ## ✨ What You Get
 
-- 🔋 **26 sensors + 5 control entities** surfacing every cube state — SoC, power flow, mode, reserves, daily + yesterday energy, lifetime stats
+- 🔋 **30 sensors + 5 control entities** surfacing every cube state — SoC, power flow, mode, reserves, daily + yesterday energy, self-consumption + sufficiency %, lifetime stats
 - ⚡ **Predbat shim** translates rate-based commands into the cube's TOU model — full **Octopus Agile** optimisation, no manual scheduling
 - 🎨 **Drop-in animated dashboard** mirroring the EP Cube mobile app — power flow, mode picker, mode-specific control cards
 - 🌍 **Multi-region** — EU live, US/JP/Other supported via config-flow region picker
 - 🔐 **One-time email + password setup** with silent re-auth on token expiry — no JSESSIONID-paste UX, no recurring auth chores
-- 🧪 **178-test pytest suite + CI** on every PR
+- 🧪 **197-test pytest suite + CI** on every PR
 
 ---
 
@@ -97,7 +97,7 @@ Restart HA, then continue from step 3 above.
 
 ## 📡 Sensors
 
-26 sensors, all grouped under one device per EP Cube:
+30 sensors, all grouped under one device per EP Cube:
 
 | Group | Sensors |
 |-------|---------|
@@ -105,8 +105,9 @@ Restart HA, then continue from step 3 above.
 | **Power flow** | `grid_power` · `solar_power` · `load_power` |
 | **Daily energy (kWh)** | `solar_today` · `backup_today` · `grid_import_today` · `grid_export_today` · `solar_dc_today` · `solar_ac_today` |
 | **Yesterday energy (kWh)** | `solar_yesterday` · `backup_yesterday` · `grid_import_yesterday` · `grid_export_yesterday` |
+| **Efficiency (%)** | `self_sufficiency_pct` · `self_sufficiency_today` · `self_sufficiency_yesterday` · `self_consumption_today` · `self_consumption_yesterday` |
 | **Mode + reserve** | `operating_mode` · `reserve_soc` |
-| **Lifetime / KPI** | `self_consumption_pct` · `earning_yesterday` · `grid_outage_count` · `off_grid_seconds` · `winter_protect` |
+| **Lifetime / KPI** | `earning_yesterday` · `grid_outage_count` · `off_grid_seconds` · `winter_protect` |
 
 > [!NOTE]
 > **`backup_today` / `backup_yesterday` are install-dependent.** They count kWh delivered through the cube's backup-output terminal — *not* "loads that stayed up during an outage". If your installer wired the whole house through the backup terminal (common in the UK with a critical-loads panel), these sensors read as whole-house consumption. If only essential circuits are wired through the backup output, you'll see just fridge / lighting / router etc. Outage-resilience under UK G99/G100 regs requires a separate **EPS Gateway**; without one the cube refuses to supply via the backup terminal during an actual grid outage even though it meters kWh through it under normal grid-up operation.

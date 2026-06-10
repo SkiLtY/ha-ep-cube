@@ -44,7 +44,7 @@
       "reserve_soc": {"name": "Reserve-Ladezustand"},
       "solar_today": {"name": "Solar heute"},
       "backup_today": {"name": "Notstromverbraucher heute"},
-      "self_consumption_pct": {"name": "Eigenverbrauchsquote"},
+      "self_sufficiency_pct": {"name": "Autarkiegrad"},
       "solar_dc_today": {"name": "Solar DC heute"},
       "solar_ac_today": {"name": "Solar AC heute"},
       "winter_protect": {"name": "Winter-Schutz-Ladezustand"},
@@ -58,7 +58,11 @@
       "grid_import_yesterday": {"name": "Netzbezug gestern"},
       "grid_export_yesterday": {"name": "Netzeinspeisung gestern"},
       "solar_yesterday": {"name": "Solar gestern"},
-      "backup_yesterday": {"name": "Notstromverbraucher gestern"}
+      "backup_yesterday": {"name": "Notstromverbraucher gestern"},
+      "self_consumption_today": {"name": "Eigenverbrauch heute"},
+      "self_consumption_yesterday": {"name": "Eigenverbrauch gestern"},
+      "self_sufficiency_today": {"name": "Autarkiegrad heute"},
+      "self_sufficiency_yesterday": {"name": "Autarkiegrad gestern"}
     },
     "select": {
       "operating_mode": {

@@ -44,7 +44,7 @@
       "reserve_soc": {"name": "Reserve-laadtoestand"},
       "solar_today": {"name": "Zon vandaag"},
       "backup_today": {"name": "Back-up-verbruikers vandaag"},
-      "self_consumption_pct": {"name": "Zelfverbruik"},
+      "self_sufficiency_pct": {"name": "Zelfvoorziening"},
       "solar_dc_today": {"name": "Zon DC vandaag"},
       "solar_ac_today": {"name": "Zon AC vandaag"},
       "winter_protect": {"name": "Winterbescherming-laadtoestand"},
@@ -58,7 +58,11 @@
       "grid_import_yesterday": {"name": "Netafname gisteren"},
       "grid_export_yesterday": {"name": "Netinjectie gisteren"},
       "solar_yesterday": {"name": "Zon gisteren"},
-      "backup_yesterday": {"name": "Back-up-verbruikers gisteren"}
+      "backup_yesterday": {"name": "Back-up-verbruikers gisteren"},
+      "self_consumption_today": {"name": "Zelfverbruik vandaag"},
+      "self_consumption_yesterday": {"name": "Zelfverbruik gisteren"},
+      "self_sufficiency_today": {"name": "Zelfvoorziening vandaag"},
+      "self_sufficiency_yesterday": {"name": "Zelfvoorziening gisteren"}
     },
     "select": {
       "operating_mode": {
