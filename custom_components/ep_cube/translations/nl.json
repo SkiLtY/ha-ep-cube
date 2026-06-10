@@ -62,7 +62,15 @@
       "self_consumption_today": {"name": "Zelfverbruik vandaag"},
       "self_consumption_yesterday": {"name": "Zelfverbruik gisteren"},
       "self_sufficiency_today": {"name": "Zelfvoorziening vandaag"},
-      "self_sufficiency_yesterday": {"name": "Zelfvoorziening gisteren"}
+      "self_sufficiency_yesterday": {"name": "Zelfvoorziening gisteren"},
+      "grid_import_month": {"name": "Netafname deze maand"},
+      "grid_export_month": {"name": "Netinjectie deze maand"},
+      "solar_month": {"name": "Zon deze maand"},
+      "backup_month": {"name": "Back-up-verbruikers deze maand"},
+      "grid_import_year": {"name": "Netafname dit jaar"},
+      "grid_export_year": {"name": "Netinjectie dit jaar"},
+      "solar_year": {"name": "Zon dit jaar"},
+      "backup_year": {"name": "Back-up-verbruikers dit jaar"}
     },
     "select": {
       "operating_mode": {

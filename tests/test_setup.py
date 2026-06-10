@@ -93,6 +93,11 @@ class TestSetupEntry:
             # v1.2 derived percentages from stats coordinator buckets
             "self_consumption_today", "self_consumption_yesterday",
             "self_sufficiency_today", "self_sufficiency_yesterday",
+            # v1.2 cube-native month + year rollups (scope=2/3)
+            "grid_import_month", "grid_export_month",
+            "solar_month", "backup_month",
+            "grid_import_year", "grid_export_year",
+            "solar_year", "backup_year",
         }
         registry = er.async_get(hass)
         entry_id = setup_integration.entry_id

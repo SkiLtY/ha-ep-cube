@@ -62,7 +62,15 @@
       "self_consumption_today": {"name": "Autoconsumo oggi"},
       "self_consumption_yesterday": {"name": "Autoconsumo ieri"},
       "self_sufficiency_today": {"name": "Autosufficienza oggi"},
-      "self_sufficiency_yesterday": {"name": "Autosufficienza ieri"}
+      "self_sufficiency_yesterday": {"name": "Autosufficienza ieri"},
+      "grid_import_month": {"name": "Prelievo rete questo mese"},
+      "grid_export_month": {"name": "Immissione rete questo mese"},
+      "solar_month": {"name": "Solare questo mese"},
+      "backup_month": {"name": "Carichi backup questo mese"},
+      "grid_import_year": {"name": "Prelievo rete quest'anno"},
+      "grid_export_year": {"name": "Immissione rete quest'anno"},
+      "solar_year": {"name": "Solare quest'anno"},
+      "backup_year": {"name": "Carichi backup quest'anno"}
     },
     "select": {
       "operating_mode": {

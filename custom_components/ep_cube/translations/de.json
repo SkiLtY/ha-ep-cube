@@ -62,7 +62,15 @@
       "self_consumption_today": {"name": "Eigenverbrauch heute"},
       "self_consumption_yesterday": {"name": "Eigenverbrauch gestern"},
       "self_sufficiency_today": {"name": "Autarkiegrad heute"},
-      "self_sufficiency_yesterday": {"name": "Autarkiegrad gestern"}
+      "self_sufficiency_yesterday": {"name": "Autarkiegrad gestern"},
+      "grid_import_month": {"name": "Netzbezug diesen Monat"},
+      "grid_export_month": {"name": "Netzeinspeisung diesen Monat"},
+      "solar_month": {"name": "Solar diesen Monat"},
+      "backup_month": {"name": "Notstromverbraucher diesen Monat"},
+      "grid_import_year": {"name": "Netzbezug dieses Jahr"},
+      "grid_export_year": {"name": "Netzeinspeisung dieses Jahr"},
+      "solar_year": {"name": "Solar dieses Jahr"},
+      "backup_year": {"name": "Notstromverbraucher dieses Jahr"}
     },
     "select": {
       "operating_mode": {

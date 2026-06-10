@@ -101,36 +101,19 @@ utility_meter:
     source: sensor.ep_cube_grid_export_energy
     cycle: daily
 
-  # Monthly + yearly rollups on the 4 user-facing daily kWh sensors that
-  # ship with the integration. These read the cube's own daily counters
-  # (matching the EP Cube mobile app) — distinct from the Riemann-integrated
-  # *_today sensors above (which exist for Predbat). HA-side `utility_meter`
-  # handles the rollup; no additional cloud calls.
-  ep_cube_solar_month:
-    source: sensor.ep_cube_solar_today
-    cycle: monthly
-  ep_cube_solar_year:
-    source: sensor.ep_cube_solar_today
-    cycle: yearly
-  ep_cube_grid_month:
-    source: sensor.ep_cube_grid_today
-    cycle: monthly
-  ep_cube_grid_year:
-    source: sensor.ep_cube_grid_today
-    cycle: yearly
-  ep_cube_backup_month:
-    source: sensor.ep_cube_backup_today
-    cycle: monthly
-  ep_cube_backup_year:
-    source: sensor.ep_cube_backup_today
-    cycle: yearly
-  ep_cube_nonbackup_month:
-    source: sensor.ep_cube_nonbackup_today
-    cycle: monthly
-  ep_cube_nonbackup_year:
-    source: sensor.ep_cube_nonbackup_today
-    cycle: yearly
-
+  # Monthly + yearly rollups on solar / grid / backup are now shipped by the
+  # integration directly, sourced from the cube's queryDataElectricityV2
+  # endpoint (scope=2 month, scope=3 year). They're more accurate than the
+  # HA-side utility_meter helpers we used to ship here: cube-native rollups
+  # don't drift if HA happens to be down at month/year roll, because the
+  # cube itself owns the boundary snap-back.
+  #
+  # Use these sensors directly in dashboards / Energy Dashboard:
+  #   sensor.ep_cube_solar_month         sensor.ep_cube_solar_year
+  #   sensor.ep_cube_grid_import_month   sensor.ep_cube_grid_import_year
+  #   sensor.ep_cube_grid_export_month   sensor.ep_cube_grid_export_year
+  #   sensor.ep_cube_backup_month        sensor.ep_cube_backup_year
+  #
   # Battery charge/discharge monthly + yearly rollups. Source sensors are
   # client-side delta-trackers in the integration (the cube cloud doesn't
   # expose signed battery flow on its main poll endpoint). Lifetime totals

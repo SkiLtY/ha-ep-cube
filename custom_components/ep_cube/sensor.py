@@ -436,6 +436,88 @@ STATS_SENSORS: tuple[EPCubeStatsSensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=_bucket_field("yesterday", "backupelectricity"),
     ),
+    # ------------------------------------------------------------------
+    # Cube-native monthly + annual rollups (v1.2). Direct from
+    # queryDataElectricityV2 scope=2 (month) and scope=3 (year). More
+    # accurate than the utility_meter helpers we shipped in examples
+    # pre-v1.2: they don't drift if HA is down at month/year roll, since
+    # the cube does its own accounting and we just read the snapshot.
+    # state_class=TOTAL (not TOTAL_INCREASING) because these values reset
+    # at the month / year boundary — HA's statistics engine handles the
+    # snap-back as a normal delta rather than a spurious counter reset.
+    # ------------------------------------------------------------------
+    EPCubeStatsSensorDescription(
+        key="grid_import_month",
+        translation_key="grid_import_month",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("month", "gridelectricityfrom"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="grid_export_month",
+        translation_key="grid_export_month",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("month", "gridelectricityto"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="solar_month",
+        translation_key="solar_month",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("month", "solarelectricity"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="backup_month",
+        translation_key="backup_month",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("month", "backupelectricity"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="grid_import_year",
+        translation_key="grid_import_year",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("year", "gridelectricityfrom"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="grid_export_year",
+        translation_key="grid_export_year",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("year", "gridelectricityto"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="solar_year",
+        translation_key="solar_year",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("year", "solarelectricity"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="backup_year",
+        translation_key="backup_year",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("year", "backupelectricity"),
+    ),
     # Derived percentages from the stats coordinator's today/yesterday
     # buckets (v1.2). All four pull from a single bucket dict so they share
     # the coordinator's existing update cadence — today's pair refreshes

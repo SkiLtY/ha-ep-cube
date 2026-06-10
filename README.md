@@ -33,7 +33,7 @@
 
 ## ✨ What You Get
 
-- 🔋 **30 sensors + 5 control entities** surfacing every cube state — SoC, power flow, mode, reserves, daily + yesterday energy, self-consumption + sufficiency %, lifetime stats
+- 🔋 **38 sensors + 5 control entities** surfacing every cube state — SoC, power flow, mode, reserves, daily / yesterday / monthly / yearly energy, self-consumption + sufficiency %, lifetime stats
 - ⚡ **Predbat shim** translates rate-based commands into the cube's TOU model — full **Octopus Agile** optimisation, no manual scheduling
 - 🎨 **Drop-in animated dashboard** mirroring the EP Cube mobile app — power flow, mode picker, mode-specific control cards
 - 🌍 **Multi-region** — EU live, US/JP/Other supported via config-flow region picker
@@ -97,7 +97,7 @@ Restart HA, then continue from step 3 above.
 
 ## 📡 Sensors
 
-30 sensors, all grouped under one device per EP Cube:
+38 sensors, all grouped under one device per EP Cube:
 
 | Group | Sensors |
 |-------|---------|
@@ -105,9 +105,14 @@ Restart HA, then continue from step 3 above.
 | **Power flow** | `grid_power` · `solar_power` · `load_power` |
 | **Daily energy (kWh)** | `solar_today` · `backup_today` · `grid_import_today` · `grid_export_today` · `solar_dc_today` · `solar_ac_today` |
 | **Yesterday energy (kWh)** | `solar_yesterday` · `backup_yesterday` · `grid_import_yesterday` · `grid_export_yesterday` |
+| **Monthly energy (kWh)** | `solar_month` · `backup_month` · `grid_import_month` · `grid_export_month` |
+| **Yearly energy (kWh)** | `solar_year` · `backup_year` · `grid_import_year` · `grid_export_year` |
 | **Efficiency (%)** | `self_sufficiency_pct` · `self_sufficiency_today` · `self_sufficiency_yesterday` · `self_consumption_today` · `self_consumption_yesterday` |
 | **Mode + reserve** | `operating_mode` · `reserve_soc` |
 | **Lifetime / KPI** | `earning_yesterday` · `grid_outage_count` · `off_grid_seconds` · `winter_protect` |
+
+> [!TIP]
+> **Monthly + yearly rollups are cube-native** — they read the cube's own boundary-aware accounting via `queryDataElectricityV2 scope=2/3`. Don't drift if HA is down at month/year roll, unlike HA-side `utility_meter` helpers (which previous releases shipped as a workaround). If you've been using the helpers from `examples/ha_config/packages/ep_cube.yaml`, you can delete the `ep_cube_{solar,grid,backup}_{month,year}` entries — the integration provides them directly now.
 
 > [!NOTE]
 > **`backup_today` / `backup_yesterday` are install-dependent.** They count kWh delivered through the cube's backup-output terminal — *not* "loads that stayed up during an outage". If your installer wired the whole house through the backup terminal (common in the UK with a critical-loads panel), these sensors read as whole-house consumption. If only essential circuits are wired through the backup output, you'll see just fridge / lighting / router etc. Outage-resilience under UK G99/G100 regs requires a separate **EPS Gateway**; without one the cube refuses to supply via the backup terminal during an actual grid outage even though it meters kWh through it under normal grid-up operation.

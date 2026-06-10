@@ -62,7 +62,15 @@
       "self_consumption_today": {"name": "Self-consumption today"},
       "self_consumption_yesterday": {"name": "Self-consumption yesterday"},
       "self_sufficiency_today": {"name": "Self-sufficiency today"},
-      "self_sufficiency_yesterday": {"name": "Self-sufficiency yesterday"}
+      "self_sufficiency_yesterday": {"name": "Self-sufficiency yesterday"},
+      "grid_import_month": {"name": "Grid import this month"},
+      "grid_export_month": {"name": "Grid export this month"},
+      "solar_month": {"name": "Solar this month"},
+      "backup_month": {"name": "Backup loads this month"},
+      "grid_import_year": {"name": "Grid import this year"},
+      "grid_export_year": {"name": "Grid export this year"},
+      "solar_year": {"name": "Solar this year"},
+      "backup_year": {"name": "Backup loads this year"}
     },
     "select": {
       "operating_mode": {
