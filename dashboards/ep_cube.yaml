@@ -241,8 +241,10 @@ views:
           # backup-loads / EPS Gateway semantics.
           - entity: sensor.ep_cube_backup_loads_today
             name: Backed loads
-          - entity: sensor.ep_cube_self_consumption
+          - entity: sensor.ep_cube_self_consumption_today
             name: Self-consumption
+          - entity: sensor.ep_cube_self_sufficiency_today
+            name: Self-sufficiency
 
       - type: entities
         title: Energy yesterday
@@ -256,6 +258,10 @@ views:
             name: Grid export
           - entity: sensor.ep_cube_backup_loads_yesterday
             name: Backed loads
+          - entity: sensor.ep_cube_self_consumption_yesterday
+            name: Self-consumption
+          - entity: sensor.ep_cube_self_sufficiency_yesterday
+            name: Self-sufficiency
 
       # ───────────────────────────────────────────────────────────────
       # Operating-mode picker + mode-specific controls
