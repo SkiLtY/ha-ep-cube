@@ -1,13 +1,13 @@
 # EP Cube dashboard
 #
-# Drop-in Lovelace YAML for the Canadian Solar EP Cube. Mirrors the
-# layout of the EP Cube mobile app:
+# Drop-in Lovelace YAML for the Canadian Solar EP Cube. Three views:
 #
-#   - Live power-flow visualisation (solar / battery / grid / home)
-#   - Battery status summary
-#   - Operating-mode picker (the "header switch" that swaps the
-#     manual-control card below)
-#   - Mode-specific controls in conditional cards
+#   - Now     — live power flow, instant SC / SS / grid-flow gauges,
+#               battery status (what's the house doing right now)
+#   - Today   — today + yesterday energy rollups (mirrors HA's own
+#               Energy tab pattern)
+#   - Control — operating-mode picker + mode-specific controls
+#               (the "header switch" that swaps the active settings card)
 #
 # Install
 # -------
@@ -45,9 +45,9 @@
 
 title: EP Cube
 views:
-  - title: Overview
-    path: overview
-    icon: mdi:home-battery
+  - title: Now
+    path: now
+    icon: mdi:flash
     cards:
       # ───────────────────────────────────────────────────────────────
       # Right now — instant KPI tiles
@@ -208,6 +208,10 @@ views:
           - entity: sensor.ep_cube_reserve_soc
             name: Active reserve
 
+  - title: Today
+    path: today
+    icon: mdi:calendar-today
+    cards:
       # ───────────────────────────────────────────────────────────────
       # Daily energy (Phase 4.2 stats sensors)
       # ───────────────────────────────────────────────────────────────
@@ -263,6 +267,10 @@ views:
           - entity: sensor.ep_cube_self_sufficiency_yesterday
             name: Self-sufficiency
 
+  - title: Control
+    path: control
+    icon: mdi:cog
+    cards:
       # ───────────────────────────────────────────────────────────────
       # Operating-mode picker + mode-specific controls
       # ───────────────────────────────────────────────────────────────
