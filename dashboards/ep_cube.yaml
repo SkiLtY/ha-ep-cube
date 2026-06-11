@@ -239,6 +239,68 @@ views:
     icon: mdi:calendar-today
     cards:
       # ───────────────────────────────────────────────────────────────
+      # Today at a glance — three gauges mirroring HA's Energy
+      # Dashboard pattern. All bucket-today values, refreshed every
+      # 5 min from queryDataElectricityV2.
+      #   Grid import — kWh drawn from the grid today. Blue gradient
+      #                 matches the Now tab's Grid gauge import side.
+      #                 15 kWh range covers a heavy winter day; edit
+      #                 down to ~5 kWh if your typical days are
+      #                 lower so the needle deflects meaningfully.
+      #   Self-consumption % — solar generated and used locally.
+      #                 Solid green (renewable theme), no severity
+      #                 grading because what counts as "good" varies
+      #                 by tariff (low SC is fine on export-pays
+      #                 tariffs like Octopus Outgoing).
+      #   Self-sufficiency % — load met from solar/battery vs grid.
+      #                 Solid green, same rationale.
+      # ───────────────────────────────────────────────────────────────
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            entity: sensor.ep_cube_grid_import_today
+            name: Grid import
+            min: 0
+            max: 15
+            unit: kWh
+            needle: true
+            segments:
+              - from: 0
+                color: '#BBDEFB'
+              - from: 2
+                color: '#90CAF9'
+              - from: 4
+                color: '#64B5F6'
+              - from: 6
+                color: '#42A5F5'
+              - from: 8
+                color: '#2196F3'
+              - from: 10
+                color: '#1976D2'
+              - from: 12
+                color: '#0D47A1'
+          - type: gauge
+            entity: sensor.ep_cube_self_consumption_today
+            name: Self-consumption
+            min: 0
+            max: 100
+            unit: "%"
+            needle: true
+            segments:
+              - from: 0
+                color: green
+          - type: gauge
+            entity: sensor.ep_cube_self_sufficiency_today
+            name: Self-sufficiency
+            min: 0
+            max: 100
+            unit: "%"
+            needle: true
+            segments:
+              - from: 0
+                color: green
+
+      # ───────────────────────────────────────────────────────────────
       # Daily energy (Phase 4.2 stats sensors)
       # ───────────────────────────────────────────────────────────────
       # Sourced from queryDataElectricityV2, refreshed every 5 min. Grid
