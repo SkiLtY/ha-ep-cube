@@ -50,66 +50,54 @@ views:
     icon: mdi:flash
     cards:
       # ───────────────────────────────────────────────────────────────
-      # Right now — instant KPI tiles
-      # Three gauges that answer "what's the house doing right now?"
-      # without users having to read the power-flow card. Each updates
-      # on the 30s coordinator cadence and dead-bands sub-W jitter so
-      # the needles don't twitch. The integration computes the values
-      # from the existing homeDeviceInfo poll — no extra cloud calls.
-      # Self-consumption: green when you're consuming most of what
-      # you're generating; self-sufficiency: green when most of your
-      # load is met from solar/battery (not the grid). Grid flow
-      # severity flips around 0 — negative (exporting) reads green
-      # because the cube is making money, positive (importing) yellow
-      # → red as it grows.
+      # Right now — live power gauges
+      # Three gauges, all in W, that mirror the power-flow card below
+      # in numeric form: Solar (always positive, capped at array
+      # ceiling), Battery (signed, centered needle: charging right /
+      # discharging left), Grid (signed, centered needle: importing
+      # right / exporting left). Raw `*_power` sensors are wired
+      # directly — no dead-band wrappers — because the jitter IS the
+      # live feedback. Drop the dampened `_right_now` sensors if you
+      # want a smoother read; they're still computed by the integration.
+      #
+      # Colour conventions:
+      #   Solar    — all green (renewable generation)
+      #   Battery  — blue when discharging (<0), green when charging (>0)
+      #              Note: our DeviceStatus reports positive=charging /
+      #              negative=discharging (see api.py); the gauge
+      #              inherits that convention directly.
+      #   Grid     — uncoloured (no universal good/bad mapping)
       # ───────────────────────────────────────────────────────────────
       - type: horizontal-stack
         cards:
-          # HA's built-in gauge card errors with "Entity is non-numeric"
-          # if the entity reads `unknown`, which the instant SC/SS sensors
-          # return when their divisor (solar / load) falls below the
-          # 50 W jitter floor. Wrap each in a conditional card so the
-          # gauge hides cleanly during those windows — overnight for SC
-          # (no solar), or an entirely-empty house for SS. Grid flow is
-          # always numeric so it doesn't need the wrap.
-          #
-          # No severity bands. SC + SS are informational metrics that
-          # mean different things on different tariffs / system sizes:
-          # 30% self-consumption is poor on a flat-rate setup but fine
-          # on Octopus Outgoing where exports pay; 99% self-sufficiency
-          # is great in summer but unattainable for heat-pump-heavy
-          # installs in winter. Severity grading would either lie to
-          # the user or red-flag their gauge perpetually. HA's own
-          # Energy Dashboard gauges follow the same convention.
-          - type: conditional
-            conditions:
-              - condition: numeric_state
-                entity: sensor.ep_cube_solar_power
-                above: 50
-            card:
-              type: gauge
-              entity: sensor.ep_cube_self_consumption_right_now
-              name: Self-consumption
-              min: 0
-              max: 100
-              unit: "%"
-              needle: true
-          - type: conditional
-            conditions:
-              - condition: numeric_state
-                entity: sensor.ep_cube_load_power
-                above: 50
-            card:
-              type: gauge
-              entity: sensor.ep_cube_self_sufficiency_right_now
-              name: Self-sufficiency
-              min: 0
-              max: 100
-              unit: "%"
-              needle: true
           - type: gauge
-            entity: sensor.ep_cube_grid_flow_right_now
-            name: Grid flow
+            entity: sensor.ep_cube_solar_power
+            name: Solar
+            # 6.51 kWp array ceiling; edit if your install differs.
+            min: 0
+            max: 6500
+            unit: W
+            needle: true
+            segments:
+              - from: 0
+                color: green
+          - type: gauge
+            entity: sensor.ep_cube_battery_power
+            name: Battery
+            # Observed cube max charge/discharge rate ~5.5 kW; matches
+            # the BMS taper observations from session 29.
+            min: -5500
+            max: 5500
+            unit: W
+            needle: true
+            segments:
+              - from: -5500
+                color: blue
+              - from: 0
+                color: green
+          - type: gauge
+            entity: sensor.ep_cube_grid_power
+            name: Grid
             # Range matches power-flow-card-plus's max_expected_power
             # below (6.51 kWp array ceiling). Edit if your install
             # has a different inverter ceiling.
@@ -117,6 +105,44 @@ views:
             max: 6500
             unit: W
             needle: true
+            # 7-stop gradient on each side, symmetric around 0.
+            # Colour palette mirrors HA's Energy Dashboard convention:
+            #   purple = energy returned to grid (export)
+            #   blue   = energy consumed from grid (import)
+            # Both are neutral state indicators (no good/bad framing) —
+            # the gradient depth conveys magnitude. Light near 0,
+            # deepens toward each extreme. HA's gauge segments are
+            # discrete bands, not a true gradient — but 7 closely-
+            # spaced stops read smoothly at a glance.
+            segments:
+              - from: -6500
+                color: '#4A148C'
+              - from: -6000
+                color: '#6A1B9A'
+              - from: -5000
+                color: '#7B1FA2'
+              - from: -4000
+                color: '#9C27B0'
+              - from: -3000
+                color: '#AB47BC'
+              - from: -2000
+                color: '#BA68C8'
+              - from: -1000
+                color: '#CE93D8'
+              - from: 0
+                color: '#BBDEFB'
+              - from: 1000
+                color: '#90CAF9'
+              - from: 2000
+                color: '#64B5F6'
+              - from: 3000
+                color: '#42A5F5'
+              - from: 4000
+                color: '#2196F3'
+              - from: 5000
+                color: '#1976D2'
+              - from: 6000
+                color: '#0D47A1'
 
       # ───────────────────────────────────────────────────────────────
       # Live power flow
