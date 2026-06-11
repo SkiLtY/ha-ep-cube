@@ -405,8 +405,11 @@ _MIN_DENOMINATOR_KWH = 0.05
 def _self_consumption_pct(bucket: str) -> Callable[[dict[str, dict]], float | None]:
     """(solar - export) / solar × 100 — share of generated kWh consumed onsite.
 
-    Returns None when solar generation in `bucket` is below the jitter
-    threshold (night, pre-sunrise, or before the first stats fetch lands).
+    Returns 0.0 when solar generation in `bucket` is below the jitter
+    threshold so dashboards show a stable 0 % rather than `unknown` (HA's
+    gauge card surfaces `unknown` as an "Entity is non-numeric" error
+    overlay). Returns None only for genuine missing-data states (no stats
+    fetched yet / bucket keys absent / malformed values).
     Clamps to [0, 100] — a cube that briefly reports export > solar (rare,
     seen during boot-up) shouldn't surface negative values to dashboards.
     """
@@ -424,7 +427,7 @@ def _self_consumption_pct(bucket: str) -> Callable[[dict[str, dict]], float | No
         except (TypeError, ValueError):
             return None
         if solar < _MIN_DENOMINATOR_KWH:
-            return None
+            return 0.0
         return max(0.0, min(100.0, (solar - export) / solar * 100))
     return _get
 
@@ -437,8 +440,11 @@ def _self_sufficiency_pct(bucket: str) -> Callable[[dict[str, dict]], float | No
     domestic wiring). Installs that wired only critical loads behind the
     backup terminal will see a fraction of true house load here; surface the
     sensor as a known-imperfect indicator rather than a billing figure.
-    Returns None when load is below the jitter threshold (empty house / pre-
-    midnight rollover / before the first stats fetch lands).
+    Returns 0.0 when load in `bucket` is below the jitter threshold so
+    dashboards show a stable 0 % rather than `unknown` (HA's gauge card
+    surfaces `unknown` as an "Entity is non-numeric" error overlay).
+    Returns None only for genuine missing-data states (no stats fetched
+    yet / bucket keys absent / malformed values).
     """
     def _get(data: dict[str, dict]) -> float | None:
         if not data:
@@ -454,7 +460,7 @@ def _self_sufficiency_pct(bucket: str) -> Callable[[dict[str, dict]], float | No
         except (TypeError, ValueError):
             return None
         if load < _MIN_DENOMINATOR_KWH:
-            return None
+            return 0.0
         return max(0.0, min(100.0, (load - imp) / load * 100))
     return _get
 

@@ -79,10 +79,11 @@ class TestSelfConsumptionPct:
         data = {"today": {"solarelectricity": 10.0, "gridelectricityto": 0.0}}
         assert _self_consumption_pct("today")(data) == pytest.approx(100.0)
 
-    def test_solar_below_threshold_returns_none(self):
-        # Below jitter floor: ratio is meaningless, return unknown.
+    def test_solar_below_threshold_returns_zero(self):
+        # Below jitter floor: return 0.0 (not None) so HA's gauge card
+        # shows a stable 0 % rather than "Entity is non-numeric" overlay.
         data = {"today": {"solarelectricity": 0.04, "gridelectricityto": 0.0}}
-        assert _self_consumption_pct("today")(data) is None
+        assert _self_consumption_pct("today")(data) == 0.0
 
     def test_solar_at_threshold_computes(self):
         # Floor is inclusive of valid range — exactly at threshold compute.
@@ -145,9 +146,11 @@ class TestSelfSufficiencyPct:
         data = {"today": {"backupelectricity": 10.0, "gridelectricityfrom": 10.0}}
         assert _self_sufficiency_pct("today")(data) == pytest.approx(0.0)
 
-    def test_load_below_threshold_returns_none(self):
+    def test_load_below_threshold_returns_zero(self):
+        # Below jitter floor: return 0.0 (not None) so HA's gauge card
+        # shows a stable 0 % rather than "Entity is non-numeric" overlay.
         data = {"today": {"backupelectricity": 0.04, "gridelectricityfrom": 0.0}}
-        assert _self_sufficiency_pct("today")(data) is None
+        assert _self_sufficiency_pct("today")(data) == 0.0
 
     def test_import_exceeds_load_clamps_to_zero(self):
         # Possible if `backupelectricity` is partial-house and import covers
