@@ -508,15 +508,17 @@ STATS_SENSORS: tuple[EPCubeStatsSensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=_bucket_field("today", "gridelectricityto"),
     ),
-    # Signed grid net (import - export) for the day. state_class=MEASUREMENT
-    # because it's a derived signed value, not a monotonic counter — Energy
-    # Dashboard wiring uses the monotonic _import / _export pair above.
-    # Powers the Today-tab signed Grid gauge (mirrors the Now-tab convention).
+    # Signed grid net (import - export) for the day. state_class=TOTAL (not
+    # MEASUREMENT — HA rejects MEASUREMENT with device_class=ENERGY; not
+    # TOTAL_INCREASING because the value can decrease within a day as export
+    # accumulates faster than import). Energy Dashboard wiring uses the
+    # monotonic _import / _export pair above. Powers the Today-tab signed
+    # Grid gauge (mirrors the Now-tab convention).
     EPCubeStatsSensorDescription(
         key="grid_net_today",
         translation_key="grid_net_today",
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=2,
         value_fn=_grid_net("today"),
@@ -547,7 +549,7 @@ STATS_SENSORS: tuple[EPCubeStatsSensorDescription, ...] = (
         key="grid_net_yesterday",
         translation_key="grid_net_yesterday",
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=2,
         value_fn=_grid_net("yesterday"),
