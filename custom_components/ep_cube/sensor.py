@@ -402,6 +402,30 @@ def _bucket_field(bucket: str, field: str) -> Callable[[dict[str, dict]], float 
 _MIN_DENOMINATOR_KWH = 0.05
 
 
+def _grid_net(bucket: str) -> Callable[[dict[str, dict]], float | None]:
+    """gridelectricityfrom - gridelectricityto from `bucket` — signed kWh.
+
+    Positive = net importer for the period; negative = net exporter. Returns
+    None for genuine missing-data states (no stats fetched yet / bucket keys
+    absent / malformed values). Mirrors the Now-tab Grid gauge's sign
+    convention so the Today-tab gauge can show export/import as one signed
+    value rather than the two monotonic sensors the Energy Dashboard needs.
+    """
+    def _get(data: dict[str, dict]) -> float | None:
+        if not data:
+            return None
+        b = data.get(bucket, {})
+        imp = b.get("gridelectricityfrom")
+        exp = b.get("gridelectricityto")
+        if imp is None or exp is None:
+            return None
+        try:
+            return float(imp) - float(exp)
+        except (TypeError, ValueError):
+            return None
+    return _get
+
+
 def _self_consumption_pct(bucket: str) -> Callable[[dict[str, dict]], float | None]:
     """(solar - export) / solar × 100 — share of generated kWh consumed onsite.
 
@@ -484,6 +508,19 @@ STATS_SENSORS: tuple[EPCubeStatsSensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=_bucket_field("today", "gridelectricityto"),
     ),
+    # Signed grid net (import - export) for the day. state_class=MEASUREMENT
+    # because it's a derived signed value, not a monotonic counter — Energy
+    # Dashboard wiring uses the monotonic _import / _export pair above.
+    # Powers the Today-tab signed Grid gauge (mirrors the Now-tab convention).
+    EPCubeStatsSensorDescription(
+        key="grid_net_today",
+        translation_key="grid_net_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_grid_net("today"),
+    ),
     # Yesterday's frozen snapshots. STATE_CLASS=TOTAL with no last_reset —
     # the value steps once per midnight roll, never accumulates within a day.
     # HA's statistics engine handles this correctly: the daily change shows up
@@ -505,6 +542,15 @@ STATS_SENSORS: tuple[EPCubeStatsSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=2,
         value_fn=_bucket_field("yesterday", "gridelectricityto"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="grid_net_yesterday",
+        translation_key="grid_net_yesterday",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_grid_net("yesterday"),
     ),
     EPCubeStatsSensorDescription(
         key="solar_yesterday",

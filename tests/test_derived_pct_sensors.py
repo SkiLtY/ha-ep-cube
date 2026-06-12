@@ -23,6 +23,7 @@ from custom_components.ep_cube.sensor import (
     _INSTANT_GRID_FLOW_DEADBAND_W,
     _INSTANT_MIN_POWER_W,
     _MIN_DENOMINATOR_KWH,
+    _grid_net,
     _instant_grid_flow_w,
     _instant_self_consumption_pct,
     _instant_self_sufficiency_pct,
@@ -175,6 +176,44 @@ class TestSelfSufficiencyPct:
             "yesterday": {"backupelectricity": 20.0, "gridelectricityfrom": 5.0},
         }
         assert _self_sufficiency_pct("yesterday")(data) == pytest.approx(75.0)
+
+
+# ----------------------------------------------------------------------
+# _grid_net — import - export (signed kWh)
+# ----------------------------------------------------------------------
+class TestGridNet:
+    def test_net_importer(self):
+        # 5 kWh in, 2 kWh out → +3 kWh net
+        data = {"today": {"gridelectricityfrom": 5.0, "gridelectricityto": 2.0}}
+        assert _grid_net("today")(data) == pytest.approx(3.0)
+
+    def test_net_exporter(self):
+        # 1 kWh in, 8 kWh out → -7 kWh net (negative = exporting)
+        data = {"today": {"gridelectricityfrom": 1.0, "gridelectricityto": 8.0}}
+        assert _grid_net("today")(data) == pytest.approx(-7.0)
+
+    def test_balanced(self):
+        data = {"today": {"gridelectricityfrom": 4.0, "gridelectricityto": 4.0}}
+        assert _grid_net("today")(data) == pytest.approx(0.0)
+
+    def test_empty_data_returns_none(self):
+        assert _grid_net("today")({}) is None
+        assert _grid_net("today")(None) is None  # type: ignore[arg-type]
+
+    def test_missing_field_returns_none(self):
+        data = {"today": {"gridelectricityfrom": 5.0}}  # no export
+        assert _grid_net("today")(data) is None
+
+    def test_non_numeric_returns_none(self):
+        data = {"today": {"gridelectricityfrom": "n/a", "gridelectricityto": 0.0}}
+        assert _grid_net("today")(data) is None
+
+    def test_yesterday_bucket_routing(self):
+        data = {
+            "today": {"gridelectricityfrom": 5.0, "gridelectricityto": 2.0},
+            "yesterday": {"gridelectricityfrom": 0.5, "gridelectricityto": 9.0},
+        }
+        assert _grid_net("yesterday")(data) == pytest.approx(-8.5)
 
 
 # ----------------------------------------------------------------------

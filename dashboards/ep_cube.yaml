@@ -105,44 +105,16 @@ views:
             max: 6500
             unit: W
             needle: true
-            # 7-stop gradient on each side, symmetric around 0.
-            # Colour palette mirrors HA's Energy Dashboard convention:
+            # Matches HA's Energy Dashboard palette:
             #   purple = energy returned to grid (export)
             #   blue   = energy consumed from grid (import)
-            # Both are neutral state indicators (no good/bad framing) —
-            # the gradient depth conveys magnitude. Light near 0,
-            # deepens toward each extreme. HA's gauge segments are
-            # discrete bands, not a true gradient — but 7 closely-
-            # spaced stops read smoothly at a glance.
+            # Two solid segments, no gradient — same look as the
+            # native Energy tab gauges.
             segments:
               - from: -6500
-                color: '#4A148C'
-              - from: -6000
-                color: '#6A1B9A'
-              - from: -5000
-                color: '#7B1FA2'
-              - from: -4000
-                color: '#9C27B0'
-              - from: -3000
-                color: '#AB47BC'
-              - from: -2000
-                color: '#BA68C8'
-              - from: -1000
-                color: '#CE93D8'
+                color: '#8353d1'
               - from: 0
-                color: '#BBDEFB'
-              - from: 1000
-                color: '#90CAF9'
-              - from: 2000
-                color: '#64B5F6'
-              - from: 3000
-                color: '#42A5F5'
-              - from: 4000
-                color: '#2196F3'
-              - from: 5000
-                color: '#1976D2'
-              - from: 6000
-                color: '#0D47A1'
+                color: '#488fc2'
 
       # ───────────────────────────────────────────────────────────────
       # Live power flow
@@ -242,11 +214,10 @@ views:
       # Today at a glance — three gauges mirroring HA's Energy
       # Dashboard pattern. All bucket-today values, refreshed every
       # 5 min from queryDataElectricityV2.
-      #   Grid import — kWh drawn from the grid today. Blue gradient
-      #                 matches the Now tab's Grid gauge import side.
-      #                 15 kWh range covers a heavy winter day; edit
-      #                 down to ~5 kWh if your typical days are
-      #                 lower so the needle deflects meaningfully.
+      #   Grid — signed net kWh (import - export). Mirrors the Now
+      #          tab's Grid gauge convention: purple left (export),
+      #          blue right (import). ±15 kWh covers a heavy winter
+      #          or sunny summer day; edit if your install differs.
       #   Self-consumption % — solar generated and used locally.
       #                 Solid green (renewable theme), no severity
       #                 grading because what counts as "good" varies
@@ -258,27 +229,17 @@ views:
       - type: horizontal-stack
         cards:
           - type: gauge
-            entity: sensor.ep_cube_grid_import_today
-            name: Grid import
-            min: 0
+            entity: sensor.ep_cube_grid_net_today
+            name: Grid
+            min: -15
             max: 15
             unit: kWh
             needle: true
             segments:
+              - from: -15
+                color: '#8353d1'
               - from: 0
-                color: '#BBDEFB'
-              - from: 2
-                color: '#90CAF9'
-              - from: 4
-                color: '#64B5F6'
-              - from: 6
-                color: '#42A5F5'
-              - from: 8
-                color: '#2196F3'
-              - from: 10
-                color: '#1976D2'
-              - from: 12
-                color: '#0D47A1'
+                color: '#488fc2'
           - type: gauge
             entity: sensor.ep_cube_self_consumption_today
             name: Self-consumption

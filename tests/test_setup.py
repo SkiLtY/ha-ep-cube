@@ -87,8 +87,8 @@ class TestSetupEntry:
             "grid_outage_count", "off_grid_seconds",
             "battery_charge_today", "battery_discharge_today",
             # Phase 4.2 stats sensors (queryDataElectricityV2)
-            "grid_import_today", "grid_export_today",
-            "grid_import_yesterday", "grid_export_yesterday",
+            "grid_import_today", "grid_export_today", "grid_net_today",
+            "grid_import_yesterday", "grid_export_yesterday", "grid_net_yesterday",
             "solar_yesterday", "backup_yesterday",
             # v1.2 derived percentages from stats coordinator buckets
             "self_consumption_today", "self_consumption_yesterday",
