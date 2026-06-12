@@ -299,6 +299,43 @@ views:
           - entity: sensor.ep_cube_self_sufficiency_today
             name: Self-sufficiency
 
+      # Same three gauges for yesterday — frozen snapshots once the
+      # midnight roll lands. Same colour conventions as the today row.
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            entity: sensor.ep_cube_grid_net_yesterday
+            name: Grid
+            min: -15
+            max: 15
+            unit: kWh
+            needle: true
+            segments:
+              - from: -15
+                color: '#8353d1'
+              - from: 0
+                color: '#488fc2'
+          - type: gauge
+            entity: sensor.ep_cube_self_consumption_yesterday
+            name: Self-consumption
+            min: 0
+            max: 100
+            unit: "%"
+            needle: true
+            segments:
+              - from: 0
+                color: green
+          - type: gauge
+            entity: sensor.ep_cube_self_sufficiency_yesterday
+            name: Self-sufficiency
+            min: 0
+            max: 100
+            unit: "%"
+            needle: true
+            segments:
+              - from: 0
+                color: green
+
       - type: entities
         title: Energy yesterday
         show_header_toggle: false
