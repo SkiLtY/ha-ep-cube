@@ -80,7 +80,7 @@ views:
             needle: true
             segments:
               - from: 0
-                color: green
+                color: '#43a047'
           - type: gauge
             entity: sensor.ep_cube_battery_power
             name: Battery
@@ -94,7 +94,7 @@ views:
               - from: -5500
                 color: blue
               - from: 0
-                color: green
+                color: '#43a047'
           - type: gauge
             entity: sensor.ep_cube_grid_power
             name: Grid
@@ -249,7 +249,7 @@ views:
             needle: true
             segments:
               - from: 0
-                color: green
+                color: '#43a047'
           - type: gauge
             entity: sensor.ep_cube_self_sufficiency_today
             name: Self-sufficiency
@@ -259,7 +259,7 @@ views:
             needle: true
             segments:
               - from: 0
-                color: green
+                color: '#43a047'
 
       # ───────────────────────────────────────────────────────────────
       # Daily energy (Phase 4.2 stats sensors)
@@ -324,7 +324,7 @@ views:
             needle: true
             segments:
               - from: 0
-                color: green
+                color: '#43a047'
           - type: gauge
             entity: sensor.ep_cube_self_sufficiency_yesterday
             name: Self-sufficiency
@@ -334,7 +334,7 @@ views:
             needle: true
             segments:
               - from: 0
-                color: green
+                color: '#43a047'
 
       - type: entities
         title: Energy yesterday
