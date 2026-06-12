@@ -60,13 +60,19 @@ views:
       # live feedback. Drop the dampened `_right_now` sensors if you
       # want a smoother read; they're still computed by the integration.
       #
-      # Colour conventions:
-      #   Solar    — all green (renewable generation)
-      #   Battery  — blue when discharging (<0), green when charging (>0)
+      # Colour conventions (mirrors HA's Energy Dashboard palette,
+      # with purple/blue used semantically across Grid AND Battery):
+      #   Solar    — Material green #43a047 (renewable generation)
+      #   Battery  — purple #8353d1 when discharging (<0, energy out),
+      #              blue #488fc2 when charging (>0, energy in).
       #              Note: our DeviceStatus reports positive=charging /
       #              negative=discharging (see api.py); the gauge
       #              inherits that convention directly.
-      #   Grid     — uncoloured (no universal good/bad mapping)
+      #   Grid     — purple #8353d1 when exporting (<0, energy out),
+      #              blue #488fc2 when importing (>0, energy in).
+      # Purple/blue carries the same "going out" / "coming in" meaning
+      # on both signed gauges, so a glance tells you which way energy
+      # flows regardless of which gauge you're reading.
       # ───────────────────────────────────────────────────────────────
       - type: horizontal-stack
         cards:
@@ -92,9 +98,9 @@ views:
             needle: true
             segments:
               - from: -5500
-                color: blue
+                color: '#8353d1'
               - from: 0
-                color: '#43a047'
+                color: '#488fc2'
           - type: gauge
             entity: sensor.ep_cube_grid_power
             name: Grid
