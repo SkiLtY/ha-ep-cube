@@ -112,6 +112,19 @@ pred_bat:
   # load_forecast: 'sensor.octopus_energy_electricity_<MPAN>_<SERIAL>_previous_consumption'
   # For dev, Predbat will use historical HA data from `load_power` sensor.
 
+  # ─── ML load prediction (https://springfall2008.github.io/batpred/load-ml/)
+  # Neural-net 48-hour load forecast trained on your load history + PV
+  # generation + outdoor temperature. Recommended.
+  #
+  # Shadow mode first — `load_ml_enable: true` starts training and publishes
+  # `sensor.predbat_load_ml_forecast` but does NOT yet affect planning.
+  # After 24-48h, compare the forecast to actuals. If sane, uncomment
+  # `load_ml_source: true` so Predbat uses the ML predictions in the
+  # optimiser. Needs 1+ day of history (7+ recommended).
+  load_ml_enable: true
+  # load_ml_source: true     # enable after shadow-mode verification
+  temperature_enable: true   # outdoor temp from zone.home — recommended ML input
+
   # ─── Predbat behaviour ───────────────────────────────────────────────────
   forecast_hours: 48
   best_soc_min: 0.5     # kWh — never plan below this
