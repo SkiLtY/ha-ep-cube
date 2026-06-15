@@ -86,7 +86,10 @@ pred_bat:
   # whatever tariff is currently active on the account (Flexible / Agile /
   # Cosy / etc.) — no apps.yaml change needed when switching tariffs.
   metric_octopus_import: 're:(event.octopus_energy_electricity_[0-9a-z_]+(?<!export)_current_day_rates)'
-  metric_octopus_export: 're:(event.octopus_energy_electricity_[0-9a-z_]+_export_current_day_rates)'
+  # Only uncomment once you actually have an Octopus export tariff (Outgoing,
+  # Export SEG, etc). Predbat 8.40.9+ treats a no-match regex here as a hard
+  # validation error ("Demand (unhealthy)") rather than a benign disable.
+  # metric_octopus_export: 're:(event.octopus_energy_electricity_[0-9a-z_]+_export_current_day_rates)'
 
   # Until then, hardcode test prices to validate Predbat → shim → cloud loop:
   # rates_import:
