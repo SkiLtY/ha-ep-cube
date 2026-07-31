@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Build](https://img.shields.io/github/actions/workflow/status/SkiLtY/ha-ep-cube/validate.yml?label=CI)](../../actions)
 [![Release](https://img.shields.io/github/v/release/SkiLtY/ha-ep-cube?label=Release&color=41BDF5)](https://github.com/SkiLtY/ha-ep-cube/releases)
-[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5?logo=home-assistant&logoColor=white)](https://github.com/hacs/default/pull/8364)
+[![HACS](https://img.shields.io/badge/HACS-Default-41BDF5?logo=home-assistant&logoColor=white)](https://hacs.xyz)
 
 </div>
 
@@ -44,25 +44,21 @@
 
 ## ⚡ Quick Start
 
-> [!IMPORTANT]
-> HACS Default submission is in flight ([`hacs/default#8364`](https://github.com/hacs/default/pull/8364), in the maintainer queue). Until it merges, install via HACS Custom Repository — same one-click install path, just an extra "add repo URL" step the first time.
+**1. Install via HACS**
 
-**1. Add the repository in HACS**
+HACS → search for *Canadian Solar EP Cube* → Download → restart Home Assistant when prompted.
 
-HACS sidebar → ⋮ → *Custom repositories* → add `https://github.com/SkiLtY/ha-ep-cube` as type *Integration* → Add.
+> [!NOTE]
+> Newly added to the HACS Default store — it can take up to 8 hours from repository merge for a fresh listing to appear in the store search. If it's not there yet, add via HACS → ⋮ → *Custom repositories* → `https://github.com/SkiLtY/ha-ep-cube` as *Integration* as an interim path.
 
-**2. Install + restart**
-
-Find *Canadian Solar EP Cube* in HACS → Download → restart Home Assistant when prompted.
-
-**3. Add the integration**
+**2. Add the integration**
 
 Settings → *Devices & services* → *Add integration* → search **Canadian Solar EP Cube** → enter your **region**, the **email + password** for the EP Cube mobile app, and submit.
 
-The integration runs the captcha-solving login flow, fetches your device list, and registers 26 sensors + 5 control entities under one device.
+The integration runs the captcha-solving login flow, fetches your device list, and registers 41 sensors + 5 control entities under one device.
 
 <details>
-<summary>Manual install (without HACS)</summary>
+<summary>Manual install (without HACS, or for pre-release testing)</summary>
 
 ```bash
 cd /path/to/homeassistant/config
@@ -71,13 +67,13 @@ git clone https://github.com/SkiLtY/ha-ep-cube /tmp/ha-ep-cube
 cp -r /tmp/ha-ep-cube/custom_components/ep_cube custom_components/
 ```
 
-Restart HA, then continue from step 3 above.
+Restart HA, then continue from step 2 above.
 
 </details>
 
 > [!TIP]
 > **Want Predbat / Octopus Agile optimisation too?** After the integration is live, also:
-> 1. Copy `examples/ha_config/` into your HA config dir (or merge into your existing `configuration.yaml`) — adds the Riemann daily-kWh sensors Predbat needs.
+> 1. Copy `examples/ha_config/` into your HA config dir (or merge into your existing `configuration.yaml`) — adds Riemann-integrated daily-kWh sensors for the HA Energy Dashboard.
 > 2. Install Predbat via the [`nipar44/predbat_addon` Docker container](https://github.com/nipar44/predbat_addon). Full runbook in [docs/PREDBAT.md](docs/PREDBAT.md).
 >
 > **Want the animated power-flow dashboard?** See [Dashboard](#-dashboard) — one HACS frontend card + one paste of `dashboards/ep_cube.yaml`.
