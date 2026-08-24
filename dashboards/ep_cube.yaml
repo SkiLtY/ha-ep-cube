@@ -37,6 +37,14 @@
 #   switch.ep_cube_allow_charging_from_grid
 #   switch.ep_cube_daylight_saving_time
 #
+# The "Now" view's at-a-glance card also reads your BottlecapDave Octopus
+# Energy import/export current-rate sensors directly (MPAN/serial baked
+# into the entity ID, so these WILL differ per account — edit to match
+# yours, e.g. via Developer Tools → States, filter "current_rate"):
+#
+#   sensor.octopus_energy_electricity_<serial>_<import_mpan>_current_rate
+#   sensor.octopus_energy_electricity_<serial>_<export_mpan>_export_current_rate
+#
 # Note: HA derives entity-ID slugs from each entity's **display name**, not
 # the integration's internal translation_key — so e.g. the sensor with
 # translation_key=battery_soc_kwh ships as `sensor.ep_cube_battery_energy`
@@ -49,6 +57,43 @@ views:
     path: now
     icon: mdi:flash
     cards:
+      # ───────────────────────────────────────────────────────────────
+      # At a glance — one plain-English line for "what is it doing and
+      # is it costing me money right now". The gauges/flow card below
+      # are great once you know the sign conventions, but they still
+      # require combining 3 numbers + a rate sensor in your head; this
+      # card does that combination for you. Grid power is the decider
+      # (importing/exporting always means money is moving); battery
+      # power decides the free-solar cases. ±50W deadband avoids
+      # flicker from measurement noise around zero.
+      # ───────────────────────────────────────────────────────────────
+      - type: markdown
+        # Literal block (`|`, not `>`) so the newlines Markdown needs for
+        # `##` headings survive — a folded scalar collapses them all onto
+        # one line and the headings silently stop rendering. `{%-`/`-%}`
+        # trims the blank lines each Jinja tag would otherwise leave behind.
+        content: |
+          {%- set grid = states('sensor.ep_cube_grid_power')|float(0) -%}
+          {%- set batt = states('sensor.ep_cube_battery_power')|float(0) -%}
+          {%- set imp_rate = (states('sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate')|float(0) * 100)|round(1) -%}
+          {%- set exp_rate = (states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate')|float(0) * 100)|round(1) -%}
+          {%- if grid > 50 %}
+          ## Importing — {{ (grid / 1000)|round(2) }} kW
+          Paying **{{ imp_rate }}p/kWh**
+          {%- elif grid < -50 %}
+          ## Exporting — {{ (-grid / 1000)|round(2) }} kW
+          Earning **{{ exp_rate }}p/kWh**
+          {%- elif batt > 50 %}
+          ## Charging battery — {{ (batt / 1000)|round(2) }} kW
+          From solar, no grid use — free
+          {%- elif batt < -50 %}
+          ## Discharging battery — {{ (-batt / 1000)|round(2) }} kW
+          Covering home load, no grid use — free
+          {%- else %}
+          ## Solar covering home load
+          Battery idle, no grid use — free
+          {%- endif %}
+
       # ───────────────────────────────────────────────────────────────
       # Right now — live power gauges
       # Three gauges, all in W, that mirror the power-flow card below
