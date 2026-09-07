@@ -45,6 +45,20 @@
 #   sensor.octopus_energy_electricity_<serial>_<import_mpan>_current_rate
 #   sensor.octopus_energy_electricity_<serial>_<export_mpan>_export_current_rate
 #
+# The "Today" view's "Cost — plan vs actual" card additionally reads:
+#   - predbat.cost_today_import / cost_today_export / cost_yesterday /
+#     savings_yesterday_predbat — Predbat's own plan, in PENCE. These are
+#     written directly via the HA state API (not through a proper
+#     integration platform) so they never appear in the entity registry
+#     or an entity picker — Developer Tools → States, filter "predbat",
+#     is the only way to browse them.
+#   - sensor.octopus_energy_electricity_<serial>_<import_mpan>_previous_accumulative_cost
+#     sensor.octopus_energy_electricity_<serial>_<export_mpan>_export_previous_accumulative_cost
+#     — the actual bill (real consumption × real settled rate), in POUNDS.
+#     Lags 1-2 days behind today, so it won't usually be the same day as
+#     Predbat's "yesterday" — the card labels which date the actual
+#     figure covers.
+#
 # Note: HA derives entity-ID slugs from each entity's **display name**, not
 # the integration's internal translation_key — so e.g. the sensor with
 # translation_key=battery_soc_kwh ships as `sensor.ep_cube_battery_energy`
@@ -268,6 +282,36 @@ views:
     path: today
     icon: mdi:calendar-today
     cards:
+      # ───────────────────────────────────────────────────────────────
+      # Cost — Predbat's plan vs what Octopus actually billed
+      #
+      # Predbat's plan tells you what it INTENDS to do and thinks it'll
+      # cost — not what actually happened. This card puts that forecast
+      # next to Octopus's real settled cost so the two are never
+      # confused. Predbat's cost/savings entities are in pence; Octopus's
+      # accumulative-cost sensors are in pounds — converted to £ here so
+      # everything reads the same way.
+      # ───────────────────────────────────────────────────────────────
+      - type: markdown
+        title: Cost — plan vs actual
+        content: |
+          {%- set p_today = (states('predbat.cost_today_import')|float(0) - states('predbat.cost_today_export')|float(0)) / 100 -%}
+          {%- set p_yesterday = states('predbat.cost_yesterday')|float(0) / 100 -%}
+          {%- set p_savings = states('predbat.savings_yesterday_predbat')|float(0) / 100 -%}
+          {%- set a_import = states('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost')|float(0) -%}
+          {%- set a_export = states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost')|float(0) -%}
+          {%- set a_net = a_import - a_export -%}
+          {%- set a_reset = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'last_reset') -%}
+          ##### Predbat's plan
+          Today so far: **£{{ '%.2f'|format(p_today|abs) }}{% if p_today < 0 %} earned{% endif %}**
+          Yesterday: **£{{ '%.2f'|format(p_yesterday|abs) }}{% if p_yesterday < 0 %} earned{% endif %}** (claimed saving vs no battery: £{{ '%.2f'|format(p_savings) }})
+
+          ##### Octopus actual (billed)
+          {%- if a_reset %}
+          For {{ as_timestamp(a_reset) | timestamp_custom('%a %d %b', true) }}:
+          {%- endif %}
+          Import **£{{ '%.2f'|format(a_import) }}** · Export **£{{ '%.2f'|format(a_export) }}** · Net **£{{ '%.2f'|format(a_net|abs) }}{% if a_net < 0 %} earned{% endif %}**
+
       # ───────────────────────────────────────────────────────────────
       # Today at a glance — three gauges mirroring HA's Energy
       # Dashboard pattern. All bucket-today values, refreshed every
