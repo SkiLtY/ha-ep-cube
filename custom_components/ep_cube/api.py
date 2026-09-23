@@ -621,6 +621,9 @@ class EPCubeClient:
         url = f"{self._base_url}{path}"
         headers = {**_DEFAULT_HEADERS, "Authorization": f"Bearer {self._bearer_token}"}
 
+        if json is not None:
+            _LOGGER.debug("%s %s body: %s", method, path, json)
+
         async with self._session.request(
             method, url, headers=headers, json=json, allow_redirects=False,
         ) as resp:
