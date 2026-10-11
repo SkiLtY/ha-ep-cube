@@ -42,8 +42,17 @@ pred_bat:
 
   # ─── Battery physical specs ───────────────────────────────────────────────
   # Adjust to match your hardware.
-  battery_rate_max_charge: 5.0     # kW
-  battery_rate_max_discharge: 5.0  # kW
+  #
+  # `battery_rate_max` is the key Predbat reads for a custom inverter type, in
+  # WATTS (literals are not unit-converted). It sets the charge, discharge and
+  # export rate Predbat plans with. If it is missing, Predbat silently falls
+  # back to its 2600 W default and plans a much slower battery than you have.
+  # (`battery_rate_max_charge` / `_discharge` are NOT apps.yaml keys: Predbat
+  # ignores them and only uses them as internal names.) The 20 kWh EP Cube is
+  # rated 7.6 kW continuous; 7000 leaves some margin. Predbat also writes this
+  # rate into the charge_rate / discharge_rate helpers, so their `max:` in
+  # packages/ep_cube.yaml must be at least this value.
+  battery_rate_max: 7000           # W
   battery_loss: 0.03               # 3% conversion loss (typical Li-ion + inverter)
   battery_loss_discharge: 0.03
   inverter_loss: 0.03
