@@ -89,3 +89,36 @@ SHIM_PRICE_OFF_PEAK = 2.22
 SHIM_PRICE_MID_PEAK = 3.33
 SHIM_PRICE_PEAK = 4.44
 
+# touType values (only meaningful with workStatus "2"):
+#   0 = Time-of-use with fixed slots
+#   1 = Dynamic tariff — the cube follows an Octopus price feed and acts on
+#       the buy-below / sell-above thresholds below.
+TOU_TYPE_STANDARD = 0
+TOU_TYPE_DYNAMIC = 1
+
+# How the shim realises Predbat's "force export" (discharge) windows.
+#   tou_peak — legacy: TOU peak slot, battery drains to the house only; the
+#              cloud has no command that pushes battery energy to the grid.
+#   dynamic  — Dynamic-tariff mode with a low sell-above threshold: the cube
+#              itself exports (observed 2026-10-14: ~6.4 kW to the grid) until
+#              the Reserve SoC, which the shim sets to Predbat's target SoC.
+CONF_FORCE_EXPORT_MODE = "force_export_mode"
+FORCE_EXPORT_MODE_TOU_PEAK = "tou_peak"
+FORCE_EXPORT_MODE_DYNAMIC = "dynamic"
+DEFAULT_FORCE_EXPORT_MODE = FORCE_EXPORT_MODE_TOU_PEAK
+
+# Dynamic-tariff thresholds used for a forced export, in pence/kWh. The cube
+# compares them with the export price of the tariff chosen in the app. With a
+# flat export tariff ("Outgoing Octopus") any sell-above below that flat rate
+# means "export now"; buy-below 0 means "never buy from the grid" (an Agile
+# import price below 0p, i.e. paid-to-consume, is the only exception).
+DYNAMIC_EXPORT_SELL_ABOVE_P = 5.0
+DYNAMIC_EXPORT_BUY_BELOW_P = 0.0
+
+# After a dynamic export window should have ended, check the cube really left
+# Dynamic mode this many minutes later and retry the revert if not. A cube
+# stuck in Dynamic mode would not take the cheap-rate charge.
+DYNAMIC_REVERT_WATCHDOG_MINUTES = 5
+DYNAMIC_REVERT_RETRY_SECONDS = 60
+DYNAMIC_REVERT_MAX_RETRIES = 5
+
