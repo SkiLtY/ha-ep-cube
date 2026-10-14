@@ -41,13 +41,14 @@ match the live override.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Any
 
 import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.event import async_track_point_in_utc_time
+from homeassistant.helpers.event import async_call_later, async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
 from .api import (
@@ -57,11 +58,21 @@ from .api import (
     payload_from_switch_mode_read,
 )
 from .const import (
+    DEFAULT_FORCE_EXPORT_MODE,
     DOMAIN,
+    DYNAMIC_EXPORT_BUY_BELOW_P,
+    DYNAMIC_EXPORT_SELL_ABOVE_P,
+    DYNAMIC_REVERT_MAX_RETRIES,
+    DYNAMIC_REVERT_RETRY_SECONDS,
+    DYNAMIC_REVERT_WATCHDOG_MINUTES,
+    FORCE_EXPORT_MODE_DYNAMIC,
     OPERATING_MODE_TOU,
     SHIM_PRICE_MID_PEAK,
     SHIM_PRICE_OFF_PEAK,
     SHIM_PRICE_PEAK,
+    TOU_TYPE_DYNAMIC,
+    TOU_TYPE_STANDARD,
+    WORK_STATUS_SELF_CONSUMPTION,
     WORK_STATUS_TOU,
 )
 from .predbat_state import PredbatPlan, PredbatStateError, describe, read_plan
@@ -77,6 +88,7 @@ SERVICE_CHARGE_FREEZE = "charge_freeze"
 SERVICE_DISCHARGE_FREEZE = "discharge_freeze"
 SERVICE_IDLE = "idle"
 SERVICE_DEBUG_FREEZE = "debug_freeze"
+SERVICE_DEBUG_DYNAMIC_EXPORT = "debug_dynamic_export"
 
 # Override kinds
 KIND_CHARGE = "charge"
@@ -97,6 +109,42 @@ DEBUG_FREEZE_SCHEMA = vol.Schema(
         ),
     }
 )
+
+# debug_dynamic_export bypasses read_plan too: a forced Dynamic-tariff export
+# for a short, bounded time, stopping at the given Reserve SoC. For exercising
+# the new path against the live cube before Predbat is allowed to use it.
+DEBUG_DYNAMIC_EXPORT_SCHEMA = vol.Schema(
+    {
+        vol.Optional("device_id"): cv.string,
+        vol.Optional("duration_minutes", default=5): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=60)
+        ),
+        vol.Optional("reserve_pct", default=50): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=100)
+        ),
+    }
+)
+
+
+def _clamp_before_charge_window(plan: PredbatPlan, end_time: datetime) -> datetime:
+    """Never let a forced export run into a planned charge window.
+
+    The cheap-rate charge needs the cube back in TOU mode, and Dynamic mode's
+    import side prices against Agile, not the user's tariff. Predbat does not
+    normally overlap an export and a charge, but a stale or odd plan must not
+    be able to keep the cube exporting through the charge start."""
+    window = plan.charge_window
+    if not plan.charge_enabled or window is None:
+        return end_time
+    now = dt_util.utcnow()
+    start = dt_util.as_utc(window.start)
+    if now < start < dt_util.as_utc(end_time):
+        _LOGGER.warning(
+            "forced export would overlap the charge window — ending it at %s",
+            start.isoformat(),
+        )
+        return start
+    return end_time
 
 
 # All weekday/weekend/DST tier-list keys the shim might have written to.
@@ -166,6 +214,42 @@ _USER_TIER_LIST_KEYS: tuple[str, ...] = (
 )
 
 
+def _is_shim_dynamic_signature(state: dict[str, Any]) -> bool:
+    """True if `state` (a getSwitchMode read) is in Dynamic-tariff mode with
+    exactly the thresholds a shim forced export writes.
+
+    That combination is the shim's own fingerprint (the same idea as the
+    synthetic TOU slot prices): a cube found like this at snapshot time is a
+    leftover from an export window whose revert never ran (for example HA
+    restarted mid-window), not a baseline the user chose. A user's own
+    Dynamic-tariff thresholds will not normally match, and are left alone."""
+    try:
+        if int(state.get("touType") or 0) != TOU_TYPE_DYNAMIC:
+            return False
+        sell = float(state.get("dynamicDischargePrice"))
+        buy = float(state.get("dynamicChargePrice"))
+    except (TypeError, ValueError):
+        return False
+    return sell == float(DYNAMIC_EXPORT_SELL_ABOVE_P) and buy == float(DYNAMIC_EXPORT_BUY_BELOW_P)
+
+
+def _is_empty_tou(state: dict[str, Any]) -> bool:
+    """True if `state` is TOU mode with no slots in any tier list."""
+    if str(state.get("workStatus")) != WORK_STATUS_TOU:
+        return False
+    return not any(state.get(key) for key in _TIER_LIST_KEYS)
+
+
+def _clear_dynamic(state: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of `state` with Dynamic-tariff mode switched off:
+    standard TOU `touType` and no dynamic thresholds."""
+    cleaned = dict(state)
+    cleaned["touType"] = 0
+    cleaned.pop("dynamicChargePrice", None)
+    cleaned.pop("dynamicDischargePrice", None)
+    return cleaned
+
+
 def _first_non_shim_price(slots: list[Any] | None) -> float | None:
     """Return the price of the first non-shim slot in `slots`, or None if none.
 
@@ -202,14 +286,28 @@ def has_non_shim_user_slots(state: dict[str, Any]) -> bool:
 class PredbatShim:
     """Per-device Predbat shim. One instance per EP Cube config entry."""
 
-    def __init__(self, hass: HomeAssistant, entry_id: str, client: EPCubeClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        client: EPCubeClient,
+        force_export_mode: str = DEFAULT_FORCE_EXPORT_MODE,
+    ) -> None:
         self.hass = hass
         self.entry_id = entry_id
         self.client = client
+        # How discharge_start realises "force export": legacy TOU peak slot
+        # (default) or Dynamic-tariff mode (real grid export).
+        self.force_export_mode = force_export_mode
         # Baseline = full getSwitchMode payload snapshotted at first override.
         self._baseline: dict[str, Any] | None = None
         self._active_override: dict[str, Any] | None = None
         self._revert_unsub = None
+        # Dynamic-export safety net: a second timer a few minutes after the
+        # window end that verifies the cube really left Dynamic mode.
+        self._watchdog_unsub = None
+        self._retry_unsub = None
+        self._revert_retries = 0
 
     @property
     def is_active(self) -> bool:
@@ -253,7 +351,14 @@ class PredbatShim:
         loads, grid import refused. The cloud has NO command for active
         battery → grid export; any surplus above load may export if
         `sellingEnable` permits, but it is not commanded. Known limitation —
-        see ARCHITECTURE.md."""
+        see ARCHITECTURE.md.
+
+        With `force_export_mode == "dynamic"` the window is instead realised
+        by Dynamic-tariff mode (see `_discharge_start_dynamic`), which does
+        export battery energy to the grid."""
+        if self.force_export_mode == FORCE_EXPORT_MODE_DYNAMIC:
+            await self._discharge_start_dynamic(end_time, target_soc_pct)
+            return
         params = {"kind": KIND_DISCHARGE, "end_time": end_time, "target_soc_pct": target_soc_pct}
         if self._matches_active(params):
             _LOGGER.debug("discharge_start: idempotent no-op")
@@ -278,6 +383,103 @@ class PredbatShim:
             _LOGGER.info("discharge_stop: reverted to baseline")
         else:
             _LOGGER.debug("discharge_stop: no active discharge override (no-op)")
+
+    # ------------------------------------------------------------------
+    # Dynamic-tariff forced export
+    # ------------------------------------------------------------------
+    async def _discharge_start_dynamic(
+        self, end_time: datetime, target_soc_pct: float
+    ) -> None:
+        """Force a grid export by switching the cube to Dynamic-tariff mode.
+
+        The cube sells while its export price is above `dynamicDischargePrice`
+        and stops at the Reserve SoC (`selfConsumptioinReserveSoc`), so a low
+        sell-above makes it export at full power and Predbat's target SoC
+        becomes the stopping point. Buy-below is set to 0 so it never imports
+        for the export. The window ends with a revert to the baseline and a
+        watchdog that checks the cube really left Dynamic mode, because a cube
+        stuck in Dynamic mode would not take the cheap-rate charge.
+        """
+        await self._snapshot_baseline()
+        reserve = self._dynamic_reserve(target_soc_pct)
+        params = {
+            "kind": KIND_DISCHARGE,
+            "dynamic": True,
+            "end_time": end_time,
+            "reserve_pct": reserve,
+        }
+        if self._matches_active(params):
+            _LOGGER.debug("discharge_start (dynamic): idempotent no-op")
+            return
+        payload = self._build_dynamic_override(reserve)
+        await self._apply_dynamic_override(payload, params)
+        self._schedule_revert(end_time)
+        self._schedule_watchdog(end_time)
+        _LOGGER.info(
+            "discharge_start applied: dynamic export until %s, reserve %d%% "
+            "(sell above %.1fp, buy below %.1fp)",
+            end_time.isoformat(), reserve,
+            DYNAMIC_EXPORT_SELL_ABOVE_P, DYNAMIC_EXPORT_BUY_BELOW_P,
+        )
+
+    async def debug_dynamic_export(self, duration_minutes: int, reserve_pct: float) -> None:
+        """Manual forced export for `duration_minutes`, stopping at `reserve_pct`.
+        Diagnostic tool (like debug_freeze) for exercising the Dynamic-tariff
+        path against the live cube without involving Predbat."""
+        end_time = dt_util.utcnow() + timedelta(minutes=duration_minutes)
+        await self._discharge_start_dynamic(end_time, reserve_pct)
+
+    def _dynamic_reserve(self, target_soc_pct: float) -> int:
+        """Reserve SoC for a forced export: Predbat's target, rounded UP to an
+        even percent (so the export never overshoots the target and tiny plan
+        changes do not trigger a rewrite every cycle), never below the cube's
+        own self-consumption reserve and never above 100."""
+        floor = int(float((self._baseline or {}).get("selfConsumptioinReserveSoc") or 20))
+        target = max(0.0, min(100.0, float(target_soc_pct)))
+        rounded = int(math.ceil(target / 2.0) * 2)
+        return max(floor, min(100, rounded))
+
+    def _build_dynamic_override(self, reserve_pct: int) -> dict[str, Any]:
+        """Compose the /api/device/switchMode body that puts the cube into
+        Dynamic-tariff mode with the forced-export thresholds."""
+        return payload_from_switch_mode_read(
+            self.client.dev_id,
+            self._baseline or {},
+            overrides={
+                "workStatus": WORK_STATUS_TOU,
+                "touType": TOU_TYPE_DYNAMIC,
+                "dynamicChargePrice": float(DYNAMIC_EXPORT_BUY_BELOW_P),
+                "dynamicDischargePrice": float(DYNAMIC_EXPORT_SELL_ABOVE_P),
+                "selfConsumptioinReserveSoc": str(reserve_pct),
+                "allowChargingXiaGrid": "0",
+            },
+        )
+
+    async def _apply_dynamic_override(
+        self, payload: dict[str, Any], params: dict[str, Any]
+    ) -> None:
+        # Record the override BEFORE writing: if the write lands but its
+        # read-back verification fails, the cube may really be in Dynamic mode
+        # and the revert machinery must still know about it.
+        self._active_override = {
+            **params,
+            "applied_mode": OPERATING_MODE_TOU,
+            "applied_schedule": payload,
+        }
+        verify_keys = (
+            "workStatus", "touType", "dynamicDischargePrice", "selfConsumptioinReserveSoc",
+        )
+        try:
+            await self.client.switch_mode(payload, verify_keys=verify_keys)
+        except EPCubeError as err:
+            _LOGGER.error(
+                "dynamic export override failed (%s) — reverting to baseline", err
+            )
+            try:
+                await self._revert_to_baseline()
+            except EPCubeError:
+                self._schedule_revert_retry()
+            raise
 
     async def charge_freeze(self, end_time: datetime) -> None:
         """Hold the battery genuinely idle until end_time via a mid-peak TOU
@@ -314,6 +516,7 @@ class PredbatShim:
     def cancel_revert_timer(self) -> None:
         """Public cancel — used during integration teardown."""
         self._cancel_revert()
+        self._cancel_watchdog()
 
     def patch_baseline(self, field: str, value: Any) -> None:
         """Update a single field in the captured baseline.
@@ -338,8 +541,10 @@ class PredbatShim:
         ground truth rather than overwriting it.
         """
         self._cancel_revert()
+        self._cancel_watchdog()
         self._active_override = None
         self._baseline = None
+        self._revert_retries = 0
 
     # ------------------------------------------------------------------
     # Internals
@@ -369,6 +574,16 @@ class PredbatShim:
         except EPCubeError as err:
             _LOGGER.error("baseline snapshot failed: %s", err)
             raise
+        if _is_shim_dynamic_signature(live):
+            # The cube is still in a forced-export Dynamic mode we left behind
+            # (revert never ran, e.g. HA restarted mid-window). Never adopt it
+            # as the baseline — a revert would put the cube straight back.
+            _LOGGER.warning(
+                "baseline snapshot found a stale shim Dynamic-tariff export "
+                "(sell above %sp); treating the baseline as standard TOU",
+                live.get("dynamicDischargePrice"),
+            )
+            live = _clear_dynamic(live)
         self._baseline, stripped = _strip_shim_slots(live)
         if stripped:
             _LOGGER.info(
@@ -430,17 +645,26 @@ class PredbatShim:
 
         # Start from the full baseline snapshot, then apply our diffs:
         #   - flip workStatus → TOU (2)
+        #   - force touType → standard TOU (0). A baseline read while the cube
+        #     is in Dynamic-tariff mode carries touType 1, and mirroring that
+        #     into a slot-based TOU write is a schedule conflict the cloud
+        #     rejects with HTTP 500 "Failure".
         #   - replace the target tier list with our appended version
         #   - honour the caller's allow_grid_charge intent
-        return payload_from_switch_mode_read(
+        payload = payload_from_switch_mode_read(
             self.client.dev_id,
             baseline,
             overrides={
                 "workStatus": WORK_STATUS_TOU,
+                "touType": TOU_TYPE_STANDARD,
                 tier_key: appended_tier,
                 "allowChargingXiaGrid": "1" if allow_grid_charge else "0",
             },
         )
+        # Slot-based TOU has no use for Dynamic-tariff thresholds.
+        payload.pop("dynamicChargePrice", None)
+        payload.pop("dynamicDischargePrice", None)
+        return payload
 
     async def _apply_tou_override(
         self, payload: dict[str, Any], params: dict[str, Any]
@@ -503,9 +727,9 @@ class PredbatShim:
             self._active_override = None
             return
 
-        payload = payload_from_switch_mode_read(self.client.dev_id, self._baseline)
+        was_dynamic = bool(self._active_override and self._active_override.get("dynamic"))
         try:
-            await self.client.switch_mode(payload)
+            await self._post_baseline(self._baseline, verify_tou_type=was_dynamic)
         except EPCubeError as err:
             _LOGGER.error(
                 "revert FAILED — battery may be stuck on override. err=%s",
@@ -513,6 +737,112 @@ class PredbatShim:
             )
             raise
         self._active_override = None
+        self._revert_retries = 0
+
+    async def _post_baseline(self, base: dict[str, Any], *, verify_tou_type: bool) -> None:
+        """Write `base` back to the cube as a switchMode payload.
+
+        After a Dynamic-tariff export the read-back must also show the cube
+        has left Dynamic mode (`touType`). If the baseline is a TOU mode with
+        no slots at all and the cloud rejects switching Dynamic → that empty
+        TOU (the app and the cloud both want real off-peak/peak slots), fall
+        back to Self-Consumption, which is how the cube behaves with an
+        empty TOU schedule anyway.
+        """
+        payload = payload_from_switch_mode_read(self.client.dev_id, base)
+        verify_keys = ("workStatus", "touType") if verify_tou_type else ("workStatus",)
+        try:
+            await self.client.switch_mode(payload, verify_keys=verify_keys)
+        except EPCubeError as err:
+            if not (verify_tou_type and _is_empty_tou(base)):
+                raise
+            _LOGGER.warning(
+                "revert to an empty TOU schedule was rejected (%s) — "
+                "retrying as Self-Consumption (equivalent behaviour)",
+                err,
+            )
+            fallback = payload_from_switch_mode_read(
+                self.client.dev_id,
+                base,
+                overrides={
+                    "workStatus": WORK_STATUS_SELF_CONSUMPTION,
+                    "touType": TOU_TYPE_STANDARD,
+                },
+            )
+            await self.client.switch_mode(fallback, verify_keys=("workStatus",))
+
+    def _schedule_revert_retry(self) -> None:
+        """Retry a failed revert shortly, a bounded number of times. A cube
+        left in Dynamic mode would miss the cheap-rate charge, so a transient
+        cloud error must not be the end of the story."""
+        if self._retry_unsub is not None:
+            return
+        if self._revert_retries >= DYNAMIC_REVERT_MAX_RETRIES:
+            _LOGGER.error(
+                "revert still failing after %d retries — giving up; check the cube mode",
+                self._revert_retries,
+            )
+            return
+        self._revert_retries += 1
+        self._retry_unsub = async_call_later(
+            self.hass, DYNAMIC_REVERT_RETRY_SECONDS, self._on_revert_retry
+        )
+
+    async def _on_revert_retry(self, _now: datetime) -> None:
+        if self._retry_unsub is not None:
+            self._retry_unsub()
+            self._retry_unsub = None
+        _LOGGER.info("retrying revert (attempt %d)", self._revert_retries)
+        try:
+            await self._revert_to_baseline()
+        except EPCubeError:
+            self._schedule_revert_retry()
+
+    def _schedule_watchdog(self, end_time: datetime) -> None:
+        """Arm the post-window check for a dynamic export."""
+        self._cancel_watchdog()
+        when = dt_util.as_utc(end_time) + timedelta(minutes=DYNAMIC_REVERT_WATCHDOG_MINUTES)
+        self._watchdog_unsub = async_track_point_in_utc_time(
+            self.hass, self._on_watchdog, when
+        )
+
+    def _cancel_watchdog(self) -> None:
+        if self._watchdog_unsub is not None:
+            self._watchdog_unsub()
+            self._watchdog_unsub = None
+
+    async def _on_watchdog(self, _now: datetime) -> None:
+        """A few minutes after a dynamic export window: make sure the cube is
+        really out of Dynamic mode, and force it out if it is not."""
+        # Cancel (not just forget) the handle: harmless when this is the timer
+        # firing, and it stops a stray timer when called directly.
+        self._cancel_watchdog()
+        if self._active_override is not None and self._active_override.get("dynamic"):
+            _LOGGER.warning(
+                "dynamic export watchdog: override still active after the window — retrying revert"
+            )
+            try:
+                await self._revert_to_baseline()
+            except EPCubeError:
+                self._schedule_revert_retry()
+            return
+        try:
+            live = await self.client.get_switch_mode()
+        except EPCubeError as err:
+            _LOGGER.warning("dynamic export watchdog: cannot read the cube (%s)", err)
+            return
+        if not _is_shim_dynamic_signature(live):
+            _LOGGER.debug("dynamic export watchdog: cube is out of Dynamic mode — all good")
+            return
+        _LOGGER.error(
+            "dynamic export watchdog: cube is STILL in forced-export Dynamic mode — forcing it back"
+        )
+        base = _clear_dynamic(self._baseline if self._baseline is not None else live)
+        try:
+            await self._post_baseline(base, verify_tou_type=True)
+        except EPCubeError as err:
+            _LOGGER.error("dynamic export watchdog: forced revert FAILED (%s)", err)
+            self._schedule_revert_retry()
 
     def _schedule_revert(self, end_time: datetime) -> None:
         """Schedule a one-shot revert at end_time. Replaces any prior schedule."""
@@ -526,13 +856,20 @@ class PredbatShim:
         if self._revert_unsub is not None:
             self._revert_unsub()
             self._revert_unsub = None
+        if self._retry_unsub is not None:
+            self._retry_unsub()
+            self._retry_unsub = None
 
     async def _on_revert_timer(self, _now: datetime) -> None:
         _LOGGER.info("revert timer fired — restoring baseline")
+        if self._revert_unsub is not None:
+            # Cancel (not just forget) the handle — see _on_watchdog.
+            self._revert_unsub()
+            self._revert_unsub = None
         try:
             await self._revert_to_baseline()
         except EPCubeError:
-            pass
+            self._schedule_revert_retry()
 
 
 # ---------- service registration ----------
@@ -605,9 +942,10 @@ async def async_register_services(hass: HomeAssistant) -> None:
         target_soc_pct = float(
             plan.discharge_target_soc_pct if plan.discharge_target_soc_pct is not None else 0
         )
-        await shim.discharge_start(
-            end_time=plan.discharge_window.end, target_soc_pct=target_soc_pct
-        )
+        end_time = plan.discharge_window.end
+        if shim.force_export_mode == FORCE_EXPORT_MODE_DYNAMIC:
+            end_time = _clamp_before_charge_window(plan, end_time)
+        await shim.discharge_start(end_time=end_time, target_soc_pct=target_soc_pct)
 
     async def handle_discharge_stop(call: ServiceCall) -> None:
         await _resolve_shim(call).discharge_stop()
@@ -635,6 +973,18 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def handle_idle(call: ServiceCall) -> None:
         await _resolve_shim(call).idle()
 
+    async def handle_debug_dynamic_export(call: ServiceCall) -> None:
+        # Diagnostic: skips read_plan and forces a Dynamic-tariff export for
+        # `duration_minutes`, stopping at `reserve_pct`.
+        shim = _resolve_shim(call)
+        duration = int(call.data.get("duration_minutes", 5))
+        reserve = float(call.data.get("reserve_pct", 50))
+        _LOGGER.warning(
+            "debug_dynamic_export: bypassing predbat plan — forced export for %d min, reserve %.0f%%",
+            duration, reserve,
+        )
+        await shim.debug_dynamic_export(duration, reserve)
+
     async def handle_debug_freeze(call: ServiceCall) -> None:
         # Diagnostic: skips read_plan and freezes for `duration_minutes`.
         shim = _resolve_shim(call)
@@ -656,10 +1006,17 @@ async def async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_DEBUG_FREEZE, handle_debug_freeze, schema=DEBUG_FREEZE_SCHEMA
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DEBUG_DYNAMIC_EXPORT,
+        handle_debug_dynamic_export,
+        schema=DEBUG_DYNAMIC_EXPORT_SCHEMA,
+    )
 
 
 def async_unregister_services(hass: HomeAssistant) -> None:
     for service in (
+        SERVICE_DEBUG_DYNAMIC_EXPORT,
         SERVICE_CHARGE_START,
         SERVICE_CHARGE_STOP,
         SERVICE_DISCHARGE_START,

@@ -65,3 +65,33 @@ debug_freeze:
       description: Cube devId — only required if multiple EP Cubes are configured.
       selector:
         text:
+
+debug_dynamic_export:
+  name: Debug — forced export (Dynamic tariff) for N minutes
+  description: Diagnostic only. Snapshots the cloud baseline, switches the cube to Dynamic-tariff mode with a low sell-above threshold so it exports battery energy to the grid at full power until the Reserve SoC, then auto-reverts to the baseline (with a watchdog that confirms the cube left Dynamic mode). Bypasses Predbat plan reading. The cube must already have Dynamic tariff configured in the EP Cube app (Octopus price source, import and sell tariffs).
+  fields:
+    duration_minutes:
+      name: Duration (minutes)
+      required: false
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: min
+    reserve_pct:
+      name: Reserve SoC (%)
+      required: false
+      default: 50
+      description: The export stops at this state of charge. Never below the cube's own self-consumption reserve.
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    device_id:
+      name: Device ID
+      required: false
+      description: Cube devId — only required if multiple EP Cubes are configured.
+      selector:
+        text:

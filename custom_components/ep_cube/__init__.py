@@ -17,11 +17,13 @@ from .const import (
     CONF_BEARER_TOKEN,
     CONF_CAPACITY_KWH,
     CONF_DEV_ID,
+    CONF_FORCE_EXPORT_MODE,
     CONF_PASSWORD,
     CONF_REGION,
     CONF_SG_SN,
     CONF_USERNAME,
     DEFAULT_API_PREFIX,
+    DEFAULT_FORCE_EXPORT_MODE,
     DOMAIN,
     REGION_OTHER,
     REGIONS,
@@ -108,7 +110,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     stats_coordinator = EPCubeStatsCoordinator(hass, entry, client)
     await stats_coordinator.async_config_entry_first_refresh()
 
-    shim = PredbatShim(hass=hass, entry_id=entry.entry_id, client=client)
+    # How Predbat's "force export" windows are realised: the legacy TOU peak
+    # slot (default — drains to the house only) or Dynamic-tariff mode (real
+    # grid export; needs Dynamic tariff set up in the EP Cube app first).
+    shim = PredbatShim(
+        hass=hass,
+        entry_id=entry.entry_id,
+        client=client,
+        force_export_mode=entry.options.get(
+            CONF_FORCE_EXPORT_MODE, DEFAULT_FORCE_EXPORT_MODE
+        ),
+    )
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "coordinator": coordinator,
