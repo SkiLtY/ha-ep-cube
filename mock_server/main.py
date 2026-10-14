@@ -232,6 +232,24 @@ async def switch_mode(
                 detail=f"The parameter cannot be null ：{required}",
             )
 
+    # Modelled on a report from a real Dynamic-tariff cube (GitHub issue on
+    # this repo): while touType is 1 (Dynamic tariff), a slot-based TOU write
+    # that still says touType 1 is rejected with HTTP 500 "Failure". The shim
+    # must send touType 0 with slot lists.
+    if (
+        str(payload["workStatus"]) == "2"
+        and int(payload.get("touType", 0) or 0) == 1
+        and any(
+            payload.get(k)
+            for k in (
+                "peakTimeList", "midPeakTimeList", "offPeakTimeList",
+                "peakTimeListNonWorkDay", "midPeakTimeListNonWorkDay",
+                "offPeakTimeListNonWorkDay",
+            )
+        )
+    ):
+        raise HTTPException(status_code=500, detail="Failure")
+
     dev.workStatus = str(payload["workStatus"])
     dev.weatherWatch = str(payload["weatherWatch"])
     dev.onlySave = str(payload["onlySave"])
@@ -243,6 +261,10 @@ async def switch_mode(
         dev.allowChargingXiaGrid = str(payload["allowChargingXiaGrid"])
     if "touType" in payload:
         dev.touType = int(payload["touType"])
+    if "dynamicChargePrice" in payload:
+        dev.dynamicChargePrice = float(payload["dynamicChargePrice"])
+    if "dynamicDischargePrice" in payload:
+        dev.dynamicDischargePrice = float(payload["dynamicDischargePrice"])
     dev.tou.apply_wire(payload)
     return envelope()
 

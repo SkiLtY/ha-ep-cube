@@ -172,6 +172,11 @@ class DeviceState:
     # Schedule
     tou: TouSchedule = field(default_factory=_default_tou)
     touType: int = 0
+    # Dynamic-tariff thresholds in pence/kWh ("buy below" / "sell above"). The
+    # real cube returns them from getSwitchMode while touType == 1 (captured
+    # 2026-10-14 from the web portal's own getSwitchMode call).
+    dynamicChargePrice: float = 0.0
+    dynamicDischargePrice: float = 0.0
     weatherWatch: str = "0"
     onlySave: str = "0"
 
@@ -274,6 +279,9 @@ class DeviceState:
             "existsSg": "1",
             "touType": self.touType,
         })
+        if self.touType == 1:
+            data["dynamicChargePrice"] = self.dynamicChargePrice
+            data["dynamicDischargePrice"] = self.dynamicDischargePrice
         return data
 
     def to_device_list_entry(self) -> dict[str, Any]:
