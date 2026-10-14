@@ -129,10 +129,32 @@ There is no "peak + export surplus to grid at commanded rate" mode. The shim map
 
 For the Octopus Agile arbitrage use case this is usually fine — Predbat's discharge windows align with peak import prices when the house is also drawing load, so battery → loads still captures most of the value. The gap matters for "export windows during low household load" (e.g. midday plunge-pricing while you're at work) where peak mode will under-deliver versus a true force-export.
 
-Workarounds considered (none implemented):
+Workarounds considered:
 - **Local Modbus/RS485** — EP Cube has no exposed local API.
 - **Hidden settings** (`selfHelpRate`, `winterMode` seen in JS bundle, unexplored).
-- **Accept the gap** — current path. Documented here so it doesn't get re-discovered as a bug.
+- **Accept the gap** — the default path (`force_export_mode: tou_peak`).
+- **Dynamic-tariff mode** — implemented, opt-in. See below.
+
+#### Forced export via Dynamic-tariff mode (`force_export_mode: dynamic`)
+
+The cube *can* export its battery to the grid — just not through TOU. In the EP Cube app, **Dynamic tariff** (`workStatus` `2` + `touType` `1`) follows an Octopus price feed and acts on two thresholds: "buy below" and "sell above" (pence/kWh), with a Reserve SoC. On a real HES-EU2-S7-20G (2026-10-14), a low sell-above made the cube export ~6.4 kW to the grid (battery ~7.25 kW including the house) and stop at the Reserve SoC.
+
+`getSwitchMode` reports the settings while `touType` is `1`: `dynamicChargePrice` (buy below), `dynamicDischargePrice` (sell above), `selfConsumptioinReserveSoc` (Reserve SoC) and `backupPowerReserveSoc` (Charging Limit SoC).
+
+With `force_export_mode: dynamic` the shim's `discharge_start`:
+
+1. Snapshots the baseline as usual.
+2. POSTs `/api/device/switchMode` with `workStatus` `2`, `touType` `1`, `dynamicDischargePrice` = `DYNAMIC_EXPORT_SELL_ABOVE_P` (5p), `dynamicChargePrice` = `DYNAMIC_EXPORT_BUY_BELOW_P` (0p, never buy), and `selfConsumptioinReserveSoc` = Predbat's export target (rounded up to an even percent, never below the cube's own reserve). The cube stops exporting at the reserve, so Predbat's target SoC is the stopping point.
+3. Reverts to the baseline at the window end, verifying `touType` has left Dynamic mode. If the cloud rejects a switch to an *empty* TOU schedule it falls back to Self-Consumption (equivalent behaviour).
+4. Arms a **watchdog** a few minutes after the window that confirms the cube really left Dynamic mode, and forces it out if not. Failed reverts are retried. A cube stuck in Dynamic mode would miss the cheap-rate charge, because Dynamic mode's *import* side prices against the Agile tariffs offered in the app, not a Go/Flux tariff.
+
+Other rules: a forced export is clamped so it never runs into Predbat's planned charge window; a stale shim export found at baseline time (HA restarted mid-window) is never adopted as the baseline; and every TOU override now forces `touType` `0`, because mirroring `touType` `1` from a read-back into a slot-based TOU write is rejected by the cloud with HTTP 500 "Failure" on cubes that have Dynamic tariff enabled.
+
+Prerequisites and caveats:
+- Dynamic tariff must already be configured in the EP Cube app (Octopus price source, region, import and sell tariffs). The portal's Submit for it is disabled; the mobile app can set it.
+- The cube compares the thresholds with the price of the *sell tariff chosen in the app*. With a flat sell tariff (for example "Outgoing Octopus") the sell-above threshold simply acts as an on/off switch for forced export, independent of half-hourly prices. You are still paid your real export tariff for what you export.
+- The `debug_dynamic_export` service exercises the path for a bounded time without Predbat.
+- Predbat's cycle-cost setting (`metric_battery_cycle`) matters more once exports are real: thin trades that were harmless when the export never happened now wear the battery.
 
 ## Native services
 
