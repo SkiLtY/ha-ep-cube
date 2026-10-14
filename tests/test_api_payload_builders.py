@@ -221,3 +221,66 @@ class TestPayloadFromSwitchModeRead:
     def test_required_keys_still_present_via_mirror(self, get_switch_mode):
         payload = payload_from_switch_mode_read("5613", get_switch_mode)
         assert REQUIRED_KEYS.issubset(payload)
+
+
+class TestDynamicTariffFields:
+    """Dynamic-tariff thresholds (`touType` 1): pence/kWh "buy below" and
+    "sell above", reported by getSwitchMode while the cube is in Dynamic mode
+    (captured 2026-10-14 from the web portal's own getSwitchMode call)."""
+
+    def test_absent_unless_given(self):
+        # Ordinary TOU writes must stay byte-identical to before.
+        payload = build_switch_mode_payload(dev_id="5613", work_status="2")
+        assert "dynamicChargePrice" not in payload
+        assert "dynamicDischargePrice" not in payload
+
+    def test_given_values_are_floats(self):
+        payload = build_switch_mode_payload(
+            dev_id="5613", work_status="2", tou_type=1,
+            dynamic_charge_price=0, dynamic_discharge_price=5,
+        )
+        assert payload["dynamicChargePrice"] == 0.0
+        assert payload["dynamicDischargePrice"] == 5.0
+        assert isinstance(payload["dynamicChargePrice"], float)
+        assert isinstance(payload["dynamicDischargePrice"], float)
+
+    def test_zero_charge_price_is_not_dropped(self):
+        # 0.0 is a real threshold ("never buy"); it must not be mistaken for "unset".
+        payload = build_switch_mode_payload(
+            dev_id="5613", work_status="2", dynamic_charge_price=0.0,
+        )
+        assert payload["dynamicChargePrice"] == 0.0
+
+    def test_mirrored_from_a_dynamic_read(self, get_switch_mode):
+        read = {**get_switch_mode, "workStatus": "2", "touType": 1,
+                "dynamicChargePrice": 5.0, "dynamicDischargePrice": 10.0}
+        payload = payload_from_switch_mode_read("5613", read)
+        assert payload["touType"] == 1
+        assert payload["dynamicChargePrice"] == 5.0
+        assert payload["dynamicDischargePrice"] == 10.0
+
+    def test_not_invented_for_a_plain_tou_read(self, get_switch_mode):
+        payload = payload_from_switch_mode_read("5613", get_switch_mode)
+        assert "dynamicChargePrice" not in payload
+        assert "dynamicDischargePrice" not in payload
+
+    def test_required_keys_still_present(self):
+        payload = build_switch_mode_payload(
+            dev_id="5613", work_status="2", tou_type=1,
+            dynamic_charge_price=0.0, dynamic_discharge_price=5.0,
+        )
+        assert REQUIRED_KEYS.issubset(payload)
+
+
+class TestValuesEqualNumeric:
+    """The write read-back check must not trip over 5 vs 5.0."""
+
+    @pytest.mark.parametrize(("a", "b"), [(5.0, 5), ("5", 5.0), (0.0, "0"), (10.0, "10.0")])
+    def test_numerically_equal(self, a, b):
+        from custom_components.ep_cube.api import _values_equal
+        assert _values_equal(a, b) is True
+
+    @pytest.mark.parametrize(("a", "b"), [(5.0, 10.0), ("5", 6), ("peak", "mid")])
+    def test_not_equal(self, a, b):
+        from custom_components.ep_cube.api import _values_equal
+        assert _values_equal(a, b) is False

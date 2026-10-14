@@ -214,11 +214,18 @@ def build_switch_mode_payload(
     dst_weekday_days: list[int | str] | None = None,
     dst_weekend_days: list[int | str] | None = None,
     tou_type: int = 0,
+    dynamic_charge_price: float | None = None,
+    dynamic_discharge_price: float | None = None,
 ) -> dict[str, Any]:
     """Build the full /api/device/switchMode POST body.
 
     Every field is required — minimal 3-field calls return
     `500 "The parameter cannot be null ：weatherWatch"` (see PHASE_3_2.md).
+
+    `dynamic_charge_price` / `dynamic_discharge_price` (pence/kWh, "buy below"
+    / "sell above") are the Dynamic-tariff thresholds the cube reports in
+    getSwitchMode when `touType` is 1. They are only added to the body when
+    given, so ordinary TOU writes stay byte-identical to before.
     `weatherWatch` is forced to "0" because the forecast-driven pre-charge
     feature conflicts with Predbat's economic optimisation. `onlySave` is
     forced to "0" because it is persisted state on the cube — silently
@@ -233,7 +240,7 @@ def build_switch_mode_payload(
     dst_weekday_str = [str(d) for d in (dst_weekday_days or weekday_days or [1, 2, 3, 4, 5])]
     dst_weekend_str = [str(d) for d in (dst_weekend_days or weekend_days or [6, 7])]
 
-    return {
+    payload = {
         "devId": str(dev_id),
         "workStatus": str(work_status),
         "allowChargingXiaGrid": "1" if allow_grid_charge else "0",
@@ -260,6 +267,11 @@ def build_switch_mode_payload(
         "dayLightOffPeakTimeListNonWorkDay": _normalise_slots(dst_off_peak_slots_weekend),
         "dayLightActiveWeekNonWorkDay": dst_weekend_str,
     }
+    if dynamic_charge_price is not None:
+        payload["dynamicChargePrice"] = float(dynamic_charge_price)
+    if dynamic_discharge_price is not None:
+        payload["dynamicDischargePrice"] = float(dynamic_discharge_price)
+    return payload
 
 
 def payload_from_switch_mode_read(
@@ -307,10 +319,22 @@ def payload_from_switch_mode_read(
         dst_weekday_days=as_str_list("dayLightActiveWeek") or as_str_list("activeWeek"),
         dst_weekend_days=as_str_list("dayLightActiveWeekNonWorkDay") or as_str_list("activeWeekNonWorkDay"),
         tou_type=int(read_state.get("touType") or 0),
+        dynamic_charge_price=_float_or_none(read_state.get("dynamicChargePrice")),
+        dynamic_discharge_price=_float_or_none(read_state.get("dynamicDischargePrice")),
     )
     if overrides:
         payload.update(overrides)
     return payload
+
+
+def _float_or_none(value: Any) -> float | None:
+    """Coerce a wire number/str to float; None for missing/blank/garbage."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 # ----------------------------------------------------------------------
@@ -730,4 +754,9 @@ def _values_equal(a: Any, b: Any) -> bool:
         return all(_values_equal(x, y) for x, y in zip(a, b))
     if isinstance(a, bool) or isinstance(b, bool):
         return bool(a) == bool(b)
-    return str(a) == str(b)
+    if str(a) == str(b):
+        return True
+    # Numeric equivalence ("5" vs 5.0, "10.0" vs 10): the cube's price
+    # thresholds come back as JSON floats whatever form we wrote them in.
+    fa, fb = _float_or_none(a), _float_or_none(b)
+    return fa is not None and fb is not None and fa == fb
