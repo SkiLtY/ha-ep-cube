@@ -109,18 +109,16 @@ FORCE_EXPORT_MODE_DYNAMIC = "dynamic"
 DEFAULT_FORCE_EXPORT_MODE = FORCE_EXPORT_MODE_TOU_PEAK
 
 # Dynamic-tariff thresholds used for a forced export, in pence/kWh. The cube
-# compares them with the export price of the tariff chosen in the app. With a
-# flat export tariff ("Outgoing Octopus") any sell-above below that flat rate
-# means "export now"; buy-below 0 means "never buy from the grid" (an Agile
-# import price below 0p, i.e. paid-to-consume, is the only exception).
-DYNAMIC_EXPORT_SELL_ABOVE_P = 5.0
-# The sell-above actually written is lowered for a window whose export price
-# dips near or under it (see PredbatShim._sell_above_for_window): it is kept
-# this far below the window's lowest export price, and never under the cube's
-# smallest usable value (the app takes 0.00-999.99 in 0.01 steps).
-DYNAMIC_EXPORT_PRICE_MARGIN_P = 1.0
-DYNAMIC_EXPORT_SELL_ABOVE_MIN_P = 0.01
+# compares them with the export price of the tariff chosen in the app: sell-above
+# 0.00 means "export at any price above zero", whatever the tariff or the time of
+# day (verified 2026-10-15 on a real cube: 6.19 kW to the grid with buy 0 / sell
+# 0, so 0 is not read as "selling off"); buy-below 0 means "never buy from the
+# grid" (an import price below 0p, i.e. paid-to-consume, is the only exception).
+DYNAMIC_EXPORT_SELL_ABOVE_P = 0.0
 DYNAMIC_EXPORT_BUY_BELOW_P = 0.0
+# Earlier builds wrote a sell-above of up to 5p. A cube found in Dynamic mode with
+# buy 0 and a sell-above in 0..this is still recognised as a leftover shim export.
+DYNAMIC_EXPORT_LEGACY_SELL_ABOVE_MAX_P = 5.0
 
 # Dynamic-tariff thresholds for a forced grid CHARGE (an experiment, see
 # PredbatShim.debug_dynamic_charge): buy-below at the app's maximum so the cube

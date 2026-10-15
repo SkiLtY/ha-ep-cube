@@ -100,7 +100,7 @@ class TestDynamicExport:
         payload = _write(fake_client, 0)
         assert payload["workStatus"] == WORK_STATUS_TOU
         assert payload["touType"] == 1
-        assert payload["dynamicDischargePrice"] == 5.0   # sell above 5p: export now
+        assert payload["dynamicDischargePrice"] == 0.0   # sell above 0p: export at any price
         assert payload["dynamicChargePrice"] == 0.0      # never buy for the export
         assert payload["allowChargingXiaGrid"] == "0"
         assert payload["selfConsumptioinReserveSoc"] == "52"
@@ -419,46 +419,45 @@ class TestSellAboveGuard:
         shim.coordinator.data = {"import": [], "export": _export_slots(prices)}
         return shim._sell_above_for_window(_future(minutes))
 
-    async def test_comfortable_prices_keep_the_default(self, priced_shim):
-        assert self._sell_above(priced_shim, [11.3, 12.0]) == 5.0
+    async def test_the_threshold_is_always_zero(self, priced_shim):
+        assert self._sell_above(priced_shim, [11.3, 12.0]) == 0.0
+        assert self._sell_above(priced_shim, [0.5, 9.0]) == 0.0
+        assert self._sell_above(priced_shim, [-3.0]) == 0.0
 
-    async def test_low_prices_lower_the_threshold_below_them(self, priced_shim):
-        assert self._sell_above(priced_shim, [3.5, 9.0]) == 2.5
-        assert self._sell_above(priced_shim, [5.5]) == 4.5
-
-    async def test_threshold_never_goes_under_the_cubes_minimum(self, priced_shim, caplog):
-        assert self._sell_above(priced_shim, [0.5]) == 0.01
-        assert self._sell_above(priced_shim, [0.0]) == 0.01
+    async def test_a_zero_or_negative_price_in_the_window_warns(self, priced_shim, caplog):
+        self._sell_above(priced_shim, [5.0, 0.0])
         assert "will not export in that slot" in caplog.text
 
-    async def test_only_slots_inside_the_window_count(self, priced_shim):
-        # A cheap slot after the window ends must not lower the threshold.
-        prices = [12.0, 12.0, 1.0]            # third slot starts at +50 min
-        assert self._sell_above(priced_shim, prices, minutes=40) == 5.0
+    async def test_ordinary_prices_do_not_warn(self, priced_shim, caplog):
+        self._sell_above(priced_shim, [5.0, 11.0])
+        assert "will not export in that slot" not in caplog.text
 
-    async def test_no_prices_falls_back_to_the_default(self, hass, fake_client):
+    async def test_only_slots_inside_the_window_count(self, priced_shim, caplog):
+        # A zero-priced slot after the window ends must not warn.
+        prices = [12.0, 12.0, 0.0]            # third slot starts at +50 min
+        self._sell_above(priced_shim, prices, minutes=40)
+        assert "will not export in that slot" not in caplog.text
+
+    async def test_no_prices_is_fine(self, hass, fake_client):
         plain = PredbatShim(hass=hass, entry_id="e", client=fake_client,
                             force_export_mode=FORCE_EXPORT_MODE_DYNAMIC)
-        assert plain._sell_above_for_window(_future(30)) == 5.0
+        assert plain._sell_above_for_window(_future(30)) == 0.0
 
-    async def test_written_payload_uses_the_lowered_threshold(self, priced_shim, fake_client):
+    async def test_written_payload_uses_zero(self, priced_shim, fake_client):
         priced_shim.coordinator.data = {"import": [], "export": _export_slots([3.0, 3.0])}
         await priced_shim.discharge_start(end_time=_future(50), target_soc_pct=50.0)
         payload = fake_client.switch_mode.await_args_list[-1].args[0]
-        assert payload["dynamicDischargePrice"] == 2.0
+        assert payload["dynamicDischargePrice"] == 0.0
         assert payload["dynamicChargePrice"] == 0.0
 
-    async def test_stale_export_with_a_lowered_threshold_is_still_recognised(
+    async def test_stale_exports_are_recognised_whatever_build_wrote_them(
         self, get_switch_mode
     ):
-        assert _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=2.0, buy=0.0))
+        for sell in (0.0, 0.01, 2.0, 5.0):
+            assert _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=sell, buy=0.0))
         assert not _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=999.99, buy=0.0))
-        assert not _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=0.0, buy=0.0))
+        assert not _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=5.5, buy=0.0))
 
-
-# ----------------------------------------------------------------------
-# Forced grid charge in Dynamic-tariff mode (experiment)
-# ----------------------------------------------------------------------
 class TestDynamicCharge:
     async def test_writes_a_dynamic_charge(self, dyn_shim, fake_client):
         await dyn_shim.debug_dynamic_charge(duration_minutes=5, limit_pct=72.0)
@@ -539,4 +538,4 @@ class TestDynamicCharge:
 
     async def test_without_an_override_the_guard_picks_the_threshold(self, dyn_shim, fake_client):
         await dyn_shim.debug_dynamic_export(5, 60.0)
-        assert _write(fake_client, 0)["dynamicDischargePrice"] == 5.0
+        assert _write(fake_client, 0)["dynamicDischargePrice"] == 0.0

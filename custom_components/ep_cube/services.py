@@ -68,8 +68,7 @@ from .const import (
     DYNAMIC_EXPORT_BUY_BELOW_P,
     DYNAMIC_HOLD_BUY_BELOW_P,
     DYNAMIC_HOLD_SELL_ABOVE_P,
-    DYNAMIC_EXPORT_PRICE_MARGIN_P,
-    DYNAMIC_EXPORT_SELL_ABOVE_MIN_P,
+    DYNAMIC_EXPORT_LEGACY_SELL_ABOVE_MAX_P,
     DYNAMIC_EXPORT_SELL_ABOVE_P,
     DYNAMIC_REVERT_MAX_RETRIES,
     DYNAMIC_REVERT_RETRY_SECONDS,
@@ -416,10 +415,10 @@ def _is_shim_dynamic_signature(state: dict[str, Any]) -> bool:
         buy = float(state.get("dynamicChargePrice"))
     except (TypeError, ValueError):
         return False
-    # The sell-above is the default or a value lowered for the window's prices,
-    # so it is anywhere in (0, default]; buy-below is always the fixed value.
+    # The sell-above is 0 now; earlier builds wrote up to 5p, so anything in
+    # 0..5 with buy-below 0 is a shim export. The hold setting (sell 999.99) is not.
     export = (
-        float(DYNAMIC_EXPORT_SELL_ABOVE_MIN_P) <= sell <= float(DYNAMIC_EXPORT_SELL_ABOVE_P)
+        0.0 <= sell <= float(DYNAMIC_EXPORT_LEGACY_SELL_ABOVE_MAX_P)
         and buy == float(DYNAMIC_EXPORT_BUY_BELOW_P)
     )
     return export or _is_shim_dynamic_charge_signature(state)
@@ -739,36 +738,22 @@ class PredbatShim:
     def _sell_above_for_window(self, end_time: datetime) -> float:
         """Sell-above threshold for a forced export ending at `end_time`.
 
-        The cube exports only while its export price is above the threshold,
-        and that price is the live tariff's, which moves (Agile Outgoing was
-        11p at midday and can be far lower). A fixed value would silently do
-        nothing in a slot priced under it. So: the default, lowered to
-        DYNAMIC_EXPORT_PRICE_MARGIN_P under the window's cheapest export price,
-        and never below the cube's smallest usable value. Without a price
-        source (or any price for the window) the default is used. A window
-        that includes a slot at or under the smallest value gets a warning,
-        as the cube will not export in that slot.
+        Always the default, 0.00: the cube exports at any positive export price,
+        so the threshold needs no adjusting to the live tariff. What can still go
+        wrong is a slot whose export price is zero or negative; the cube will not
+        export then, so the window gets a warning (using the cube's own export
+        prices from the price coordinator, when it has them).
         """
-        default = float(DYNAMIC_EXPORT_SELL_ABOVE_P)
         slots = ((getattr(self.price_coordinator, "data", None) or {}).get("export")) or []
         now = dt_util.utcnow()
-        prices = [
-            s["price"] for s in slots
-            if s["end"] > now and s["start"] < end_time
-        ]
-        if not prices:
-            _LOGGER.debug("dynamic export: no export prices for the window, sell above %.2fp", default)
-            return default
-        lowest = min(prices)
-        floor = float(DYNAMIC_EXPORT_SELL_ABOVE_MIN_P)
-        if lowest <= floor:
+        prices = [s["price"] for s in slots if s["end"] > now and s["start"] < end_time]
+        if prices and min(prices) <= float(DYNAMIC_EXPORT_SELL_ABOVE_P):
             _LOGGER.warning(
                 "dynamic export: the export price falls to %.2fp in this window; "
                 "the cube will not export in that slot",
-                lowest,
+                min(prices),
             )
-        wanted = math.floor((lowest - float(DYNAMIC_EXPORT_PRICE_MARGIN_P)) * 100) / 100
-        return round(max(floor, min(default, wanted)), 2)
+        return float(DYNAMIC_EXPORT_SELL_ABOVE_P)
 
     def _build_dynamic_override(
         self, reserve_pct: int, sell_above: float = DYNAMIC_EXPORT_SELL_ABOVE_P

@@ -119,7 +119,7 @@ async def test_dynamic_export_round_trip(rig):
     await shim.discharge_start(end_time=_future(30), target_soc_pct=50.0)
     during = await client.get_switch_mode()
     assert str(during["workStatus"]) == "2" and int(during["touType"]) == 1
-    assert float(during["dynamicDischargePrice"]) == 5.0
+    assert float(during["dynamicDischargePrice"]) == 0.0
     assert float(during["dynamicChargePrice"]) == 0.0
     assert int(during["selfConsumptioinReserveSoc"]) == 50
     assert _tiers(during) == _tiers(base), "a Dynamic write must not change the TOU lists"
