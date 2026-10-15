@@ -543,3 +543,21 @@ class TestDebugProbeWrite:
                 blocking=True, return_response=True,
             )
         fake_client.probe_post.assert_not_awaited()
+
+
+    async def test_savebinding_route_sends_the_binding_block_alone(
+        self, hass, setup_integration, fake_client
+    ):
+        fake_client.get_switch_mode = AsyncMock(return_value=dict(self.LIVE))
+        fake_client.probe = AsyncMock(return_value=dict(self.REL))
+        fake_client.probe_post = AsyncMock(return_value=None)
+        await hass.services.async_call(
+            DOMAIN, "debug_probe_write",
+            {"route": "dynamicPrice/saveBinding", "export_product": "OUTGOING-VAR-24-10-26"},
+            blocking=True, return_response=True,
+        )
+        route, body = fake_client.probe_post.await_args.args
+        assert route == "dynamicPrice/saveBinding"
+        assert body["devId"] == "5613" and body["regionCode"] == "L"
+        assert body["productCodeOut"] == "OUTGOING-VAR-24-10-26"
+        assert "workStatus" not in body

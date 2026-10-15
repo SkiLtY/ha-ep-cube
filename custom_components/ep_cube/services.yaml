@@ -161,6 +161,7 @@ debug_probe_write:
       selector:
         select:
           options:
+            - dynamicPrice/saveBinding
             - device/switchMode
             - device/setDynamicPrice
             - device/saveDynamicPrice

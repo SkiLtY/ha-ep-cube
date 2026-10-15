@@ -190,10 +190,12 @@ DEBUG_PROBE_SCHEMA = vol.Schema(
 # binding (country / region / supplier / tariff). The portal's own route
 # (home/setDynamicPrice) answers 500. The body is never user-supplied: it is
 # built from the cube's CURRENT settings, so a route that works re-saves what
-# is already there. The first entry sends the usual switchMode body with the
+# is already there. dynamicPrice/saveBinding is the route the Android app
+# (3.2.0) declares for this; the next sends the usual switchMode body with the
 # portal's `dynamicPriceBinding` block added; the rest guess the route name
 # and send the portal's body.
 PROBE_WRITE_ROUTES = (
+    "dynamicPrice/saveBinding",
     "device/switchMode",
     "device/setDynamicPrice",
     "device/saveDynamicPrice",
@@ -254,6 +256,10 @@ def build_probe_write_body(
         return payload_from_switch_mode_read(
             dev_id, live, overrides={"dynamicPriceBinding": binding}
         )
+    if route == "dynamicPrice/saveBinding":
+        # Found in the app's ApiService as saveBinding(RequestBody); the body is
+        # most likely the binding block on its own.
+        return binding
     return {
         "devId": str(dev_id),
         "dynamicChargePrice": float(live.get("dynamicChargePrice") or 0),
