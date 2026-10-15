@@ -208,6 +208,18 @@ class TestDynamicBaselineHandling:
         assert dyn_shim._baseline["touType"] == 0
         assert "dynamicDischargePrice" not in dyn_shim._baseline
 
+    async def test_stale_export_reserve_falls_back_to_the_default(
+        self, dyn_shim, fake_client, get_switch_mode
+    ):
+        # The reserve a forced export left behind is Predbat's target (here
+        # 50%), not the user's setting, so it must not be restored.
+        stale = _dynamic_read(get_switch_mode, sell=5.0, buy=0.0)
+        stale["selfConsumptioinReserveSoc"] = "50"
+        fake_client.get_switch_mode.return_value = stale
+        await dyn_shim._snapshot_baseline()
+        assert dyn_shim._baseline["touType"] == 0
+        assert dyn_shim._baseline["selfConsumptioinReserveSoc"] == "20"
+
     async def test_users_own_dynamic_tariff_is_kept(
         self, dyn_shim, fake_client, get_switch_mode
     ):
@@ -242,10 +254,39 @@ class TestDynamicBaselineHandling:
         )
         await shim.charge_start(end_time=_future(30), target_soc_pct=90.0)
         await shim.charge_stop()
-        reverted = _write(fake_client, 1)
+        # Three writes: the override, then a two-step revert. Restoring the
+        # user's lists and touType 1 in ONE write is the shape the cloud
+        # rejects (issue #1), so the lists go back with touType 0 first.
+        assert fake_client.switch_mode.await_count == 3
+        tou_step = _write(fake_client, 1)
+        assert tou_step["touType"] == 0
+        assert "dynamicDischargePrice" not in tou_step
+        assert _verify(fake_client, 1) == ("workStatus", "touType")
+        reverted = _write(fake_client, 2)
         assert reverted["touType"] == 1
         assert reverted["dynamicDischargePrice"] == 10.0
         assert reverted["dynamicChargePrice"] == 5.0
+        assert "dynamicDischargePrice" in _verify(fake_client, 2)
+
+    async def test_failed_dynamic_restore_is_retried_from_the_tou_step(
+        self, shim, fake_client, get_switch_mode
+    ):
+        fake_client.get_switch_mode.return_value = _dynamic_read(
+            get_switch_mode, sell=10.0, buy=5.0
+        )
+        await shim.charge_start(end_time=_future(30), target_soc_pct=90.0)
+        # Step 1 (TOU lists, touType 0) succeeds; step 2 (back to Dynamic) fails.
+        fake_client.switch_mode.side_effect = [{}, EPCubeError("cloud down")]
+        await shim._on_revert_timer(dt_util.utcnow())
+        assert shim._retry_unsub is not None
+        assert shim._revert_retries == 1
+        assert shim._active_override is not None
+        # The retry runs both steps again from the top and then completes.
+        fake_client.switch_mode.side_effect = None
+        await shim._on_revert_retry(dt_util.utcnow())
+        assert shim._active_override is None
+        assert _write(fake_client, 3)["touType"] == 0     # step 1 again
+        assert _write(fake_client, 4)["touType"] == 1     # step 2 succeeds
 
 
 class TestDynamicWatchdog:

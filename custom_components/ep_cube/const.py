@@ -115,6 +115,12 @@ DEFAULT_FORCE_EXPORT_MODE = FORCE_EXPORT_MODE_TOU_PEAK
 DYNAMIC_EXPORT_SELL_ABOVE_P = 5.0
 DYNAMIC_EXPORT_BUY_BELOW_P = 0.0
 
+# The cube's self-consumption reserve default. When a stale shim Dynamic export
+# is found at baseline time (HA restarted mid-window) the reserve it left
+# behind is the export target, not something the user chose, so the recovered
+# baseline falls back to this.
+DEFAULT_SELF_CONSUMPTION_RESERVE_PCT = 20
+
 # After a dynamic export window should have ended, check the cube really left
 # Dynamic mode this many minutes later and retry the revert if not. A cube
 # stuck in Dynamic mode would not take the cheap-rate charge.

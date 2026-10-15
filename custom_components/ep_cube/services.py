@@ -60,6 +60,7 @@ from .api import (
 from .const import (
     DEFAULT_FORCE_EXPORT_MODE,
     DOMAIN,
+    DEFAULT_SELF_CONSUMPTION_RESERVE_PCT,
     DYNAMIC_EXPORT_BUY_BELOW_P,
     DYNAMIC_EXPORT_SELL_ABOVE_P,
     DYNAMIC_REVERT_MAX_RETRIES,
@@ -231,6 +232,19 @@ def _is_shim_dynamic_signature(state: dict[str, Any]) -> bool:
     except (TypeError, ValueError):
         return False
     return sell == float(DYNAMIC_EXPORT_SELL_ABOVE_P) and buy == float(DYNAMIC_EXPORT_BUY_BELOW_P)
+
+
+def _is_user_dynamic_baseline(state: dict[str, Any]) -> bool:
+    """True if `state` is the user's own Dynamic-tariff mode (TOU work status,
+    `touType` 1). A stale shim export is cleaned to `touType` 0 at snapshot
+    time, so a baseline that still says 1 is the user's."""
+    try:
+        return (
+            str(state.get("workStatus")) == WORK_STATUS_TOU
+            and int(state.get("touType") or 0) == TOU_TYPE_DYNAMIC
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def _is_empty_tou(state: dict[str, Any]) -> bool:
@@ -580,10 +594,16 @@ class PredbatShim:
             # as the baseline — a revert would put the cube straight back.
             _LOGGER.warning(
                 "baseline snapshot found a stale shim Dynamic-tariff export "
-                "(sell above %sp); treating the baseline as standard TOU",
+                "(sell above %sp, reserve %s%%); treating the baseline as "
+                "standard TOU with the default %s%% self-consumption reserve",
                 live.get("dynamicDischargePrice"),
+                live.get("selfConsumptioinReserveSoc"),
+                DEFAULT_SELF_CONSUMPTION_RESERVE_PCT,
             )
             live = _clear_dynamic(live)
+            # The reserve the export left behind is Predbat's target, not the
+            # user's setting - never restore it as the baseline.
+            live["selfConsumptioinReserveSoc"] = str(DEFAULT_SELF_CONSUMPTION_RESERVE_PCT)
         self._baseline, stripped = _strip_shim_slots(live)
         if stripped:
             _LOGGER.info(
@@ -739,6 +759,32 @@ class PredbatShim:
         self._active_override = None
         self._revert_retries = 0
 
+    async def _post_user_dynamic_baseline(self, base: dict[str, Any]) -> None:
+        """Restore a baseline that was the user's OWN Dynamic-tariff mode.
+
+        A write that says `touType` 1 while changing the TOU slot lists is the
+        shape the cloud rejects with HTTP 500 "Failure" (the issue #1 report),
+        and by the time of the revert the cube holds the override's slots, so
+        restoring the baseline lists *and* `touType` 1 in one write would be
+        exactly that. Two writes instead:
+
+        1. the baseline TOU lists with `touType` 0 (an ordinary TOU edit);
+        2. `touType` 1 with the saved thresholds and the now-unchanged lists.
+
+        If step 2 fails the cube is left in plain TOU with the user's lists,
+        which is safe; the caller's retry machinery re-runs both steps."""
+        tou_step = payload_from_switch_mode_read(
+            self.client.dev_id, base, overrides={"touType": TOU_TYPE_STANDARD}
+        )
+        tou_step.pop("dynamicChargePrice", None)
+        tou_step.pop("dynamicDischargePrice", None)
+        await self.client.switch_mode(tou_step, verify_keys=("workStatus", "touType"))
+        dynamic_step = payload_from_switch_mode_read(self.client.dev_id, base)
+        await self.client.switch_mode(
+            dynamic_step,
+            verify_keys=("workStatus", "touType", "dynamicDischargePrice"),
+        )
+
     async def _post_baseline(self, base: dict[str, Any], *, verify_tou_type: bool) -> None:
         """Write `base` back to the cube as a switchMode payload.
 
@@ -749,6 +795,9 @@ class PredbatShim:
         back to Self-Consumption, which is how the cube behaves with an
         empty TOU schedule anyway.
         """
+        if _is_user_dynamic_baseline(base):
+            await self._post_user_dynamic_baseline(base)
+            return
         payload = payload_from_switch_mode_read(self.client.dev_id, base)
         verify_keys = ("workStatus", "touType") if verify_tou_type else ("workStatus",)
         try:
