@@ -212,3 +212,14 @@ async def test_stale_shim_dynamic_export_is_recovered_with_the_default_reserve(r
     final = await client.get_switch_mode()
     assert int(final["touType"]) == 0, "the cube must leave Dynamic mode"
     assert int(final["selfConsumptioinReserveSoc"]) == 20, "the export's reserve must not stick"
+
+
+async def test_pv_strings_read_from_the_mock(rig):
+    client, session, base, dev_id, _make = rig
+    await _sim(session, base, dev_id, "state", {"solarPower": 2.0})
+    pv = await client.get_pv_strings()
+    assert set(pv) == {1, 2, 3, 4}
+    assert pv[1]["power_w"] == 1200.0 and pv[2]["power_w"] == 800.0
+    assert pv[1]["voltage_v"] == 250.0
+    assert pv[1]["current_a"] == 4.8        # 1200 W / 250 V
+    assert pv[3] == {"power_w": 0.0, "voltage_v": 0.0, "current_a": 0.0}

@@ -189,6 +189,17 @@ async def get_switch_mode(
     return envelope(dev.to_switch_mode())
 
 
+@app.get("/api/device/getSolarPvPower")
+async def get_solar_pv_power(
+    devId: str,
+    authorization: str | None = Header(default=None),
+):
+    """Per-string PV power / voltage / current (one-element list)."""
+    _require_bearer(authorization)
+    dev = _require_devid(devId)
+    return envelope(dev.to_solar_pv_power())
+
+
 @app.get("/api/device/queryDataElectricityV2")
 async def query_data_electricity_v2(
     devId: str,

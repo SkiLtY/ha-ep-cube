@@ -45,6 +45,7 @@ docker compose up -d --build mock
 | GET | `/api/device/deviceList` | List devices on this account. Returns a JSON list inside `data`. |
 | GET | `/api/device/homeDeviceInfo?sgSn=<21-digit>&dayMonthYearFormat=YYYY-MM-DD` | Battery + power-flow snapshot. Power fields are centi-kW ints. Status `"1"` is the device-online flag, not an envelope error. |
 | GET | `/api/device/getSwitchMode?devId=<id>` | Current mode + reserves + full TOU schedule. The canonical read for both mode and schedule. |
+| GET | `/api/device/getSolarPvPower?devId=<id>` | Per-string PV telemetry: a one-element list of string fields `pvNPower` (kW), `pvNVoltage` (V), `pvNCurrent` (A) for N=1..4. The mock splits `solarPower` 60/40 across PV1/PV2; PV3/PV4 are zero. |
 | POST | `/api/device/switchMode` | Unified mode + TOU write. Body must include `devId`, `workStatus`, `weatherWatch`, `onlySave`; missing required field → 500. |
 
 ## Default device state

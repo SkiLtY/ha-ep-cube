@@ -329,6 +329,24 @@ class DeviceState:
             "systemCapacity": f"{self.systemCapacity_kwh:.1f}kWh",
         }
 
+    def to_solar_pv_power(self) -> list[dict[str, str]]:
+        """Match `GET /api/device/getSolarPvPower?devId=...`.
+
+        A one-element list of string fields: pvNPower in kW, pvNVoltage in V,
+        pvNCurrent in A. The mock has two strings (60% / 40% of solarPower at
+        fixed string voltages, as on the real cube's two-string install) and
+        reports zeros for PV3 and PV4, like the real cloud."""
+        shares = {1: (0.6, 250.0), 2: (0.4, 180.0)}
+        row: dict[str, str] = {}
+        for n in range(1, 5):
+            share, volts = shares.get(n, (0.0, 0.0))
+            kw = self.solarPower * share
+            amps = kw * 1000.0 / volts if volts else 0.0
+            row[f"pv{n}Power"] = f"{kw:.2f}"
+            row[f"pv{n}Voltage"] = f"{volts:.2f}"
+            row[f"pv{n}Current"] = f"{amps:.2f}"
+        return [row]
+
     def to_query_data_electricity_v2(self, scope_type: int, date_str: str) -> dict[str, Any]:
         """Match one response from `GET /api/device/queryDataElectricityV2`.
 
