@@ -138,7 +138,9 @@ def _planned_soc_pct_at(hass: HomeAssistant, when: datetime) -> int | None:
                 continue
     if best is None:
         return None
-    return max(0, min(100, int(math.floor(best[1] / capacity * 100 + 1e-6))))
+    # Rounded down with a quarter-point tolerance: the curve is published to three
+    # decimals, so a plan limit of 55 can read 54.98 (seen) or 55.7 (also seen).
+    return max(0, min(100, int(math.floor(best[1] / capacity * 100 + 0.25))))
 
 
 def _state_obj(hass: HomeAssistant, entity_id: str):

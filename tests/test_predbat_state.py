@@ -163,6 +163,10 @@ class TestPlannedEndSoc:
         assert plan.discharge_planned_end_soc_pct == 55    # rounded down: 55, not 56
         assert plan.discharge_target_soc_pct == 50         # the programmed limit, kept
 
+    async def test_a_curve_a_hair_under_the_limit_still_reads_as_the_limit(self, hass):
+        self._publish(hass, results={"2026-10-15T19:00:00+0100": 10.996})   # 54.98%
+        assert read_plan(hass).discharge_planned_end_soc_pct == 55
+
     async def test_missing_curve_gives_none(self, hass):
         self._publish(hass)                                # no soc_kw_best at all
         assert read_plan(hass).discharge_planned_end_soc_pct is None
