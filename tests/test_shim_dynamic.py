@@ -675,3 +675,24 @@ class TestDynamicChargeOption:
         assert charge_shim._charge_check_unsub is not None
         await charge_shim.charge_stop()
         assert charge_shim._charge_check_unsub is None
+
+
+class TestUserReserve:
+    async def test_no_override_means_no_user_reserve(self, shim):
+        assert shim.user_reserve_pct() is None
+
+    async def test_during_a_dynamic_export_it_is_the_baseline_reserve(self, dyn_shim, fake_client):
+        await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=55.0)
+        assert _write(fake_client, 0)["selfConsumptioinReserveSoc"] == "55"   # the export target
+        assert dyn_shim.user_reserve_pct() == 20.0                            # the user's own
+
+    async def test_it_returns_to_none_after_the_revert(self, dyn_shim):
+        await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=55.0)
+        await dyn_shim.discharge_stop()
+        assert dyn_shim.user_reserve_pct() is None
+
+    async def test_backup_mode_uses_the_backup_reserve(self, dyn_shim):
+        dyn_shim._baseline = {"workStatus": "3", "backupPowerReserveSoc": "40",
+                              "selfConsumptioinReserveSoc": "20"}
+        dyn_shim._active_override = {"kind": "discharge"}
+        assert dyn_shim.user_reserve_pct() == 40.0

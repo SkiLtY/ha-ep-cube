@@ -88,6 +88,17 @@ def _pv_sensors() -> tuple[EPCubePVSensorDescription, ...]:
 
 PV_SENSORS: tuple[EPCubePVSensorDescription, ...] = _pv_sensors()
 
+# The reserve the user chose, without the export target a shim Dynamic export sets
+# on the cube. Point Predbat's `reserve:` at this, not at `reserve_soc`: Predbat
+# treats the reserve as its battery floor and otherwise plans around the export
+# target while an export is running.
+USER_RESERVE_SENSOR = EPCubeSensorDescription(
+    key="reserve_soc_user",
+    translation_key="reserve_soc_user",
+    native_unit_of_measurement=PERCENTAGE,
+    value_fn=lambda s: s.reserve_soc_pct,
+)
+
 
 @dataclass(frozen=True, kw_only=True)
 class EPCubePriceSensorDescription(SensorEntityDescription):
@@ -788,6 +799,9 @@ async def async_setup_entry(
     entities.extend(
         EPCubePriceSensor(price_coordinator, entry.entry_id, desc) for desc in PRICE_SENSORS
     )
+    entities.append(
+        EPCubeUserReserveSensor(coordinator, entry.entry_id, USER_RESERVE_SENSOR, stored["shim"])
+    )
     async_add_entities(entities)
 
 
@@ -839,6 +853,22 @@ class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], RestoreSensor):
         if self.coordinator.data is None:
             return self._restored_value
         return self.entity_description.value_fn(self.coordinator.data)
+
+
+class EPCubeUserReserveSensor(EPCubeSensor):
+    """The reserve the user chose: the live reserve, except while a shim override is
+    active, when it is the reserve captured in the baseline (see PredbatShim.user_reserve_pct)."""
+
+    def __init__(self, coordinator, entry_id, description, shim) -> None:
+        super().__init__(coordinator, entry_id, description)
+        self._shim = shim
+
+    @property
+    def native_value(self) -> float | str | None:
+        chosen = self._shim.user_reserve_pct()
+        if chosen is not None:
+            return chosen
+        return super().native_value
 
 
 class EPCubePVSensor(EPCubeSensor):

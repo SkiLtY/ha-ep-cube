@@ -56,6 +56,7 @@
       "load_power": {"name": "Verbruiksvermogen"},
       "operating_mode": {"name": "Bedrijfsmodus"},
       "reserve_soc": {"name": "Reserve-laadtoestand"},
+      "reserve_soc_user": {"name": "Reserve (jouw instelling)"},
       "solar_today": {"name": "Zon vandaag"},
       "backup_today": {"name": "Back-up-verbruikers vandaag"},
       "self_sufficiency_pct": {"name": "Zelfvoorziening"},

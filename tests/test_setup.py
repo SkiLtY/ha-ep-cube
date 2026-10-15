@@ -693,3 +693,43 @@ class TestDischargeStartTarget:
     async def test_the_programmed_limit_is_a_floor(self, hass, setup_integration):
         # A planned end SoC below the programmed limit must not export deeper than it.
         assert await self._target(hass, setup_integration, planned_kwh=8.0) == 50.0
+
+
+class TestUserReserveSensor:
+    async def _entity_id(self, hass, entry):
+        registry = er.async_get(hass)
+        reg = {
+            e.unique_id[len(entry.entry_id) + 1:]: e.entity_id
+            for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+            if e.domain == "sensor"
+        }
+        return reg["reserve_soc_user"]
+
+    async def test_it_follows_the_live_reserve_when_nothing_is_overriding(
+        self, hass, setup_integration
+    ):
+        entity_id = await self._entity_id(hass, setup_integration)
+        live = hass.data[DOMAIN][setup_integration.entry_id]["coordinator"].data.reserve_soc_pct
+        assert float(hass.states.get(entity_id).state) == live
+
+    async def test_it_stays_at_the_users_value_while_an_export_raises_the_cube_reserve(
+        self, hass, setup_integration, fake_client
+    ):
+        from dataclasses import replace
+
+        entity_id = await self._entity_id(hass, setup_integration)
+        bucket = hass.data[DOMAIN][setup_integration.entry_id]
+        shim, coordinator = bucket["shim"], bucket["coordinator"]
+        await shim.debug_dynamic_export(5, 55.0)
+        # the cube now reports the export target as its reserve ...
+        fake_client.get_status.return_value = replace(
+            fake_client.get_status.return_value, reserve_soc_pct=55.0
+        )
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+        # ... but the "your setting" sensor still shows the baseline's 20
+        assert float(hass.states.get(entity_id).state) == 20.0
+        await shim.idle()
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+        assert float(hass.states.get(entity_id).state) == 55.0   # live again after the revert

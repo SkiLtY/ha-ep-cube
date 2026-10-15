@@ -937,6 +937,28 @@ class PredbatShim:
         else:
             _LOGGER.debug("idle: no active override (no-op)")
 
+    def user_reserve_pct(self) -> float | None:
+        """The reserve the user has chosen, while a shim override is active.
+
+        A Dynamic export sets the cube's Reserve SoC to Predbat's export target (so
+        the cube knows where to stop). That is not the user's reserve. Predbat reads
+        the reserve entity as its battery floor, so showing it the export target made
+        it plan a flat SoC for the rest of the night and cancel the export it had just
+        asked for (seen 2026-10-15). While an override is active this returns the
+        reserve captured in the baseline; otherwise None (use the live reserve).
+        """
+        if self._active_override is None or not self._baseline:
+            return None
+        key = (
+            "backupPowerReserveSoc"
+            if str(self._baseline.get("workStatus")) == "3"
+            else "selfConsumptioinReserveSoc"
+        )
+        try:
+            return float(self._baseline.get(key))
+        except (TypeError, ValueError):
+            return None
+
     def cancel_revert_timer(self) -> None:
         """Public cancel — used during integration teardown."""
         self._cancel_revert()

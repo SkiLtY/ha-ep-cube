@@ -56,6 +56,7 @@
       "load_power": {"name": "Load power"},
       "operating_mode": {"name": "Operating mode"},
       "reserve_soc": {"name": "Reserve SoC"},
+      "reserve_soc_user": {"name": "Reserve (your setting)"},
       "solar_today": {"name": "Solar today"},
       "backup_today": {"name": "Backup loads today"},
       "self_sufficiency_pct": {"name": "Self-sufficiency"},

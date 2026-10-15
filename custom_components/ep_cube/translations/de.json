@@ -56,6 +56,7 @@
       "load_power": {"name": "Verbrauchsleistung"},
       "operating_mode": {"name": "Betriebsmodus"},
       "reserve_soc": {"name": "Reserve-Ladezustand"},
+      "reserve_soc_user": {"name": "Reserve (Ihre Einstellung)"},
       "solar_today": {"name": "Solar heute"},
       "backup_today": {"name": "Notstromverbraucher heute"},
       "self_sufficiency_pct": {"name": "Autarkiegrad"},
