@@ -355,3 +355,46 @@ class TestOptionsFlow:
             await hass.config_entries.options.async_configure(
                 result["flow_id"], {CONF_FORCE_EXPORT_MODE: "not-a-mode"}
             )
+
+
+class TestChargeModeOption:
+    async def test_form_offers_the_charge_mode_defaulting_to_tou(self, hass, mock_config_entry):
+        from custom_components.ep_cube.const import (
+            CONF_FORCE_CHARGE_MODE,
+            FORCE_CHARGE_MODE_TOU_OFFPEAK,
+        )
+
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        defaults = {str(key): key.default() for key in result["data_schema"].schema}
+        assert defaults[CONF_FORCE_CHARGE_MODE] == FORCE_CHARGE_MODE_TOU_OFFPEAK
+
+    async def test_choosing_dynamic_charge_is_saved(self, hass, mock_config_entry):
+        from custom_components.ep_cube.const import (
+            CONF_FORCE_CHARGE_MODE,
+            FORCE_CHARGE_MODE_DYNAMIC,
+        )
+
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {CONF_FORCE_EXPORT_MODE: FORCE_EXPORT_MODE_DYNAMIC,
+             CONF_FORCE_CHARGE_MODE: FORCE_CHARGE_MODE_DYNAMIC},
+        )
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert entry.options[CONF_FORCE_CHARGE_MODE] == FORCE_CHARGE_MODE_DYNAMIC
+        assert entry.options[CONF_FORCE_EXPORT_MODE] == FORCE_EXPORT_MODE_DYNAMIC
+
+    async def test_an_unknown_charge_mode_is_rejected(self, hass, mock_config_entry):
+        from custom_components.ep_cube.const import CONF_FORCE_CHARGE_MODE
+
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        with pytest.raises(data_entry_flow.InvalidData):
+            await hass.config_entries.options.async_configure(
+                result["flow_id"], {CONF_FORCE_CHARGE_MODE: "not-a-mode"}
+            )

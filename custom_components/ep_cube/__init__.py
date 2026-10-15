@@ -17,12 +17,14 @@ from .const import (
     CONF_BEARER_TOKEN,
     CONF_CAPACITY_KWH,
     CONF_DEV_ID,
+    CONF_FORCE_CHARGE_MODE,
     CONF_FORCE_EXPORT_MODE,
     CONF_PASSWORD,
     CONF_REGION,
     CONF_SG_SN,
     CONF_USERNAME,
     DEFAULT_API_PREFIX,
+    DEFAULT_FORCE_CHARGE_MODE,
     DEFAULT_FORCE_EXPORT_MODE,
     DOMAIN,
     REGION_OTHER,
@@ -130,7 +132,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         force_export_mode=entry.options.get(
             CONF_FORCE_EXPORT_MODE, DEFAULT_FORCE_EXPORT_MODE
         ),
+        force_charge_mode=entry.options.get(
+            CONF_FORCE_CHARGE_MODE, DEFAULT_FORCE_CHARGE_MODE
+        ),
         price_coordinator=price_coordinator,
+        status_coordinator=coordinator,
     )
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {

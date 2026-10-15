@@ -108,6 +108,20 @@ FORCE_EXPORT_MODE_TOU_PEAK = "tou_peak"
 FORCE_EXPORT_MODE_DYNAMIC = "dynamic"
 DEFAULT_FORCE_EXPORT_MODE = FORCE_EXPORT_MODE_TOU_PEAK
 
+# How the shim realises Predbat's "force charge" windows.
+#   tou_offpeak - legacy: a time-of-use off-peak slot. The cloud's TOU model has no
+#                 per-slot SoC target, so the cube charges until the slot ends.
+#   dynamic     - Dynamic-tariff mode with buy-below at the maximum: the cube charges
+#                 from the grid up to the Charging Limit SoC, which the shim sets to
+#                 Predbat's target (verified 2026-10-15: ~6.5 kW, stopped at the limit).
+CONF_FORCE_CHARGE_MODE = "force_charge_mode"
+FORCE_CHARGE_MODE_TOU_OFFPEAK = "tou_offpeak"
+FORCE_CHARGE_MODE_DYNAMIC = "dynamic"
+DEFAULT_FORCE_CHARGE_MODE = FORCE_CHARGE_MODE_TOU_OFFPEAK
+# A Dynamic charge is checked this many minutes after it starts: if the battery is
+# not charging from the grid then, the shim says so and re-sends the write once.
+DYNAMIC_CHARGE_CHECK_MINUTES = 5
+
 # Dynamic-tariff thresholds used for a forced export, in pence/kWh. The cube
 # compares them with the export price of the tariff chosen in the app: sell-above
 # 0.00 means "export at any price above zero", whatever the tariff or the time of

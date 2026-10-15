@@ -13,7 +13,7 @@ assert the call patterns directly.
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.util import dt as dt_util
@@ -539,3 +539,136 @@ class TestDynamicCharge:
     async def test_without_an_override_the_guard_picks_the_threshold(self, dyn_shim, fake_client):
         await dyn_shim.debug_dynamic_export(5, 60.0)
         assert _write(fake_client, 0)["dynamicDischargePrice"] == 0.0
+
+
+# ----------------------------------------------------------------------
+# The Dynamic option for Predbat's charge windows
+# ----------------------------------------------------------------------
+NOTIFY = "custom_components.ep_cube.services.persistent_notification.async_create"
+
+
+def _price_data(*, imp=True, exp=True):
+    """Cube price slots covering now (10 minutes ago to +50), or none."""
+    return {
+        "import": _export_slots([25.0]) if imp else [],
+        "export": _export_slots([12.0]) if exp else [],
+    }
+
+
+@pytest.fixture
+def charge_shim(hass, fake_client):
+    from custom_components.ep_cube.const import FORCE_CHARGE_MODE_DYNAMIC
+
+    prices = MagicMock()
+    prices.data = _price_data()
+    status = MagicMock()
+    status.data = MagicMock(soc_pct=60.0, grid_power_w=0.0, battery_power_w=0.0)
+    instance = PredbatShim(
+        hass=hass, entry_id="test-entry", client=fake_client,
+        force_export_mode=FORCE_EXPORT_MODE_DYNAMIC,
+        force_charge_mode=FORCE_CHARGE_MODE_DYNAMIC,
+        price_coordinator=prices, status_coordinator=status,
+    )
+    instance.prices, instance.status = prices, status
+    yield instance
+    instance.cancel_revert_timer()
+
+
+class TestDynamicChargeOption:
+    async def test_charge_start_becomes_a_dynamic_charge_to_predbats_target(
+        self, charge_shim, fake_client
+    ):
+        await charge_shim.charge_start(end_time=_future(60), target_soc_pct=72.4)
+        payload = _write(fake_client, 0)
+        assert payload["touType"] == 1 and payload["workStatus"] == WORK_STATUS_TOU
+        assert payload["dynamicChargePrice"] == 999.99      # always buy
+        assert payload["dynamicDischargePrice"] == 999.99   # never sell
+        assert payload["backupPowerReserveSoc"] == "73"     # the target, rounded up
+        assert charge_shim._active_override["kind"] == KIND_CHARGE
+
+    async def test_the_default_mode_still_uses_a_tou_slot(self, hass, fake_client):
+        plain = PredbatShim(hass=hass, entry_id="e", client=fake_client)
+        await plain.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        payload = _write(fake_client, 0)
+        assert payload["touType"] == 0
+        assert "dynamicChargePrice" not in payload
+        plain.cancel_revert_timer()
+
+    async def test_charge_stop_reverts_with_the_safe_hold_first(self, charge_shim, fake_client):
+        await charge_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        await charge_shim.charge_stop()
+        assert fake_client.switch_mode.await_count == 3          # override, hold, baseline
+        assert _write(fake_client, 1)["dynamicChargePrice"] == 0.0
+        assert _write(fake_client, 2)["touType"] == 0
+        assert charge_shim._active_override is None
+
+    # --- before the window: does the cube have a price? ----------------
+    async def test_no_cube_price_raises_a_notification_but_still_writes(
+        self, charge_shim, fake_client
+    ):
+        charge_shim.prices.data = _price_data(imp=False)
+        with patch(NOTIFY) as notify:
+            await charge_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        notify.assert_called_once()
+        assert "no import price" in notify.call_args.args[1]
+        assert fake_client.switch_mode.await_count == 1
+
+    async def test_a_cube_price_means_no_notification(self, charge_shim):
+        with patch(NOTIFY) as notify:
+            await charge_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        notify.assert_not_called()
+
+    async def test_prices_not_fetched_yet_means_no_notification(self, charge_shim):
+        charge_shim.prices.data = None
+        with patch(NOTIFY) as notify:
+            await charge_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        notify.assert_not_called()
+
+    async def test_export_also_checks_for_a_cube_price(self, charge_shim):
+        charge_shim.prices.data = _price_data(exp=False)
+        with patch(NOTIFY) as notify:
+            await charge_shim.discharge_start(end_time=_future(30), target_soc_pct=50.0)
+        notify.assert_called_once()
+        assert "no export price" in notify.call_args.args[1]
+
+    # --- during the window: did it start charging? ---------------------
+    async def test_check_resends_once_when_the_battery_is_not_charging(
+        self, charge_shim, fake_client
+    ):
+        await charge_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        with patch(NOTIFY) as notify:
+            await charge_shim._on_charge_check(dt_util.utcnow())
+        notify.assert_called_once()
+        assert fake_client.switch_mode.await_count == 2          # override + the re-send
+        assert _write(fake_client, 1)["backupPowerReserveSoc"] == "80"
+
+    async def test_check_is_quiet_when_charging_from_the_grid(self, charge_shim, fake_client):
+        await charge_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        charge_shim.status.data = MagicMock(soc_pct=65.0, grid_power_w=6000.0, battery_power_w=6500.0)
+        with patch(NOTIFY) as notify:
+            await charge_shim._on_charge_check(dt_util.utcnow())
+        notify.assert_not_called()
+        assert fake_client.switch_mode.await_count == 1
+
+    async def test_check_is_quiet_once_the_target_is_reached(self, charge_shim, fake_client):
+        await charge_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        charge_shim.status.data = MagicMock(soc_pct=79.5, grid_power_w=0.0, battery_power_w=0.0)
+        with patch(NOTIFY) as notify:
+            await charge_shim._on_charge_check(dt_util.utcnow())
+        notify.assert_not_called()
+        assert fake_client.switch_mode.await_count == 1
+
+    async def test_check_does_nothing_when_no_charge_is_active(self, charge_shim, fake_client):
+        with patch(NOTIFY) as notify:
+            await charge_shim._on_charge_check(dt_util.utcnow())
+        notify.assert_not_called()
+        fake_client.switch_mode.assert_not_awaited()
+
+    async def test_check_is_only_armed_for_windows_longer_than_the_delay(self, charge_shim):
+        await charge_shim.charge_start(end_time=_future(3), target_soc_pct=80.0)
+        assert charge_shim._charge_check_unsub is None
+        await charge_shim.charge_stop()
+        await charge_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        assert charge_shim._charge_check_unsub is not None
+        await charge_shim.charge_stop()
+        assert charge_shim._charge_check_unsub is None

@@ -48,15 +48,19 @@ from .const import (
     CONF_BEARER_TOKEN,
     CONF_CAPACITY_KWH,
     CONF_DEV_ID,
+    CONF_FORCE_CHARGE_MODE,
     CONF_FORCE_EXPORT_MODE,
     CONF_PASSWORD,
     CONF_REGION,
     CONF_SG_SN,
     CONF_USERNAME,
     DEFAULT_API_PREFIX,
+    DEFAULT_FORCE_CHARGE_MODE,
     DEFAULT_FORCE_EXPORT_MODE,
     DEFAULT_REGION,
     DOMAIN,
+    FORCE_CHARGE_MODE_DYNAMIC,
+    FORCE_CHARGE_MODE_TOU_OFFPEAK,
     FORCE_EXPORT_MODE_DYNAMIC,
     FORCE_EXPORT_MODE_TOU_PEAK,
     REGION_OTHER,
@@ -83,7 +87,7 @@ USER_SCHEMA = vol.Schema(
 class EPCubeOptionsFlow(OptionsFlow):
     """Integration options (Configure button on the integration card).
 
-    One option so far: how Predbat's "force export" windows are realised.
+    Two options: how Predbat's "force export" and "force charge" windows are realised.
     `tou_peak` (default) is the legacy TOU peak slot, which only drains the
     battery to the house. `dynamic` uses the cube's Dynamic-tariff mode to
     really export to the grid; it needs Dynamic tariff set up in the EP Cube
@@ -100,6 +104,9 @@ class EPCubeOptionsFlow(OptionsFlow):
         current = self.config_entry.options.get(
             CONF_FORCE_EXPORT_MODE, DEFAULT_FORCE_EXPORT_MODE
         )
+        current_charge = self.config_entry.options.get(
+            CONF_FORCE_CHARGE_MODE, DEFAULT_FORCE_CHARGE_MODE
+        )
         schema = vol.Schema(
             {
                 vol.Required(CONF_FORCE_EXPORT_MODE, default=current): SelectSelector(
@@ -108,7 +115,14 @@ class EPCubeOptionsFlow(OptionsFlow):
                         mode=SelectSelectorMode.DROPDOWN,
                         translation_key=CONF_FORCE_EXPORT_MODE,
                     )
-                )
+                ),
+                vol.Required(CONF_FORCE_CHARGE_MODE, default=current_charge): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[FORCE_CHARGE_MODE_TOU_OFFPEAK, FORCE_CHARGE_MODE_DYNAMIC],
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key=CONF_FORCE_CHARGE_MODE,
+                    )
+                ),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

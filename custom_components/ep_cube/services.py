@@ -47,6 +47,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import voluptuous as vol
+from homeassistant.components import persistent_notification
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_call_later, async_track_point_in_utc_time
@@ -59,7 +60,10 @@ from .api import (
     payload_from_switch_mode_read,
 )
 from .const import (
+    DEFAULT_FORCE_CHARGE_MODE,
     DEFAULT_FORCE_EXPORT_MODE,
+    DYNAMIC_CHARGE_CHECK_MINUTES,
+    FORCE_CHARGE_MODE_DYNAMIC,
     DOMAIN,
     DEFAULT_SELF_CONSUMPTION_RESERVE_PCT,
     DEFAULT_CHARGING_LIMIT_PCT,
@@ -528,6 +532,8 @@ class PredbatShim:
         client: EPCubeClient,
         force_export_mode: str = DEFAULT_FORCE_EXPORT_MODE,
         price_coordinator: Any = None,
+        force_charge_mode: str = DEFAULT_FORCE_CHARGE_MODE,
+        status_coordinator: Any = None,
     ) -> None:
         self.hass = hass
         self.entry_id = entry_id
@@ -535,6 +541,13 @@ class PredbatShim:
         # Optional EPCubePriceCoordinator: its half-hourly export prices let a
         # forced export pick a sell-above that is safely under them.
         self.price_coordinator = price_coordinator
+        # How charge windows are realised: a TOU off-peak slot (default) or
+        # Dynamic-tariff mode with the Charging Limit SoC as the target.
+        self.force_charge_mode = force_charge_mode
+        # Optional main coordinator (DeviceStatus): lets a Dynamic charge check that
+        # the battery really is charging from the grid a few minutes in.
+        self.status_coordinator = status_coordinator
+        self._charge_check_unsub = None
         # How discharge_start realises "force export": legacy TOU peak slot
         # (default) or Dynamic-tariff mode (real grid export).
         self.force_export_mode = force_export_mode
@@ -558,7 +571,14 @@ class PredbatShim:
     async def charge_start(self, end_time: datetime, target_soc_pct: float) -> None:
         """Force grid charge until end_time. target_soc_pct is informational —
         the cloud's TOU model has no per-slot SoC target; the inverter uses
-        the tier prices to optimise."""
+        the tier prices to optimise.
+
+        With `force_charge_mode == "dynamic"` the window is instead realised by
+        Dynamic-tariff mode (see `_charge_start_dynamic`), where target_soc_pct
+        becomes the Charging Limit SoC and the charge stops there."""
+        if self.force_charge_mode == FORCE_CHARGE_MODE_DYNAMIC:
+            await self._charge_start_dynamic(end_time, target_soc_pct)
+            return
         params = {"kind": KIND_CHARGE, "end_time": end_time, "target_soc_pct": target_soc_pct}
         if self._matches_active(params):
             _LOGGER.debug("charge_start: idempotent no-op")
@@ -653,6 +673,7 @@ class PredbatShim:
         if self._matches_active(params):
             _LOGGER.debug("discharge_start (dynamic): idempotent no-op")
             return
+        self._warn_if_cube_has_no_price("export", "export")
         sell_above = (
             sell_above_override
             if sell_above_override is not None
@@ -701,6 +722,7 @@ class PredbatShim:
         if self._matches_active(params):
             _LOGGER.debug("charge_start (dynamic): idempotent no-op")
             return
+        self._warn_if_cube_has_no_price("import", "charge")
         payload = payload_from_switch_mode_read(
             self.client.dev_id,
             self._baseline or {},
@@ -718,12 +740,93 @@ class PredbatShim:
         )
         self._schedule_revert(end_time)
         self._schedule_watchdog(end_time)
+        self._schedule_charge_check(end_time)
         _LOGGER.info(
             "charge_start applied: dynamic charge until %s, limit %d%% "
             "(buy below %.2fp, sell above %.2fp)",
             end_time.isoformat(), limit,
             DYNAMIC_CHARGE_BUY_BELOW_P, DYNAMIC_CHARGE_SELL_ABOVE_P,
         )
+
+    # ------------------------------------------------------------------
+    # Dynamic charge safeguards
+    # ------------------------------------------------------------------
+    def _warn_if_cube_has_no_price(self, side: str, what: str) -> None:
+        """Before a Dynamic window: does the cube have a price for this half-hour?
+
+        With no valid price data the cube runs in Self-Consumption (the app's own
+        wording), so a Dynamic charge or export would silently not happen. The
+        price coordinator reads the same data the cube uses; if it has been
+        fetched and has nothing for the current slot, say so. The write is still
+        made (it does no harm); this only makes the miss visible."""
+        coordinator = self.price_coordinator
+        data = getattr(coordinator, "data", None)
+        if coordinator is None or data is None:
+            return          # no price source, or not fetched yet: nothing to judge by
+        now = dt_util.utcnow()
+        if any(s["start"] <= now < s["end"] for s in data.get(side, [])):
+            return
+        message = (
+            f"The cube has no {side} price for the current half-hour, so a Dynamic {what} "
+            "will not happen: with no valid tariff data the cube runs in Self-Consumption. "
+            "Check the Dynamic tariff in the EP Cube app."
+        )
+        _LOGGER.warning("dynamic %s: %s", what, message)
+        persistent_notification.async_create(
+            self.hass, message, title="EP Cube: no price data",
+            notification_id=f"ep_cube_{self.entry_id}_no_price",
+        )
+
+    def _schedule_charge_check(self, end_time: datetime) -> None:
+        """Arm the check that a Dynamic charge really started."""
+        self._cancel_charge_check()
+        when = dt_util.utcnow() + timedelta(minutes=DYNAMIC_CHARGE_CHECK_MINUTES)
+        if when >= dt_util.as_utc(end_time):
+            return          # the window is shorter than the check: nothing to verify
+        self._charge_check_unsub = async_track_point_in_utc_time(
+            self.hass, self._on_charge_check, when
+        )
+
+    def _cancel_charge_check(self) -> None:
+        if self._charge_check_unsub is not None:
+            self._charge_check_unsub()
+            self._charge_check_unsub = None
+
+    async def _on_charge_check(self, _now: datetime) -> None:
+        """A few minutes into a Dynamic charge: is the battery charging from the grid?
+
+        If not (the cube did not take the setting, or it has no price data), say so
+        and re-send the write once. Predbat re-plans from the real SoC every
+        cycle, so a miss costs one cheap slot, never a stuck state."""
+        self._cancel_charge_check()
+        override = self._active_override
+        if not override or override.get("kind") != KIND_CHARGE or not override.get("dynamic"):
+            return
+        status = getattr(self.status_coordinator, "data", None)
+        if status is None:
+            return
+        if status.soc_pct >= float(override.get("limit_pct", 100)) - 1:
+            return          # at (or within a point of) the target: done
+        if status.grid_power_w > 500 and status.battery_power_w > 500:
+            return          # importing and charging: working
+        message = (
+            f"A Dynamic charge to {override.get('limit_pct')}% started {DYNAMIC_CHARGE_CHECK_MINUTES} "
+            f"minutes ago but the battery is not charging from the grid (SoC {status.soc_pct:.0f}%, "
+            f"grid {status.grid_power_w:.0f} W, battery {status.battery_power_w:.0f} W). "
+            "Re-sending the setting once."
+        )
+        _LOGGER.warning("dynamic charge: %s", message)
+        persistent_notification.async_create(
+            self.hass, message, title="EP Cube: charge did not start",
+            notification_id=f"ep_cube_{self.entry_id}_charge_check",
+        )
+        try:
+            await self.client.switch_mode(
+                override["applied_schedule"],
+                verify_keys=("workStatus", "touType", "dynamicChargePrice", "backupPowerReserveSoc"),
+            )
+        except EPCubeError as err:
+            _LOGGER.error("dynamic charge: re-sending the setting failed (%s)", err)
 
     def _dynamic_reserve(self, target_soc_pct: float) -> int:
         """Reserve SoC for a forced export: Predbat's target, rounded UP to an
@@ -839,6 +942,7 @@ class PredbatShim:
         """Public cancel — used during integration teardown."""
         self._cancel_revert()
         self._cancel_watchdog()
+        self._cancel_charge_check()
 
     def patch_baseline(self, field: str, value: Any) -> None:
         """Update a single field in the captured baseline.
@@ -1064,6 +1168,7 @@ class PredbatShim:
         the cube is in the correct mode and behaves correctly.
         """
         self._cancel_revert()
+        self._cancel_charge_check()
         if self._baseline is None:
             _LOGGER.warning("_revert_to_baseline: no baseline available — leaving cloud as-is")
             self._active_override = None

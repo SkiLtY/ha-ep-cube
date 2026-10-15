@@ -132,9 +132,10 @@
     "step": {
       "init": {
         "title": "EP Cube-opties",
-        "description": "Hoe moeten de geforceerde exportvensters (ontladen) van Predbat worden uitgevoerd?\n\n**TOU-piekslot** (standaard) gebruikt een time-of-use-piekslot: de batterij voedt het huis maar wordt nooit op het net ontladen.\n\n**Dynamisch tarief** zet de cube voor het venster in de modus dynamisch tarief, zodat hij echt op het net exporteert en stopt bij het doel van Predbat. Vereist dat het dynamische tarief al is ingesteld in de EP Cube-app (Octopus-prijsbron, regio, tarieven en doelprijzen). Een wijziging laadt de integratie opnieuw.",
+        "description": "Hoe moeten de geforceerde exportvensters (ontladen) van Predbat worden uitgevoerd?\n\n**TOU-piekslot** (standaard) gebruikt een time-of-use-piekslot: de batterij voedt het huis maar wordt nooit op het net ontladen.\n\n**Dynamisch tarief** zet de cube voor het venster in de modus dynamisch tarief, zodat hij echt op het net exporteert en stopt bij het doel van Predbat. Vereist dat het dynamische tarief al is ingesteld in de EP Cube-app (Octopus-prijsbron, regio, tarieven en doelprijzen). Een wijziging laadt de integratie opnieuw.\n\nHoe moeten de geforceerde laadvensters van Predbat worden uitgevoerd?\n\n**Time of Use** (standaard) gebruikt een time-of-use-dalslot; de cube laadt tot het slot eindigt. **Dynamisch tarief** zet de cube in de modus dynamisch tarief met de maximale inkoopprijs, en het laaddoel van Predbat wordt de laadlimiet, zodat het laden bij het doel stopt. Zelfde vereiste als hierboven. Een wijziging van een van beide opties laadt de integratie opnieuw.",
         "data": {
-          "force_export_mode": "Modus voor geforceerde export"
+          "force_export_mode": "Modus voor geforceerde export",
+          "force_charge_mode": "Modus voor geforceerd laden"
         }
       }
     }
@@ -144,6 +145,12 @@
       "options": {
         "tou_peak": "TOU-piekslot (ontlaadt alleen naar het huis)",
         "dynamic": "Dynamisch tarief (echte export naar het net)"
+      }
+    },
+    "force_charge_mode": {
+      "options": {
+        "tou_offpeak": "Time-of-use-dalslot (geen laaddoel)",
+        "dynamic": "Dynamisch tarief (laadt tot het doel van Predbat)"
       }
     }
   }

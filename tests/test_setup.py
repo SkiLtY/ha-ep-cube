@@ -641,3 +641,23 @@ class TestDebugDynamicCharge:
                 blocking=True,
             )
         call.assert_awaited_once_with(5, 75.0)
+
+
+class TestChargeModeWiring:
+    async def test_the_option_reaches_the_shim(self, hass, setup_integration):
+        from custom_components.ep_cube.const import (
+            CONF_FORCE_CHARGE_MODE,
+            FORCE_CHARGE_MODE_DYNAMIC,
+            FORCE_CHARGE_MODE_TOU_OFFPEAK,
+        )
+
+        entry = setup_integration
+        shim = hass.data[DOMAIN][entry.entry_id]["shim"]
+        assert shim.force_charge_mode == FORCE_CHARGE_MODE_TOU_OFFPEAK
+        assert shim.status_coordinator is hass.data[DOMAIN][entry.entry_id]["coordinator"]
+        assert shim.price_coordinator is hass.data[DOMAIN][entry.entry_id]["price_coordinator"]
+        hass.config_entries.async_update_entry(
+            entry, options={CONF_FORCE_CHARGE_MODE: FORCE_CHARGE_MODE_DYNAMIC}
+        )
+        await hass.async_block_till_done()
+        assert hass.data[DOMAIN][entry.entry_id]["shim"].force_charge_mode == FORCE_CHARGE_MODE_DYNAMIC
