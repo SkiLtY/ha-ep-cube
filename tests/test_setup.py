@@ -363,6 +363,7 @@ class TestDebugProbe:
         fake_client.probe = AsyncMock(return_value={
             "tariff": "Go", "ownerEmail": "a@b.c", "lat": 51.5, "unit": "kWh",
             "rows": list(range(30)),
+            "name": "A Person - AB1 2CD", "wifiName": "home-wifi",
         })
         result = await hass.services.async_call(
             DOMAIN, "debug_probe", {"route": "device/getSettingsData"},
@@ -375,6 +376,7 @@ class TestDebugProbe:
         data = result["data"]
         assert data["tariff"] == "Go" and data["unit"] == "kWh"
         assert data["ownerEmail"] == "<redacted>" and data["lat"] == "<redacted>"
+        assert data["name"] == "<redacted>" and data["wifiName"] == "<redacted>"
         assert len(data["rows"]) == 21 and data["rows"][-1] == "... 10 more"
 
     async def test_full_keeps_whole_lists(self, hass, setup_integration, fake_client):

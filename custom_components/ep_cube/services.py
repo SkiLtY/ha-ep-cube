@@ -145,7 +145,8 @@ PROBE_ROUTES = (
 PROBE_PARAM_KEYS = ("devId", "sgSn", "queryDateStr", "scopeType", "dateStr")
 PROBE_MAX_LIST = 20
 _PROBE_REDACT = re.compile(
-    r"mail|address|phone|token|password|postcode|^(lat|lng|lon|latitude|longitude)$",
+    r"mail|address|phone|token|password|postcode|user|ssid|wifiname"
+    r"|^(name|lat|lng|lon|latitude|longitude)$",
     re.IGNORECASE,
 )
 
