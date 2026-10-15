@@ -33,6 +33,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
+from urllib.parse import urlencode
 
 import aiohttp
 
@@ -621,6 +622,16 @@ class EPCubeClient:
         readback = await self.get_switch_mode()
         _verify_write(body, readback, verify_keys)
         return readback
+
+    async def probe(self, route: str, params: dict[str, str] | None = None) -> Any:
+        """GET an arbitrary read-only route under the API prefix (diagnostics).
+
+        The caller is responsible for restricting `route`; see the
+        debug_probe service, which whitelists it.
+        """
+        query = urlencode(params or {})
+        path = f"{self._api_prefix}/{route.strip('/')}"
+        return await self._get(f"{path}?{query}" if query else path)
 
     # ------------------------------------------------------------------
     # Transport

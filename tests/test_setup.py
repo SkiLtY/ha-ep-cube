@@ -352,3 +352,64 @@ class TestOptionsAndUnload:
         await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
         assert fake_client.switch_mode.await_count == 0
+
+
+class TestDebugProbe:
+    """ep_cube.debug_probe: whitelisted read-only GETs with a masked response."""
+
+    async def test_returns_masked_data_and_adds_dev_id(
+        self, hass, setup_integration, fake_client
+    ):
+        fake_client.probe = AsyncMock(return_value={
+            "tariff": "Go", "ownerEmail": "a@b.c", "lat": 51.5, "unit": "kWh",
+            "rows": list(range(30)),
+        })
+        result = await hass.services.async_call(
+            DOMAIN, "debug_probe", {"route": "device/getSettingsData"},
+            blocking=True, return_response=True,
+        )
+        fake_client.probe.assert_awaited_once_with(
+            "device/getSettingsData", {"devId": "5613"}
+        )
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["tariff"] == "Go" and data["unit"] == "kWh"
+        assert data["ownerEmail"] == "<redacted>" and data["lat"] == "<redacted>"
+        assert len(data["rows"]) == 21 and data["rows"][-1] == "... 10 more"
+
+    async def test_full_keeps_whole_lists(self, hass, setup_integration, fake_client):
+        fake_client.probe = AsyncMock(return_value={"rows": list(range(30))})
+        result = await hass.services.async_call(
+            DOMAIN, "debug_probe",
+            {"route": "device/queryDataGraphV2", "full": True,
+             "params": {"scopeType": "1"}},
+            blocking=True, return_response=True,
+        )
+        assert len(result["data"]["rows"]) == 30
+        fake_client.probe.assert_awaited_once_with(
+            "device/queryDataGraphV2", {"devId": "5613", "scopeType": "1"}
+        )
+
+    async def test_rejects_routes_off_the_whitelist(
+        self, hass, setup_integration, fake_client
+    ):
+        import voluptuous as vol
+        fake_client.probe = AsyncMock()
+        for route in ("device/switchMode", "device/getAddressById", "../x"):
+            with pytest.raises(vol.Invalid):
+                await hass.services.async_call(
+                    DOMAIN, "debug_probe", {"route": route},
+                    blocking=True, return_response=True,
+                )
+        fake_client.probe.assert_not_awaited()
+
+    async def test_cloud_error_is_reported_not_raised(
+        self, hass, setup_integration, fake_client
+    ):
+        from custom_components.ep_cube.api import EPCubeError
+        fake_client.probe = AsyncMock(side_effect=EPCubeError("404 not found"))
+        result = await hass.services.async_call(
+            DOMAIN, "debug_probe", {"route": "device/getSettingsData"},
+            blocking=True, return_response=True,
+        )
+        assert result["ok"] is False and "404" in result["error"]

@@ -95,3 +95,41 @@ debug_dynamic_export:
       description: Cube devId — only required if multiple EP Cubes are configured.
       selector:
         text:
+
+debug_probe:
+  name: Debug — probe a read-only cloud route
+  description: Diagnostic only. Makes a GET request to one of a fixed list of read-only cloud routes and returns (and logs) the response, with personal fields masked and long lists shortened. Used to find where data such as the supplier or tariff is stored.
+  fields:
+    route:
+      name: Route
+      required: true
+      selector:
+        select:
+          options:
+            - device/getSettingsData
+            - device/getEarningsConfig
+            - device/queryPriceDataGraphV2
+            - device/getNewestModeInfo
+            - device/getSolarPvPower
+            - device/queryDataGraphV2
+            - device/getDevPowerCutLog
+            - device/netWorkInfo
+            - device/getWarranty
+    params:
+      name: Extra query parameters
+      required: false
+      description: "Optional, for example {\"queryDateStr\": \"2026-10-14\", \"scopeType\": \"1\"}. devId is added automatically."
+      selector:
+        object:
+    full:
+      name: Full lists
+      required: false
+      default: false
+      selector:
+        boolean:
+    device_id:
+      name: Device ID
+      required: false
+      description: Cube devId — only required if multiple EP Cubes are configured.
+      selector:
+        text:

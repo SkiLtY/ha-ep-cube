@@ -42,11 +42,12 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_call_later, async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
@@ -90,6 +91,7 @@ SERVICE_DISCHARGE_FREEZE = "discharge_freeze"
 SERVICE_IDLE = "idle"
 SERVICE_DEBUG_FREEZE = "debug_freeze"
 SERVICE_DEBUG_DYNAMIC_EXPORT = "debug_dynamic_export"
+SERVICE_DEBUG_PROBE = "debug_probe"
 
 # Override kinds
 KIND_CHARGE = "charge"
@@ -125,6 +127,54 @@ DEBUG_DYNAMIC_EXPORT_SCHEMA = vol.Schema(
         ),
     }
 )
+
+# debug_probe: read-only GETs against candidate cloud routes, to find where
+# data such as the supplier / tariff lives. Whitelisted, so the service can
+# never reach a write route or a personal-data route (addresses, e-mail).
+PROBE_ROUTES = (
+    "device/getSettingsData",
+    "device/getEarningsConfig",
+    "device/queryPriceDataGraphV2",
+    "device/getNewestModeInfo",
+    "device/getSolarPvPower",
+    "device/queryDataGraphV2",
+    "device/getDevPowerCutLog",
+    "device/netWorkInfo",
+    "device/getWarranty",
+)
+PROBE_PARAM_KEYS = ("devId", "sgSn", "queryDateStr", "scopeType", "dateStr")
+PROBE_MAX_LIST = 20
+_PROBE_REDACT = re.compile(
+    r"mail|address|phone|token|password|postcode|^(lat|lng|lon|latitude|longitude)$",
+    re.IGNORECASE,
+)
+
+DEBUG_PROBE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("device_id"): cv.string,
+        vol.Required("route"): vol.In(PROBE_ROUTES),
+        vol.Optional("params", default=dict): vol.Schema(
+            {vol.In(PROBE_PARAM_KEYS): cv.string}
+        ),
+        vol.Optional("full", default=False): cv.boolean,
+    }
+)
+
+
+def _redact_probe(value: Any, full: bool) -> Any:
+    """Mask personal fields and shorten long lists in a probe response."""
+    if isinstance(value, dict):
+        return {
+            k: ("<redacted>" if _PROBE_REDACT.search(str(k)) and v not in (None, "")
+                else _redact_probe(v, full))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        items = [_redact_probe(v, full) for v in value]
+        if not full and len(items) > PROBE_MAX_LIST:
+            return [*items[:PROBE_MAX_LIST], f"... {len(value) - PROBE_MAX_LIST} more"]
+        return items
+    return value
 
 
 def _clamp_before_charge_window(plan: PredbatPlan, end_time: datetime) -> datetime:
@@ -1045,6 +1095,19 @@ async def async_register_services(hass: HomeAssistant) -> None:
         )
         await shim.charge_freeze(end_time=end_time)
 
+    async def handle_debug_probe(call: ServiceCall) -> dict[str, Any]:
+        shim = _resolve_shim(call)
+        route = call.data["route"]
+        params = {"devId": shim.client.dev_id, **call.data["params"]}
+        try:
+            data = await shim.client.probe(route, params)
+        except EPCubeError as err:
+            _LOGGER.warning("debug_probe %s failed: %s", route, err)
+            return {"ok": False, "route": route, "error": str(err)}
+        result = _redact_probe(data, call.data["full"])
+        _LOGGER.warning("debug_probe %s -> %s", route, result)
+        return {"ok": True, "route": route, "data": result}
+
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_START, handle_charge_start, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_STOP, handle_charge_stop, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_START, handle_discharge_start, schema=SHIM_SCHEMA)
@@ -1061,11 +1124,19 @@ async def async_register_services(hass: HomeAssistant) -> None:
         handle_debug_dynamic_export,
         schema=DEBUG_DYNAMIC_EXPORT_SCHEMA,
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DEBUG_PROBE,
+        handle_debug_probe,
+        schema=DEBUG_PROBE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
 
 
 def async_unregister_services(hass: HomeAssistant) -> None:
     for service in (
         SERVICE_DEBUG_DYNAMIC_EXPORT,
+        SERVICE_DEBUG_PROBE,
         SERVICE_CHARGE_START,
         SERVICE_CHARGE_STOP,
         SERVICE_DISCHARGE_START,

@@ -502,3 +502,15 @@ class TestGetStats:
         assert calls["n"] == 2
         assert reauth.await_count == 1
         assert result["gridelectricityfrom"] == 1.0
+
+
+class TestProbe:
+    async def test_get_with_prefix_and_query(self, aioclient_mock, client_factory):
+        aioclient_mock.get(_url_re("/api/device/getSettingsData"), json=_envelope({"a": 1}))
+        result = await client_factory().probe(
+            "device/getSettingsData", {"devId": "5613", "scopeType": "1"}
+        )
+        assert result == {"a": 1}
+        (_method, url, _data, _headers) = aioclient_mock.mock_calls[0]
+        assert url.path == "/api/device/getSettingsData"
+        assert dict(url.query) == {"devId": "5613", "scopeType": "1"}
