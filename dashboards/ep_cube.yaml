@@ -2,8 +2,8 @@
 #
 # Drop-in Lovelace YAML for the Canadian Solar EP Cube. Three views:
 #
-#   - Now     — live power flow, instant SC / SS / grid-flow gauges,
-#               battery status (what's the house doing right now)
+#   - Now     — live power flow, battery status, and what Predbat plans
+#               next (export / charge windows, with the real Octopus rates)
 #   - Today   — today + yesterday energy rollups (mirrors HA's own
 #               Energy tab pattern)
 #   - Control — operating-mode picker + mode-specific controls
@@ -71,79 +71,6 @@ views:
     path: now
     icon: mdi:flash
     cards:
-      # ───────────────────────────────────────────────────────────────
-      # Right now — live power gauges
-      # Three gauges, all in W, that mirror the power-flow card below
-      # in numeric form: Solar (always positive, capped at array
-      # ceiling), Battery (signed, centered needle: charging right /
-      # discharging left), Grid (signed, centered needle: importing
-      # right / exporting left). Raw `*_power` sensors are wired
-      # directly — no dead-band wrappers — because the jitter IS the
-      # live feedback. Drop the dampened `_right_now` sensors if you
-      # want a smoother read; they're still computed by the integration.
-      #
-      # Colour conventions (mirrors HA's Energy Dashboard palette,
-      # with purple/blue used semantically across Grid AND Battery):
-      #   Solar    — Material green #43a047 (renewable generation)
-      #   Battery  — purple #8353d1 when discharging (<0, energy out),
-      #              blue #488fc2 when charging (>0, energy in).
-      #              Note: our DeviceStatus reports positive=charging /
-      #              negative=discharging (see api.py); the gauge
-      #              inherits that convention directly.
-      #   Grid     — purple #8353d1 when exporting (<0, energy out),
-      #              blue #488fc2 when importing (>0, energy in).
-      # Purple/blue carries the same "going out" / "coming in" meaning
-      # on both signed gauges, so a glance tells you which way energy
-      # flows regardless of which gauge you're reading.
-      # ───────────────────────────────────────────────────────────────
-      - type: horizontal-stack
-        cards:
-          - type: gauge
-            entity: sensor.ep_cube_solar_power
-            name: Solar
-            # 6.51 kWp array ceiling; edit if your install differs.
-            min: 0
-            max: 6500
-            unit: W
-            needle: true
-            segments:
-              - from: 0
-                color: '#43a047'
-          - type: gauge
-            entity: sensor.ep_cube_battery_power
-            name: Battery
-            # Observed cube max charge/discharge rate ~5.5 kW; matches
-            # the BMS taper observations from session 29.
-            min: -5500
-            max: 5500
-            unit: W
-            needle: true
-            segments:
-              - from: -5500
-                color: '#8353d1'
-              - from: 0
-                color: '#488fc2'
-          - type: gauge
-            entity: sensor.ep_cube_grid_power
-            name: Grid
-            # Range matches power-flow-card-plus's max_expected_power
-            # below (6.51 kWp array ceiling). Edit if your install
-            # has a different inverter ceiling.
-            min: -6500
-            max: 6500
-            unit: W
-            needle: true
-            # Matches HA's Energy Dashboard palette:
-            #   purple = energy returned to grid (export)
-            #   blue   = energy consumed from grid (import)
-            # Two solid segments, no gradient — same look as the
-            # native Energy tab gauges.
-            segments:
-              - from: -6500
-                color: '#8353d1'
-              - from: 0
-                color: '#488fc2'
-
       # ───────────────────────────────────────────────────────────────
       # Live power flow
       # ───────────────────────────────────────────────────────────────
@@ -250,32 +177,38 @@ views:
                 name: Usable capacity
               - entity: sensor.ep_cube_reserve_soc
                 name: Active reserve
+          # What Predbat plans next, with the rates you actually pay. The old
+          # "Discharging battery - 1.5 kW" text only repeated the power-flow card.
+          # Window times come from Predbat's best_export_* / best_charge_* entities;
+          # the export target is the plan's SoC at the end of the window (from the
+          # planned SoC curve), the charge target is Predbat's charge limit.
           - type: markdown
-            # Literal block (`|`, not `>`) so the newlines Markdown needs
-            # for `##` headings survive — a folded scalar collapses them
-            # all onto one line and headings silently stop rendering.
-            # `{%-`/`-%}` trims the blank lines each Jinja tag would
-            # otherwise leave behind.
+            title: Next up
             content: |
-              {%- set grid = states('sensor.ep_cube_grid_power')|float(0) -%}
-              {%- set batt = states('sensor.ep_cube_battery_power')|float(0) -%}
-              {%- set imp_rate = (states('sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate')|float(0) * 100)|round(1) -%}
-              {%- set exp_rate = (states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate')|float(0) * 100)|round(1) -%}
-              {%- if grid > 50 %}
-              ## Importing — {{ (grid / 1000)|round(2) }} kW
-              Paying **{{ imp_rate }}p/kWh**
-              {%- elif grid < -50 %}
-              ## Exporting — {{ (-grid / 1000)|round(2) }} kW
-              Earning **{{ exp_rate }}p/kWh**
-              {%- elif batt > 50 %}
-              ## Charging battery — {{ (batt / 1000)|round(2) }} kW
-              From solar, no grid use — free
-              {%- elif batt < -50 %}
-              ## Discharging battery — {{ (-batt / 1000)|round(2) }} kW
-              Covering home load, no grid use — free
+              {%- set imp = (states('sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate')|float(0) * 100)|round(1) -%}
+              {%- set exp = (states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate')|float(0) * 100)|round(1) -%}
+              {%- set curve = state_attr('predbat.soc_kw_best', 'results') or {} -%}
+              {%- set cap = state_attr('predbat.soc_kw_best', 'soc_max')|float(0) -%}
+              {%- set bad = ['', 'unknown', 'unavailable', 'None'] -%}
+              Import **{{ imp }}p** · Export **{{ exp }}p**
+
+              {% set es = states('predbat.best_export_start') %}
+              {%- set ee = states('predbat.best_export_end') %}
+              {%- set ets = state_attr('predbat.best_export_end', 'timestamp') %}
+              {%- set sts = state_attr('predbat.best_export_start', 'timestamp') %}
+              {%- if es not in bad and ee not in bad %}
+              **Export** {{ 'tomorrow ' if sts and as_datetime(sts).date() != now().date() else '' }}{{ es[:5] }}–{{ ee[:5] }}{% if cap > 0 and ets in curve %} down to **{{ ((curve[ets]|float / cap * 100) + 0.25)|int }}%**{% endif %}
               {%- else %}
-              ## Solar covering home load
-              Battery idle, no grid use — free
+              **Export** none planned
+              {%- endif %}
+
+              {% set cs = states('predbat.best_charge_start') %}
+              {%- set ce = states('predbat.best_charge_end') %}
+              {%- set csts = state_attr('predbat.best_charge_start', 'timestamp') %}
+              {%- if cs not in bad and ce not in bad %}
+              **Charge** {{ 'tomorrow ' if csts and as_datetime(csts).date() != now().date() else '' }}{{ cs[:5] }}–{{ ce[:5] }} up to **{{ states('predbat.best_charge_limit')|int(100) }}%**
+              {%- else %}
+              **Charge** none planned
               {%- endif %}
 
   - title: Today
