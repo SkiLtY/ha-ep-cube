@@ -28,6 +28,7 @@ from custom_components.ep_cube.const import (
 )
 from custom_components.ep_cube.services import (
     KIND_CHARGE,
+    KIND_FREEZE,
     KIND_DISCHARGE,
     PredbatShim,
     _clamp_before_charge_window,
@@ -739,3 +740,99 @@ class TestStaleRecoveryMode:
         await dyn_shim.discharge_stop()
         final = fake_client.switch_mode.await_args_list[-1].args[0]
         assert final["workStatus"] == "2"
+
+
+# ----------------------------------------------------------------------
+# Freeze charge as a Reserve-at-SoC hold
+# ----------------------------------------------------------------------
+@pytest.fixture
+def freeze_shim(hass, fake_client):
+    status = MagicMock()
+    status.data = MagicMock(soc_pct=45.7)
+    instance = PredbatShim(
+        hass=hass, entry_id="test-entry", client=fake_client, status_coordinator=status
+    )
+    instance.status = status
+    yield instance
+    instance.cancel_revert_timer()
+
+
+class TestFreezeChargeReserveHold:
+    async def test_the_reserve_is_raised_to_the_soc_rounded_down(self, freeze_shim, fake_client):
+        await freeze_shim.charge_freeze(end_time=_future(60))
+        payload = _write(fake_client, 0)
+        assert payload["selfConsumptioinReserveSoc"] == "45"     # 45.7 -> 45, never above the SoC
+        assert payload["workStatus"] == "1"                       # stays Self-Consumption
+        assert payload["touType"] == 0
+        assert freeze_shim._active_override["kind"] == KIND_FREEZE
+        assert freeze_shim._active_override["reserve_pct"] == 45
+
+    async def test_no_tou_slot_is_written(self, freeze_shim, fake_client, get_switch_mode):
+        await freeze_shim.charge_freeze(end_time=_future(60))
+        payload = _write(fake_client, 0)
+        for key in ("offPeakTimeList", "midPeakTimeList", "peakTimeList"):
+            assert payload.get(key) == get_switch_mode.get(key)
+
+    async def test_the_write_is_verified_for_mode_and_reserve(self, freeze_shim, fake_client):
+        await freeze_shim.charge_freeze(end_time=_future(60))
+        keys = _verify(fake_client, 0)
+        assert "workStatus" in keys and "selfConsumptioinReserveSoc" in keys
+
+    async def test_never_below_the_baseline_reserve(self, freeze_shim, fake_client):
+        freeze_shim.status.data = MagicMock(soc_pct=12.0)
+        await freeze_shim.charge_freeze(end_time=_future(60))
+        assert _write(fake_client, 0)["selfConsumptioinReserveSoc"] == "20"
+
+    async def test_a_repeated_call_does_not_ratchet_the_reserve_up(
+        self, freeze_shim, fake_client
+    ):
+        end = _future(60)
+        await freeze_shim.charge_freeze(end_time=end)
+        freeze_shim.status.data = MagicMock(soc_pct=52.0)       # solar charged it meanwhile
+        await freeze_shim.charge_freeze(end_time=end)
+        assert fake_client.switch_mode.await_count == 1
+
+    async def test_idle_restores_the_baseline_reserve(self, freeze_shim, fake_client):
+        await freeze_shim.charge_freeze(end_time=_future(60))
+        await freeze_shim.idle()
+        restored = fake_client.switch_mode.await_args_list[-1].args[0]
+        assert restored["selfConsumptioinReserveSoc"] == "20"
+        assert restored["workStatus"] == "1"
+        assert freeze_shim._active_override is None
+
+    async def test_predbat_still_sees_the_users_reserve_during_the_hold(self, freeze_shim):
+        await freeze_shim.charge_freeze(end_time=_future(60))
+        assert freeze_shim.user_reserve_pct() == 20.0
+
+    async def test_a_failed_write_reverts_and_raises(self, freeze_shim, fake_client):
+        fake_client.switch_mode.side_effect = [EPCubeError("Failure"), {}]
+        with pytest.raises(EPCubeError):
+            await freeze_shim.charge_freeze(end_time=_future(60))
+        assert fake_client.switch_mode.await_count == 2
+        assert freeze_shim._active_override is None
+
+    # --- the fallbacks ---------------------------------------------------
+    async def test_without_a_soc_reading_it_falls_back_to_the_tou_slot(self, hass, fake_client):
+        plain = PredbatShim(hass=hass, entry_id="e", client=fake_client)   # no status coordinator
+        await plain.charge_freeze(end_time=_future(60))
+        payload = _write(fake_client, 0)
+        assert payload["workStatus"] == "2"
+        assert payload.get("midPeakTimeList"), "the legacy mid-peak slot should be written"
+        plain.cancel_revert_timer()
+
+    async def test_a_tou_baseline_falls_back_to_the_tou_slot(
+        self, freeze_shim, fake_client, get_switch_mode
+    ):
+        fake_client.get_switch_mode.return_value = {**get_switch_mode, "workStatus": "2"}
+        await freeze_shim.charge_freeze(end_time=_future(60))
+        payload = _write(fake_client, 0)
+        assert payload["workStatus"] == "2"
+        assert payload["selfConsumptioinReserveSoc"] == str(
+            get_switch_mode.get("selfConsumptioinReserveSoc") or 20
+        )
+
+    async def test_discharge_freeze_keeps_the_tou_slot(self, freeze_shim, fake_client):
+        await freeze_shim.discharge_freeze(end_time=_future(60))
+        payload = _write(fake_client, 0)
+        assert payload["workStatus"] == "2"
+        assert payload["selfConsumptioinReserveSoc"] == "20"       # reserve untouched

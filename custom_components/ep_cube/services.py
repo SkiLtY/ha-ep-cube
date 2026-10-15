@@ -78,6 +78,7 @@ from .const import (
     DYNAMIC_REVERT_RETRY_SECONDS,
     DYNAMIC_REVERT_WATCHDOG_MINUTES,
     FORCE_EXPORT_MODE_DYNAMIC,
+    OPERATING_MODE_SELF_CONSUMPTION,
     OPERATING_MODE_TOU,
     SHIM_PRICE_MID_PEAK,
     SHIM_PRICE_OFF_PEAK,
@@ -920,13 +921,82 @@ class PredbatShim:
             raise
 
     async def charge_freeze(self, end_time: datetime) -> None:
-        """Hold the battery genuinely idle until end_time via a mid-peak TOU
-        slot — no grid import, no load support, no solar → battery charging
-        during the window. Vendor-confirmed semantics (2026-05-20 TOU capture).
-        Auto-revert restores the baseline mode at end_time."""
+        """Hold the battery at its current charge until end_time: no discharge,
+        while surplus solar can still charge it (Predbat's "freeze charge").
+
+        Done by raising the Self-Consumption reserve to the current SoC, so the
+        cube cannot discharge below it and the grid covers the house. Verified on
+        the cube 2026-10-15: the battery stopped discharging within about three
+        minutes with the reserve at the SoC, and solar still charged it. No ToU
+        slot is involved. The reserve is fixed when the freeze starts (a repeated
+        call does not ratchet it up as solar charges the battery), and the
+        auto-revert restores the baseline reserve at end_time.
+
+        Falls back to the legacy ToU mid-peak slot when the current SoC is not
+        known or the baseline is not Self-Consumption (the reserve of another
+        mode is not the same control)."""
         params = {"kind": KIND_FREEZE, "end_time": end_time}
         if self._matches_active(params):
             _LOGGER.debug("charge_freeze: idempotent no-op")
+            return
+        await self._snapshot_baseline()
+        soc = self._current_soc_pct()
+        baseline = self._baseline or {}
+        if soc is None or str(baseline.get("workStatus")) != WORK_STATUS_SELF_CONSUMPTION:
+            _LOGGER.info(
+                "charge_freeze: %s, using the ToU mid-peak slot instead of a reserve hold",
+                "no SoC reading" if soc is None else "the baseline is not Self-Consumption",
+            )
+            await self._freeze_with_tou_slot(end_time)
+            return
+        floor = int(float(baseline.get("selfConsumptioinReserveSoc") or 20))
+        # Rounded DOWN, never above the SoC: a reserve above the SoC could be read as
+        # a target to charge to.
+        reserve = max(floor, min(100, int(math.floor(soc))))
+        payload = payload_from_switch_mode_read(
+            self.client.dev_id,
+            baseline,
+            overrides={"selfConsumptioinReserveSoc": str(reserve)},
+        )
+        # Record before writing: if the write lands but its verification fails the
+        # reserve really is raised and the revert machinery must know.
+        self._active_override = {
+            **params,
+            "reserve_pct": reserve,
+            "applied_mode": OPERATING_MODE_SELF_CONSUMPTION,
+            "applied_schedule": payload,
+        }
+        try:
+            await self.client.switch_mode(
+                payload, verify_keys=("workStatus", "selfConsumptioinReserveSoc")
+            )
+        except EPCubeError as err:
+            _LOGGER.error("charge_freeze (reserve hold) failed (%s) - reverting", err)
+            try:
+                await self._revert_to_baseline()
+            except EPCubeError:
+                self._schedule_revert_retry()
+            raise
+        self._schedule_revert(end_time)
+        _LOGGER.info(
+            "charge_freeze applied: reserve held at %d%% until %s", reserve, end_time.isoformat()
+        )
+
+    def _current_soc_pct(self) -> float | None:
+        """The battery's SoC from the status coordinator, or None if not available."""
+        data = getattr(self.status_coordinator, "data", None)
+        try:
+            return float(data.soc_pct) if data is not None else None
+        except (TypeError, ValueError, AttributeError):
+            return None
+
+    async def _freeze_with_tou_slot(self, end_time: datetime) -> None:
+        """The legacy freeze: a ToU mid-peak slot, which the vendor describes as
+        "not charging, not supporting loads". Never verified on a real cube; kept as
+        the fallback and for discharge_freeze."""
+        params = {"kind": KIND_FREEZE, "end_time": end_time}
+        if self._matches_active(params):
+            _LOGGER.debug("freeze (ToU slot): idempotent no-op")
             return
         await self._snapshot_baseline()
         payload = self._build_tou_override(
@@ -937,11 +1007,14 @@ class PredbatShim:
         )
         await self._apply_tou_override(payload, params)
         self._schedule_revert(end_time)
-        _LOGGER.info("charge_freeze applied: mid-peak slot until %s", end_time.isoformat())
+        _LOGGER.info("freeze applied: mid-peak slot until %s", end_time.isoformat())
 
     async def discharge_freeze(self, end_time: datetime) -> None:
-        """Alias for charge_freeze — semantics are identical (battery idle)."""
-        await self.charge_freeze(end_time)
+        """Predbat's "freeze export" (the battery must not absorb surplus solar, which
+        is exported instead) is a different behaviour from freeze charge, and a
+        reserve hold does not do it (solar would still charge the battery). Until that
+        is tested on the cube it keeps the legacy ToU mid-peak slot."""
+        await self._freeze_with_tou_slot(end_time)
 
     async def idle(self) -> None:
         """Restore the baseline. Equivalent to '_stop' for any active override."""
