@@ -1452,9 +1452,13 @@ async def async_register_services(hass: HomeAssistant) -> None:
                 plan.discharge_enabled, plan.discharge_window,
             )
             return
-        target_soc_pct = float(
-            plan.discharge_target_soc_pct if plan.discharge_target_soc_pct is not None else 0
-        )
+        # Where the plan lands at the end of the window (the slot's Limit % on the
+        # plan page) is the target. predbat.best_export_limit is the limit Predbat
+        # would program into an inverter, a few points lower (50 against 55 on
+        # 2026-10-15), so it is only the floor: never export deeper than it.
+        programmed = plan.discharge_target_soc_pct if plan.discharge_target_soc_pct is not None else 0
+        planned = plan.discharge_planned_end_soc_pct
+        target_soc_pct = float(max(programmed, planned) if planned is not None else programmed)
         end_time = plan.discharge_window.end
         if shim.force_export_mode == FORCE_EXPORT_MODE_DYNAMIC:
             end_time = _clamp_before_charge_window(plan, end_time)

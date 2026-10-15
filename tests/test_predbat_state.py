@@ -134,3 +134,54 @@ class TestReadPlan:
         _set(hass, "predbat.best_charge_limit", "89.4")
         plan = read_plan(hass)
         assert plan.charge_limit_pct == 89
+
+
+class TestPlannedEndSoc:
+    """The SoC the plan reaches at the end of the export window (the plan page's Limit %)."""
+
+    @staticmethod
+    def _publish(hass, *, limit="50.0", results=None, soc_max=20.0):
+        hass.states.async_set("predbat.best_export_start", "18:05:00",
+                              {"timestamp": "2026-10-15T18:05:00+0100"})
+        hass.states.async_set("predbat.best_export_end", "19:00:00",
+                              {"timestamp": "2026-10-15T19:00:00+0100"})
+        hass.states.async_set("predbat.best_export_limit", limit)
+        hass.states.async_set("predbat.best_charge_start", "")
+        hass.states.async_set("predbat.best_charge_end", "")
+        hass.states.async_set("predbat.best_charge_limit", "100")
+        if results is not None:
+            hass.states.async_set("predbat.soc_kw_best", "4.0",
+                                  {"results": results, "soc_max": soc_max})
+
+    async def test_planned_end_soc_is_read_from_the_soc_curve(self, hass):
+        self._publish(hass, results={
+            "2026-10-15T18:55:00+0100": 11.664,
+            "2026-10-15T19:00:00+0100": 11.141,       # 55.7% of 20 kWh
+            "2026-10-15T19:05:00+0100": 11.031,
+        })
+        plan = read_plan(hass)
+        assert plan.discharge_planned_end_soc_pct == 55    # rounded down: 55, not 56
+        assert plan.discharge_target_soc_pct == 50         # the programmed limit, kept
+
+    async def test_missing_curve_gives_none(self, hass):
+        self._publish(hass)                                # no soc_kw_best at all
+        assert read_plan(hass).discharge_planned_end_soc_pct is None
+
+    async def test_a_curve_without_a_point_near_the_end_gives_none(self, hass):
+        self._publish(hass, results={"2026-10-15T17:00:00+0100": 12.0})
+        assert read_plan(hass).discharge_planned_end_soc_pct is None
+
+    async def test_missing_or_bad_capacity_gives_none(self, hass):
+        self._publish(hass, results={"2026-10-15T19:00:00+0100": 11.0}, soc_max="n/a")
+        assert read_plan(hass).discharge_planned_end_soc_pct is None
+        self._publish(hass, results={"2026-10-15T19:00:00+0100": 11.0}, soc_max=0)
+        assert read_plan(hass).discharge_planned_end_soc_pct is None
+
+    async def test_the_value_is_clamped_to_0_100(self, hass):
+        self._publish(hass, results={"2026-10-15T19:00:00+0100": 25.0}, soc_max=20.0)
+        assert read_plan(hass).discharge_planned_end_soc_pct == 100
+
+    async def test_no_export_window_means_no_planned_soc(self, hass):
+        hass.states.async_set("predbat.best_export_start", "")
+        hass.states.async_set("predbat.best_export_end", "")
+        assert read_plan(hass).discharge_planned_end_soc_pct is None

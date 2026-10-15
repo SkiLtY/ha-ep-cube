@@ -661,3 +661,35 @@ class TestChargeModeWiring:
         )
         await hass.async_block_till_done()
         assert hass.data[DOMAIN][entry.entry_id]["shim"].force_charge_mode == FORCE_CHARGE_MODE_DYNAMIC
+
+
+class TestDischargeStartTarget:
+    @staticmethod
+    def _publish(hass, *, planned_kwh):
+        hass.states.async_set("predbat.best_export_start", "18:05:00",
+                              {"timestamp": "2026-10-15T18:05:00+0100"})
+        hass.states.async_set("predbat.best_export_end", "19:00:00",
+                              {"timestamp": "2026-10-15T19:00:00+0100"})
+        hass.states.async_set("predbat.best_export_limit", "50.0")
+        hass.states.async_set("predbat.best_charge_start", "")
+        hass.states.async_set("predbat.best_charge_end", "")
+        if planned_kwh is not None:
+            hass.states.async_set("predbat.soc_kw_best", "4.0", {
+                "results": {"2026-10-15T19:00:00+0100": planned_kwh}, "soc_max": 20.0})
+
+    async def _target(self, hass, entry, **kw):
+        self._publish(hass, **kw)
+        shim = hass.data[DOMAIN][entry.entry_id]["shim"]
+        with patch.object(shim, "discharge_start", new=AsyncMock()) as call:
+            await hass.services.async_call(DOMAIN, "discharge_start", {}, blocking=True)
+        return call.await_args.kwargs["target_soc_pct"]
+
+    async def test_the_plans_end_soc_beats_the_programmed_limit(self, hass, setup_integration):
+        assert await self._target(hass, setup_integration, planned_kwh=11.141) == 55.0
+
+    async def test_without_a_soc_curve_the_programmed_limit_is_used(self, hass, setup_integration):
+        assert await self._target(hass, setup_integration, planned_kwh=None) == 50.0
+
+    async def test_the_programmed_limit_is_a_floor(self, hass, setup_integration):
+        # A planned end SoC below the programmed limit must not export deeper than it.
+        assert await self._target(hass, setup_integration, planned_kwh=8.0) == 50.0

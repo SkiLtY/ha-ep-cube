@@ -35,6 +35,7 @@ knowledge — so a future upstream rename is a one-file change here.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -72,6 +73,12 @@ class PredbatPlan:
     discharge_enabled: bool
     discharge_window: PredbatWindow | None
     discharge_target_soc_pct: int | None
+    # The state of charge Predbat's own plan reaches at the end of the export window
+    # (from the planned SoC curve), as a whole percent rounded down. This is the
+    # number the plan page shows as the slot's Limit %. `discharge_target_soc_pct`
+    # (predbat.best_export_limit) is the limit Predbat would program into an
+    # inverter, which sits a few points lower (50 against 55 on 2026-10-15).
+    discharge_planned_end_soc_pct: int | None = None
 
 
 def read_plan(hass: HomeAssistant) -> PredbatPlan:
@@ -86,6 +93,9 @@ def read_plan(hass: HomeAssistant) -> PredbatPlan:
 
     discharge_window = _read_window("predbat.best_export_start", "predbat.best_export_end", hass)
     discharge_target_soc_pct = _read_int_opt("predbat.best_export_limit", hass)
+    discharge_planned_end_soc_pct = (
+        _planned_soc_pct_at(hass, discharge_window.end) if discharge_window is not None else None
+    )
 
     return PredbatPlan(
         charge_enabled=charge_window is not None,
@@ -94,7 +104,41 @@ def read_plan(hass: HomeAssistant) -> PredbatPlan:
         discharge_enabled=discharge_window is not None,
         discharge_window=discharge_window,
         discharge_target_soc_pct=discharge_target_soc_pct,
+        discharge_planned_end_soc_pct=discharge_planned_end_soc_pct,
     )
+
+
+def _planned_soc_pct_at(hass: HomeAssistant, when: datetime) -> int | None:
+    """Predbat's planned SoC (whole percent, rounded down) at `when`.
+
+    Reads the planned SoC curve in `predbat.soc_kw_best` (kWh keyed by timestamp,
+    five-minute steps) and divides by its `soc_max` attribute. Returns None if
+    the curve, the capacity or a point within 2.5 minutes of `when` is missing.
+    """
+    state = _state_obj(hass, "predbat.soc_kw_best")
+    if state is None:
+        return None
+    results = state.attributes.get("results")
+    try:
+        capacity = float(state.attributes.get("soc_max"))
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(results, dict) or capacity <= 0:
+        return None
+    best: tuple[float, float] | None = None
+    for key, kwh in results.items():
+        stamp = dt_util.parse_datetime(str(key))
+        if stamp is None:
+            continue
+        gap = abs((stamp - when).total_seconds())
+        if gap <= 150 and (best is None or gap < best[0]):
+            try:
+                best = (gap, float(kwh))
+            except (TypeError, ValueError):
+                continue
+    if best is None:
+        return None
+    return max(0, min(100, int(math.floor(best[1] / capacity * 100 + 1e-6))))
 
 
 def _state_obj(hass: HomeAssistant, entity_id: str):
