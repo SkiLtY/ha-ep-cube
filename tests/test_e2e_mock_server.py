@@ -233,3 +233,24 @@ async def test_dynamic_prices_read_from_the_mock(rig):
     assert prices["import"][34]["price"] == 45.0       # 17:00 slot
     with pytest.raises(EPCubeError):
         await client.get_dynamic_prices("not-a-date")
+
+
+async def test_dynamic_charge_round_trip(rig):
+    client, _session, _base, _dev, make = rig
+    shim = make(FORCE_EXPORT_MODE_DYNAMIC)
+    base = await client.get_switch_mode()
+
+    await shim.debug_dynamic_charge(duration_minutes=5, limit_pct=72.0)
+    during = await client.get_switch_mode()
+    assert str(during["workStatus"]) == "2" and int(during["touType"]) == 1
+    assert float(during["dynamicChargePrice"]) == 999.99
+    assert float(during["dynamicDischargePrice"]) == 999.99
+    assert int(during["backupPowerReserveSoc"]) == 72
+    assert _tiers(during) == _tiers(base), "a Dynamic write must not change the TOU lists"
+
+    await shim._on_revert_timer(dt_util.utcnow())
+    back = await client.get_switch_mode()
+    assert int(back["touType"]) == 0 and str(back["workStatus"]) == "2"
+    assert int(back["backupPowerReserveSoc"]) == int(base["backupPowerReserveSoc"])
+    assert _tiers(back) == _tiers(base)
+    assert shim._active_override is None

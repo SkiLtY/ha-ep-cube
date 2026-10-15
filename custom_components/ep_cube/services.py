@@ -62,6 +62,9 @@ from .const import (
     DEFAULT_FORCE_EXPORT_MODE,
     DOMAIN,
     DEFAULT_SELF_CONSUMPTION_RESERVE_PCT,
+    DEFAULT_CHARGING_LIMIT_PCT,
+    DYNAMIC_CHARGE_BUY_BELOW_P,
+    DYNAMIC_CHARGE_SELL_ABOVE_P,
     DYNAMIC_EXPORT_BUY_BELOW_P,
     DYNAMIC_EXPORT_PRICE_MARGIN_P,
     DYNAMIC_EXPORT_SELL_ABOVE_MIN_P,
@@ -93,6 +96,7 @@ SERVICE_DISCHARGE_FREEZE = "discharge_freeze"
 SERVICE_IDLE = "idle"
 SERVICE_DEBUG_FREEZE = "debug_freeze"
 SERVICE_DEBUG_DYNAMIC_EXPORT = "debug_dynamic_export"
+SERVICE_DEBUG_DYNAMIC_CHARGE = "debug_dynamic_charge"
 SERVICE_DEBUG_PROBE = "debug_probe"
 SERVICE_DEBUG_PROBE_WRITE = "debug_probe_write"
 
@@ -128,6 +132,19 @@ DEBUG_DYNAMIC_EXPORT_SCHEMA = vol.Schema(
         vol.Optional("reserve_pct", default=50): vol.All(
             vol.Coerce(float), vol.Range(min=0, max=100)
         ),
+    }
+)
+
+# debug_dynamic_charge: an experiment, bounded to 15 minutes. Dynamic-tariff mode
+# with buy-below at the maximum, so the cube charges from the grid up to the
+# Charging Limit SoC, then the baseline is restored.
+DEBUG_DYNAMIC_CHARGE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("device_id"): cv.string,
+        vol.Optional("duration_minutes", default=5): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=15)
+        ),
+        vol.Required("limit_pct"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
     }
 )
 
@@ -396,10 +413,24 @@ def _is_shim_dynamic_signature(state: dict[str, Any]) -> bool:
         return False
     # The sell-above is the default or a value lowered for the window's prices,
     # so it is anywhere in (0, default]; buy-below is always the fixed value.
-    return (
+    export = (
         float(DYNAMIC_EXPORT_SELL_ABOVE_MIN_P) <= sell <= float(DYNAMIC_EXPORT_SELL_ABOVE_P)
         and buy == float(DYNAMIC_EXPORT_BUY_BELOW_P)
     )
+    return export or _is_shim_dynamic_charge_signature(state)
+
+
+def _is_shim_dynamic_charge_signature(state: dict[str, Any]) -> bool:
+    """True if `state` is Dynamic-tariff mode with the thresholds a shim forced
+    charge writes (buy-below and sell-above both at the maximum)."""
+    try:
+        if int(state.get("touType") or 0) != TOU_TYPE_DYNAMIC:
+            return False
+        sell = float(state.get("dynamicDischargePrice"))
+        buy = float(state.get("dynamicChargePrice"))
+    except (TypeError, ValueError):
+        return False
+    return sell == float(DYNAMIC_CHARGE_SELL_ABOVE_P) and buy == float(DYNAMIC_CHARGE_BUY_BELOW_P)
 
 
 def _is_user_dynamic_baseline(state: dict[str, Any]) -> bool:
@@ -616,6 +647,53 @@ class PredbatShim:
         end_time = dt_util.utcnow() + timedelta(minutes=duration_minutes)
         await self._discharge_start_dynamic(end_time, reserve_pct)
 
+    async def debug_dynamic_charge(self, duration_minutes: int, limit_pct: float) -> None:
+        """Experiment: charge from the grid in Dynamic-tariff mode for
+        `duration_minutes`, stopping at the Charging Limit SoC `limit_pct`.
+
+        buy-below at the maximum makes the cube always buy; sell-above at the
+        maximum stops it exporting. Used to learn how the cube behaves on the
+        buy side (charge rate, how precisely the limit stops it) before any
+        Predbat charge window is allowed to use it. Reverts like an export."""
+        end_time = dt_util.utcnow() + timedelta(minutes=duration_minutes)
+        await self._charge_start_dynamic(end_time, limit_pct)
+
+    async def _charge_start_dynamic(self, end_time: datetime, limit_pct: float) -> None:
+        await self._snapshot_baseline()
+        limit = max(0, min(100, int(math.ceil(float(limit_pct)))))
+        params = {
+            "kind": KIND_CHARGE,
+            "dynamic": True,
+            "end_time": end_time,
+            "limit_pct": limit,
+        }
+        if self._matches_active(params):
+            _LOGGER.debug("charge_start (dynamic): idempotent no-op")
+            return
+        payload = payload_from_switch_mode_read(
+            self.client.dev_id,
+            self._baseline or {},
+            overrides={
+                "workStatus": WORK_STATUS_TOU,
+                "touType": TOU_TYPE_DYNAMIC,
+                "dynamicChargePrice": float(DYNAMIC_CHARGE_BUY_BELOW_P),
+                "dynamicDischargePrice": float(DYNAMIC_CHARGE_SELL_ABOVE_P),
+                "backupPowerReserveSoc": str(limit),
+                "allowChargingXiaGrid": "1",
+            },
+        )
+        await self._apply_dynamic_override(
+            payload, params, extra_verify=("dynamicChargePrice", "backupPowerReserveSoc")
+        )
+        self._schedule_revert(end_time)
+        self._schedule_watchdog(end_time)
+        _LOGGER.info(
+            "charge_start applied: dynamic charge until %s, limit %d%% "
+            "(buy below %.2fp, sell above %.2fp)",
+            end_time.isoformat(), limit,
+            DYNAMIC_CHARGE_BUY_BELOW_P, DYNAMIC_CHARGE_SELL_ABOVE_P,
+        )
+
     def _dynamic_reserve(self, target_soc_pct: float) -> int:
         """Reserve SoC for a forced export: Predbat's target, rounded UP to an
         even percent (so the export never overshoots the target and tiny plan
@@ -679,7 +757,10 @@ class PredbatShim:
         )
 
     async def _apply_dynamic_override(
-        self, payload: dict[str, Any], params: dict[str, Any]
+        self,
+        payload: dict[str, Any],
+        params: dict[str, Any],
+        extra_verify: tuple[str, ...] = (),
     ) -> None:
         # Record the override BEFORE writing: if the write lands but its
         # read-back verification fails, the cube may really be in Dynamic mode
@@ -691,6 +772,7 @@ class PredbatShim:
         }
         verify_keys = (
             "workStatus", "touType", "dynamicDischargePrice", "selfConsumptioinReserveSoc",
+            *extra_verify,
         )
         try:
             await self.client.switch_mode(payload, verify_keys=verify_keys)
@@ -809,10 +891,15 @@ class PredbatShim:
                 live.get("selfConsumptioinReserveSoc"),
                 DEFAULT_SELF_CONSUMPTION_RESERVE_PCT,
             )
+            charge_leftover = _is_shim_dynamic_charge_signature(live)
             live = _clear_dynamic(live)
-            # The reserve the export left behind is Predbat's target, not the
-            # user's setting - never restore it as the baseline.
-            live["selfConsumptioinReserveSoc"] = str(DEFAULT_SELF_CONSUMPTION_RESERVE_PCT)
+            if charge_leftover:
+                # A forced charge left its target in the Charging Limit SoC.
+                live["backupPowerReserveSoc"] = str(DEFAULT_CHARGING_LIMIT_PCT)
+            else:
+                # The reserve the export left behind is Predbat's target, not the
+                # user's setting - never restore it as the baseline.
+                live["selfConsumptioinReserveSoc"] = str(DEFAULT_SELF_CONSUMPTION_RESERVE_PCT)
         self._baseline, stripped = _strip_shim_slots(live)
         if stripped:
             _LOGGER.info(
@@ -1243,6 +1330,18 @@ async def async_register_services(hass: HomeAssistant) -> None:
         )
         await shim.debug_dynamic_export(duration, reserve)
 
+    async def handle_debug_dynamic_charge(call: ServiceCall) -> None:
+        # Diagnostic: skips read_plan and charges from the grid in Dynamic-tariff
+        # mode for `duration_minutes` (max 15), stopping at `limit_pct`.
+        shim = _resolve_shim(call)
+        duration = int(call.data.get("duration_minutes", 5))
+        limit = float(call.data["limit_pct"])
+        _LOGGER.warning(
+            "debug_dynamic_charge: bypassing predbat plan — forced charge for %d min, limit %.0f%%",
+            duration, limit,
+        )
+        await shim.debug_dynamic_charge(duration, limit)
+
     async def handle_debug_freeze(call: ServiceCall) -> None:
         # Diagnostic: skips read_plan and freezes for `duration_minutes`.
         shim = _resolve_shim(call)
@@ -1308,6 +1407,12 @@ async def async_register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_DEBUG_DYNAMIC_CHARGE,
+        handle_debug_dynamic_charge,
+        schema=DEBUG_DYNAMIC_CHARGE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_DEBUG_DYNAMIC_EXPORT,
         handle_debug_dynamic_export,
         schema=DEBUG_DYNAMIC_EXPORT_SCHEMA,
@@ -1331,6 +1436,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
 def async_unregister_services(hass: HomeAssistant) -> None:
     for service in (
         SERVICE_DEBUG_DYNAMIC_EXPORT,
+        SERVICE_DEBUG_DYNAMIC_CHARGE,
         SERVICE_DEBUG_PROBE,
         SERVICE_DEBUG_PROBE_WRITE,
         SERVICE_CHARGE_START,

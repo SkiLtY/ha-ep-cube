@@ -601,3 +601,27 @@ class TestPriceSensors:
             assert price and hass.states.get(price[0].entity_id).state == "unavailable"
             await hass.config_entries.async_unload(entry.entry_id)
             await hass.async_block_till_done()
+
+
+class TestDebugDynamicCharge:
+    async def test_schema_bounds_the_test(self, hass, setup_integration):
+        import voluptuous as vol
+        for data in (
+            {"limit_pct": 80, "duration_minutes": 16},   # over the 15 minute cap
+            {"limit_pct": 80, "duration_minutes": 0},
+            {"limit_pct": 101},
+            {},                                          # the limit is required
+        ):
+            with pytest.raises(vol.Invalid):
+                await hass.services.async_call(
+                    DOMAIN, "debug_dynamic_charge", data, blocking=True
+                )
+
+    async def test_calls_the_shim(self, hass, setup_integration, fake_client):
+        shim = hass.data[DOMAIN][setup_integration.entry_id]["shim"]
+        with patch.object(shim, "debug_dynamic_charge", new=AsyncMock()) as call:
+            await hass.services.async_call(
+                DOMAIN, "debug_dynamic_charge", {"limit_pct": 75, "duration_minutes": 5},
+                blocking=True,
+            )
+        call.assert_awaited_once_with(5, 75.0)

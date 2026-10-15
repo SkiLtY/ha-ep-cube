@@ -122,6 +122,17 @@ DYNAMIC_EXPORT_PRICE_MARGIN_P = 1.0
 DYNAMIC_EXPORT_SELL_ABOVE_MIN_P = 0.01
 DYNAMIC_EXPORT_BUY_BELOW_P = 0.0
 
+# Dynamic-tariff thresholds for a forced grid CHARGE (an experiment, see
+# PredbatShim.debug_dynamic_charge): buy-below at the app's maximum so the cube
+# always buys, sell-above at the maximum so it never exports. The Charging Limit
+# SoC (backupPowerReserveSoc) is the stopping point. Both at 999.99 is also the
+# shim's fingerprint for a charge it left behind; the user's hold setting (buy 0,
+# sell 999.99) does not match it.
+DYNAMIC_CHARGE_BUY_BELOW_P = 999.99
+DYNAMIC_CHARGE_SELL_ABOVE_P = 999.99
+# Charging Limit SoC the cube ships with; restored when a stale shim charge is found.
+DEFAULT_CHARGING_LIMIT_PCT = 100
+
 # The cube's self-consumption reserve default. When a stale shim Dynamic export
 # is found at baseline time (HA restarted mid-window) the reserve it left
 # behind is the export target, not something the user chose, so the recovered

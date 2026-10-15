@@ -96,6 +96,35 @@ debug_dynamic_export:
       selector:
         text:
 
+debug_dynamic_charge:
+  name: Debug - forced grid charge (Dynamic tariff) for N minutes
+  description: Experiment. Snapshots the cloud baseline, switches the cube to Dynamic-tariff mode with buy-below at the maximum (it always buys) and sell-above at the maximum (it never exports), and sets the Charging Limit SoC, so it charges from the grid until that SoC or the end of the window; then restores the baseline (with a watchdog that confirms the cube left Dynamic mode). Bypasses Predbat plan reading. Imports at your current grid rate, so keep it short. The cube must already have Dynamic tariff configured in the EP Cube app.
+  fields:
+    limit_pct:
+      name: Charging Limit SoC (%)
+      required: true
+      description: The grid charge stops at this state of charge. Set it a few points above the current SoC for a test.
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    duration_minutes:
+      name: Duration (minutes)
+      required: false
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 15
+          unit_of_measurement: min
+    device_id:
+      name: Device ID
+      required: false
+      description: Cube devId - only required if multiple EP Cubes are configured.
+      selector:
+        text:
+
 debug_probe:
   name: Debug — probe a read-only cloud route
   description: Diagnostic only. Makes a GET request to one of a fixed list of read-only cloud routes and returns (and logs) the response, with personal fields masked and long lists shortened. Used to find where data such as the supplier or tariff is stored.

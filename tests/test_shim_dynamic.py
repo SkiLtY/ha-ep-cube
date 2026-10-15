@@ -27,6 +27,7 @@ from custom_components.ep_cube.const import (
     WORK_STATUS_TOU,
 )
 from custom_components.ep_cube.services import (
+    KIND_CHARGE,
     KIND_DISCHARGE,
     PredbatShim,
     _clamp_before_charge_window,
@@ -438,3 +439,54 @@ class TestSellAboveGuard:
         assert _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=2.0, buy=0.0))
         assert not _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=999.99, buy=0.0))
         assert not _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=0.0, buy=0.0))
+
+
+# ----------------------------------------------------------------------
+# Forced grid charge in Dynamic-tariff mode (experiment)
+# ----------------------------------------------------------------------
+class TestDynamicCharge:
+    async def test_writes_a_dynamic_charge(self, dyn_shim, fake_client):
+        await dyn_shim.debug_dynamic_charge(duration_minutes=5, limit_pct=72.0)
+        payload = _write(fake_client, 0)
+        assert payload["workStatus"] == WORK_STATUS_TOU and payload["touType"] == 1
+        assert payload["dynamicChargePrice"] == 999.99     # always buy
+        assert payload["dynamicDischargePrice"] == 999.99  # never sell
+        assert payload["backupPowerReserveSoc"] == "72"    # Charging Limit SoC
+        assert payload["allowChargingXiaGrid"] == "1"
+        assert payload["selfConsumptioinReserveSoc"] == "20"   # the baseline's, untouched
+        assert dyn_shim._active_override["kind"] == KIND_CHARGE
+        assert dyn_shim._active_override["dynamic"] is True
+        keys = _verify(fake_client, 0)
+        for key in ("dynamicChargePrice", "backupPowerReserveSoc", "dynamicDischargePrice"):
+            assert key in keys
+
+    async def test_limit_is_rounded_up_and_clamped(self, dyn_shim, fake_client):
+        await dyn_shim.debug_dynamic_charge(duration_minutes=5, limit_pct=71.2)
+        assert _write(fake_client, 0)["backupPowerReserveSoc"] == "72"
+
+    async def test_reverts_to_the_baseline_and_restores_the_charging_limit(
+        self, dyn_shim, fake_client
+    ):
+        await dyn_shim.debug_dynamic_charge(duration_minutes=5, limit_pct=72.0)
+        await dyn_shim._on_revert_timer(dt_util.utcnow())
+        assert dyn_shim._active_override is None
+        restored = fake_client.switch_mode.await_args_list[-1].args[0]
+        assert restored["touType"] == 0
+        assert restored["backupPowerReserveSoc"] == "100"   # the baseline's
+
+    async def test_a_stale_charge_is_recognised_and_its_limit_reset(
+        self, dyn_shim, fake_client, get_switch_mode
+    ):
+        stale = _dynamic_read(get_switch_mode, sell=999.99, buy=999.99)
+        stale["backupPowerReserveSoc"] = "72"
+        stale["selfConsumptioinReserveSoc"] = "35"      # the user's own, must survive
+        fake_client.get_switch_mode.return_value = stale
+        assert _is_shim_dynamic_signature(stale)
+        await dyn_shim._snapshot_baseline()
+        assert dyn_shim._baseline["touType"] == 0
+        assert dyn_shim._baseline["backupPowerReserveSoc"] == "100"
+        assert dyn_shim._baseline["selfConsumptioinReserveSoc"] == "35"
+
+    async def test_the_hold_setting_is_not_mistaken_for_a_charge(self, get_switch_mode):
+        hold = _dynamic_read(get_switch_mode, sell=999.99, buy=0.0)
+        assert not _is_shim_dynamic_signature(hold)
