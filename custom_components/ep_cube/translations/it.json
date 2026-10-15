@@ -113,5 +113,24 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opzioni EP Cube",
+        "description": "Come devono essere eseguite le finestre di esportazione forzata (scarica) di Predbat?\n\n**Fascia TOU di picco** (predefinito) usa una fascia di picco a tempo: la batteria alimenta la casa ma non viene mai scaricata nella rete.\n\n**Tariffa dinamica** porta il cube in modalità tariffa dinamica per la finestra, così esporta davvero nella rete fermandosi all'obiettivo di Predbat. Richiede che la tariffa dinamica sia già configurata nell'app EP Cube (fonte prezzi Octopus, regione, tariffe e prezzi target). La modifica ricarica l'integrazione.",
+        "data": {
+          "force_export_mode": "Modalità di esportazione forzata"
+        }
+      }
+    }
+  },
+  "selector": {
+    "force_export_mode": {
+      "options": {
+        "tou_peak": "Fascia TOU di picco (scarica solo verso la casa)",
+        "dynamic": "Tariffa dinamica (vera esportazione nella rete)"
+      }
+    }
   }
 }

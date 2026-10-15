@@ -113,5 +113,24 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EP Cube-opties",
+        "description": "Hoe moeten de geforceerde exportvensters (ontladen) van Predbat worden uitgevoerd?\n\n**TOU-piekslot** (standaard) gebruikt een time-of-use-piekslot: de batterij voedt het huis maar wordt nooit op het net ontladen.\n\n**Dynamisch tarief** zet de cube voor het venster in de modus dynamisch tarief, zodat hij echt op het net exporteert en stopt bij het doel van Predbat. Vereist dat het dynamische tarief al is ingesteld in de EP Cube-app (Octopus-prijsbron, regio, tarieven en doelprijzen). Een wijziging laadt de integratie opnieuw.",
+        "data": {
+          "force_export_mode": "Modus voor geforceerde export"
+        }
+      }
+    }
+  },
+  "selector": {
+    "force_export_mode": {
+      "options": {
+        "tou_peak": "TOU-piekslot (ontlaadt alleen naar het huis)",
+        "dynamic": "Dynamisch tarief (echte export naar het net)"
+      }
+    }
   }
 }

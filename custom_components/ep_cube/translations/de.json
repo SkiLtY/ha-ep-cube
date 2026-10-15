@@ -113,5 +113,24 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EP-Cube-Optionen",
+        "description": "Wie sollen die Zwangs-Export-Fenster (Entladen) von Predbat ausgeführt werden?\n\n**TOU-Spitze** (Standard) nutzt einen Time-of-Use-Spitzenslot: Die Batterie versorgt das Haus, wird aber nie ins Netz entladen.\n\n**Dynamischer Tarif** schaltet den Cube für das Fenster in den Dynamic-Tarif-Modus, sodass er wirklich ins Netz einspeist und beim Ziel von Predbat stoppt. Voraussetzung: Der dynamische Tarif ist in der EP-Cube-App bereits eingerichtet (Octopus-Preisquelle, Region, Tarife und Zielpreise). Eine Änderung lädt die Integration neu.",
+        "data": {
+          "force_export_mode": "Modus für erzwungenen Export"
+        }
+      }
+    }
+  },
+  "selector": {
+    "force_export_mode": {
+      "options": {
+        "tou_peak": "TOU-Spitzenslot (entlädt nur ins Haus)",
+        "dynamic": "Dynamischer Tarif (echter Export ins Netz)"
+      }
+    }
   }
 }

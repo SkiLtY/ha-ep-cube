@@ -113,5 +113,24 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EP Cube options",
+        "description": "How should Predbat's force-export (discharge) windows be carried out?\n\n**TOU peak** (default) uses a time-of-use peak slot: the battery drains to the house but is never pushed to the grid.\n\n**Dynamic tariff** switches the cube to its Dynamic-tariff mode for the window so it really exports to the grid, stopping at Predbat's target. It needs Dynamic tariff already set up in the EP Cube app (Octopus price source, region, tariffs and target prices). Changing this reloads the integration.",
+        "data": {
+          "force_export_mode": "Force export mode"
+        }
+      }
+    }
+  },
+  "selector": {
+    "force_export_mode": {
+      "options": {
+        "tou_peak": "TOU peak slot (drains to the house only)",
+        "dynamic": "Dynamic tariff (real export to the grid)"
+      }
+    }
   }
 }
