@@ -314,10 +314,13 @@ async def switch_mode(
         dev.allowChargingXiaGrid = str(payload["allowChargingXiaGrid"])
     if "touType" in payload:
         dev.touType = int(payload["touType"])
-    if "dynamicChargePrice" in payload:
-        dev.dynamicChargePrice = float(payload["dynamicChargePrice"])
-    if "dynamicDischargePrice" in payload:
-        dev.dynamicDischargePrice = float(payload["dynamicDischargePrice"])
+    # The real cloud only takes the Dynamic thresholds from a touType 1 write; a
+    # later write with touType 0 leaves the stored ones alone (seen 2026-10-15).
+    if int(payload.get("touType") or 0) == 1:
+        if "dynamicChargePrice" in payload:
+            dev.dynamicChargePrice = float(payload["dynamicChargePrice"])
+        if "dynamicDischargePrice" in payload:
+            dev.dynamicDischargePrice = float(payload["dynamicDischargePrice"])
     dev.tou.apply_wire(payload)
     return envelope()
 

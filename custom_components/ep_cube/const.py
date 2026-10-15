@@ -129,6 +129,12 @@ DYNAMIC_EXPORT_BUY_BELOW_P = 0.0
 # shim's fingerprint for a charge it left behind; the user's hold setting (buy 0,
 # sell 999.99) does not match it.
 DYNAMIC_CHARGE_BUY_BELOW_P = 999.99
+# The safe "hold" thresholds a Dynamic revert leaves stored in the cloud: never
+# buy (the app's minimum is 0.00), never sell. The cloud keeps the last Dynamic
+# thresholds after a switch back to Self-Consumption / TOU, so without this a
+# later switch to Dynamic would resume a forced export or charge.
+DYNAMIC_HOLD_BUY_BELOW_P = 0.0
+DYNAMIC_HOLD_SELL_ABOVE_P = 999.99
 DYNAMIC_CHARGE_SELL_ABOVE_P = 999.99
 # Charging Limit SoC the cube ships with; restored when a stale shim charge is found.
 DEFAULT_CHARGING_LIMIT_PCT = 100

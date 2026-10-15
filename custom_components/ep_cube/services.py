@@ -66,6 +66,8 @@ from .const import (
     DYNAMIC_CHARGE_BUY_BELOW_P,
     DYNAMIC_CHARGE_SELL_ABOVE_P,
     DYNAMIC_EXPORT_BUY_BELOW_P,
+    DYNAMIC_HOLD_BUY_BELOW_P,
+    DYNAMIC_HOLD_SELL_ABOVE_P,
     DYNAMIC_EXPORT_PRICE_MARGIN_P,
     DYNAMIC_EXPORT_SELL_ABOVE_MIN_P,
     DYNAMIC_EXPORT_SELL_ABOVE_P,
@@ -425,6 +427,24 @@ def _is_shim_dynamic_charge_signature(state: dict[str, Any]) -> bool:
     charge writes (buy-below and sell-above both at the maximum)."""
     try:
         if int(state.get("touType") or 0) != TOU_TYPE_DYNAMIC:
+            return False
+        sell = float(state.get("dynamicDischargePrice"))
+        buy = float(state.get("dynamicChargePrice"))
+    except (TypeError, ValueError):
+        return False
+    return sell == float(DYNAMIC_CHARGE_SELL_ABOVE_P) and buy == float(DYNAMIC_CHARGE_BUY_BELOW_P)
+
+
+def _has_leftover_charge_thresholds(state: dict[str, Any]) -> bool:
+    """True if `state` is NOT in Dynamic mode but still carries the thresholds a
+    shim forced charge wrote (buy-below and sell-above both 999.99).
+
+    The cloud keeps the last Dynamic thresholds and Charging Limit after the
+    cube goes back to Self-Consumption / TOU, so a charge whose revert could not
+    reset them (an older build, or a failed hold step) leaves its Charging Limit
+    behind. That limit is the charge target, not the user's setting."""
+    try:
+        if int(state.get("touType") or 0) == TOU_TYPE_DYNAMIC:
             return False
         sell = float(state.get("dynamicDischargePrice"))
         buy = float(state.get("dynamicChargePrice"))
@@ -900,6 +920,15 @@ class PredbatShim:
                 # The reserve the export left behind is Predbat's target, not the
                 # user's setting - never restore it as the baseline.
                 live["selfConsumptioinReserveSoc"] = str(DEFAULT_SELF_CONSUMPTION_RESERVE_PCT)
+        elif _has_leftover_charge_thresholds(live):
+            _LOGGER.warning(
+                "baseline snapshot found the thresholds of a forced charge left in the "
+                "cloud (Charging Limit %s%%); using the default %s%% instead",
+                live.get("backupPowerReserveSoc"),
+                DEFAULT_CHARGING_LIMIT_PCT,
+            )
+            live = dict(live)
+            live["backupPowerReserveSoc"] = str(DEFAULT_CHARGING_LIMIT_PCT)
         self._baseline, stripped = _strip_shim_slots(live)
         if stripped:
             _LOGGER.info(
@@ -1094,6 +1123,8 @@ class PredbatShim:
         if _is_user_dynamic_baseline(base):
             await self._post_user_dynamic_baseline(base)
             return
+        if verify_tou_type:
+            await self._leave_safe_dynamic_thresholds(base)
         payload = payload_from_switch_mode_read(self.client.dev_id, base)
         verify_keys = ("workStatus", "touType") if verify_tou_type else ("workStatus",)
         try:
@@ -1115,6 +1146,42 @@ class PredbatShim:
                 },
             )
             await self.client.switch_mode(fallback, verify_keys=("workStatus",))
+
+    async def _leave_safe_dynamic_thresholds(self, base: dict[str, Any]) -> None:
+        """First step of leaving a shim Dynamic override: re-write Dynamic mode
+        with the safe hold thresholds (buy 0, sell 999.99) and the baseline's
+        reserve and Charging Limit.
+
+        The cloud keeps the last Dynamic thresholds and Charging Limit after the
+        cube goes back to Self-Consumption / TOU (verified 2026-10-15: a forced
+        charge left buy/sell at 999.99 and the Charging Limit at the test's 89%),
+        and a plain baseline write does not reset them. Writing them while the
+        cube is still in Dynamic mode does. Best effort: leaving Dynamic is what
+        matters, so a failure here is logged and the baseline write still runs.
+        """
+        hold = payload_from_switch_mode_read(
+            self.client.dev_id,
+            base,
+            overrides={
+                "workStatus": WORK_STATUS_TOU,
+                "touType": TOU_TYPE_DYNAMIC,
+                "dynamicChargePrice": float(DYNAMIC_HOLD_BUY_BELOW_P),
+                "dynamicDischargePrice": float(DYNAMIC_HOLD_SELL_ABOVE_P),
+            },
+        )
+        try:
+            await self.client.switch_mode(
+                hold,
+                verify_keys=(
+                    "workStatus", "touType", "dynamicChargePrice", "dynamicDischargePrice",
+                    "backupPowerReserveSoc", "selfConsumptioinReserveSoc",
+                ),
+            )
+        except EPCubeError as err:
+            _LOGGER.warning(
+                "could not leave safe Dynamic thresholds before the revert (%s) - "
+                "continuing with the baseline write", err,
+            )
 
     def _schedule_revert_retry(self) -> None:
         """Retry a failed revert shortly, a bounded number of times. A cube

@@ -176,7 +176,7 @@ async def test_failed_revert_is_recovered_by_retry_and_watchdog(rig):
     await shim.discharge_start(end_time=_future(30), target_soc_pct=50.0)
 
     real = client.switch_mode
-    pending = {"fail": 1}
+    pending = {"fail": 2}    # the safe-hold step, then the baseline write
 
     async def flaky(payload, **kwargs):
         if pending["fail"] > 0:
@@ -254,3 +254,17 @@ async def test_dynamic_charge_round_trip(rig):
     assert int(back["backupPowerReserveSoc"]) == int(base["backupPowerReserveSoc"])
     assert _tiers(back) == _tiers(base)
     assert shim._active_override is None
+
+
+async def test_revert_leaves_the_safe_dynamic_thresholds_in_the_cloud(rig):
+    """The cloud keeps the last Dynamic thresholds and Charging Limit after the
+    cube goes back to a non-Dynamic mode; the revert must leave safe ones."""
+    client, _session, _base, _dev, make = rig
+    shim = make(FORCE_EXPORT_MODE_DYNAMIC)
+    await shim.debug_dynamic_charge(duration_minutes=5, limit_pct=72.0)
+    await shim._on_revert_timer(dt_util.utcnow())
+    back = await client.get_switch_mode()
+    assert int(back["touType"]) == 0
+    assert float(back["dynamicChargePrice"]) == 0.0
+    assert float(back["dynamicDischargePrice"]) == 999.99
+    assert int(back["backupPowerReserveSoc"]) == 100

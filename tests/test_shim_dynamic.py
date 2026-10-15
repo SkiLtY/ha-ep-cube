@@ -144,12 +144,24 @@ class TestDynamicExport:
     async def test_revert_restores_standard_tou_and_checks_it(self, dyn_shim, fake_client):
         await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=50.0)
         await dyn_shim.discharge_stop()
-        assert fake_client.switch_mode.await_count == 2
-        reverted = _write(fake_client, 1)
+        assert fake_client.switch_mode.await_count == 3
+        hold = _write(fake_client, 1)
+        assert hold["touType"] == 1                      # still Dynamic: safe thresholds first
+        assert hold["dynamicChargePrice"] == 0.0 and hold["dynamicDischargePrice"] == 999.99
+        assert hold["backupPowerReserveSoc"] == "100"    # the baseline's Charging Limit
+        reverted = _write(fake_client, 2)
         assert reverted["touType"] == 0
         assert "dynamicDischargePrice" not in reverted
         assert reverted["workStatus"] == "1"            # fixture baseline: self-consumption
-        assert "touType" in _verify(fake_client, 1)     # a stuck Dynamic mode must be noticed
+        assert "touType" in _verify(fake_client, 2)     # a stuck Dynamic mode must be noticed
+        assert dyn_shim._active_override is None
+
+    async def test_a_failed_hold_step_does_not_stop_the_revert(self, dyn_shim, fake_client):
+        await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=50.0)
+        fake_client.switch_mode.side_effect = [EPCubeError("Failure"), {}]
+        await dyn_shim.discharge_stop()
+        assert fake_client.switch_mode.await_count == 3      # override, failed hold, baseline
+        assert _write(fake_client, 2)["touType"] == 0
         assert dyn_shim._active_override is None
 
     async def test_revert_to_empty_tou_falls_back_to_self_consumption(
@@ -166,19 +178,21 @@ class TestDynamicExport:
         }
         fake_client.get_switch_mode.return_value = empty_tou
         await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=50.0)
-        fake_client.switch_mode.side_effect = [EPCubeError("Failure"), {}]
+        # hold step ok, the empty-TOU baseline write rejected, then the fallback
+        fake_client.switch_mode.side_effect = [{}, EPCubeError("Failure"), {}]
         await dyn_shim.discharge_stop()
-        assert fake_client.switch_mode.await_count == 3
-        assert _write(fake_client, 1)["workStatus"] == "2"
-        assert _write(fake_client, 2)["workStatus"] == "1"
-        assert _write(fake_client, 2)["touType"] == 0
+        assert fake_client.switch_mode.await_count == 4
+        assert _write(fake_client, 1)["touType"] == 1
+        assert _write(fake_client, 2)["workStatus"] == "2"
+        assert _write(fake_client, 3)["workStatus"] == "1"
+        assert _write(fake_client, 3)["touType"] == 0
         assert dyn_shim._active_override is None
 
     async def test_failed_override_write_reverts_and_raises(self, dyn_shim, fake_client):
-        fake_client.switch_mode.side_effect = [EPCubeError("Failure"), {}]
+        fake_client.switch_mode.side_effect = [EPCubeError("Failure"), {}, {}]
         with pytest.raises(EPCubeError):
             await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=50.0)
-        assert fake_client.switch_mode.await_count == 2   # override, then the revert
+        assert fake_client.switch_mode.await_count == 3   # override, then the two-step revert
         assert dyn_shim._active_override is None
 
     async def test_failed_revert_is_retried(self, dyn_shim, fake_client):
@@ -298,8 +312,9 @@ class TestDynamicWatchdog:
             get_switch_mode, sell=5.0, buy=0.0
         )
         await dyn_shim._on_watchdog(dt_util.utcnow())
-        assert fake_client.switch_mode.await_count == 1
-        payload = _write(fake_client, 0)
+        assert fake_client.switch_mode.await_count == 2      # safe hold, then the baseline
+        assert _write(fake_client, 0)["dynamicDischargePrice"] == 999.99
+        payload = _write(fake_client, 1)
         assert payload["touType"] == 0
         assert "dynamicDischargePrice" not in payload
 
@@ -320,7 +335,7 @@ class TestDynamicWatchdog:
         await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=50.0)
         assert dyn_shim._active_override is not None
         await dyn_shim._on_watchdog(dt_util.utcnow())
-        assert fake_client.switch_mode.await_count == 2   # override + the retried revert
+        assert fake_client.switch_mode.await_count == 3   # override + the retried two-step revert
         assert dyn_shim._active_override is None
 
 
@@ -470,6 +485,10 @@ class TestDynamicCharge:
         await dyn_shim.debug_dynamic_charge(duration_minutes=5, limit_pct=72.0)
         await dyn_shim._on_revert_timer(dt_util.utcnow())
         assert dyn_shim._active_override is None
+        hold = fake_client.switch_mode.await_args_list[-2].args[0]
+        assert hold["touType"] == 1                          # still Dynamic, but safe
+        assert hold["dynamicChargePrice"] == 0.0 and hold["dynamicDischargePrice"] == 999.99
+        assert hold["backupPowerReserveSoc"] == "100"        # the test's 72 is gone
         restored = fake_client.switch_mode.await_args_list[-1].args[0]
         assert restored["touType"] == 0
         assert restored["backupPowerReserveSoc"] == "100"   # the baseline's
@@ -490,3 +509,24 @@ class TestDynamicCharge:
     async def test_the_hold_setting_is_not_mistaken_for_a_charge(self, get_switch_mode):
         hold = _dynamic_read(get_switch_mode, sell=999.99, buy=0.0)
         assert not _is_shim_dynamic_signature(hold)
+
+
+    async def test_leftover_charge_thresholds_reset_the_charging_limit(
+        self, dyn_shim, fake_client, get_switch_mode
+    ):
+        # Not in Dynamic mode, but the cloud still holds a charge's thresholds and
+        # its Charging Limit (the state a cube is left in by an older revert).
+        leftover = {**get_switch_mode, "touType": 0, "dynamicChargePrice": 999.99,
+                    "dynamicDischargePrice": 999.99, "backupPowerReserveSoc": "89"}
+        fake_client.get_switch_mode.return_value = leftover
+        await dyn_shim._snapshot_baseline()
+        assert dyn_shim._baseline["backupPowerReserveSoc"] == "100"
+
+    async def test_ordinary_thresholds_leave_the_charging_limit_alone(
+        self, dyn_shim, fake_client, get_switch_mode
+    ):
+        state = {**get_switch_mode, "touType": 0, "dynamicChargePrice": 0.0,
+                 "dynamicDischargePrice": 999.99, "backupPowerReserveSoc": "90"}
+        fake_client.get_switch_mode.return_value = state
+        await dyn_shim._snapshot_baseline()
+        assert dyn_shim._baseline["backupPowerReserveSoc"] == "90"

@@ -279,9 +279,11 @@ class DeviceState:
             "existsSg": "1",
             "touType": self.touType,
         })
-        if self.touType == 1:
-            data["dynamicChargePrice"] = self.dynamicChargePrice
-            data["dynamicDischargePrice"] = self.dynamicDischargePrice
+        # The real cloud keeps reporting the last Dynamic thresholds after the
+        # cube leaves Dynamic mode (seen 2026-10-15 on a real cube), so they are
+        # always included.
+        data["dynamicChargePrice"] = self.dynamicChargePrice
+        data["dynamicDischargePrice"] = self.dynamicDischargePrice
         return data
 
     def to_device_list_entry(self) -> dict[str, Any]:
