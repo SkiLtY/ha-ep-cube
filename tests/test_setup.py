@@ -6,14 +6,21 @@ correctly tagged (CONFIG for writables, DIAGNOSTIC for duplicates).
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant import config_entries
 from homeassistant.const import EntityCategory
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
-from custom_components.ep_cube.const import DOMAIN
+from custom_components.ep_cube.const import (
+    CONF_FORCE_EXPORT_MODE,
+    DOMAIN,
+    FORCE_EXPORT_MODE_DYNAMIC,
+    FORCE_EXPORT_MODE_TOU_PEAK,
+)
 
 
 @pytest.fixture
@@ -310,3 +317,38 @@ class TestStaleEntityPurge:
 
         await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+class TestOptionsAndUnload:
+    async def test_changing_the_option_reloads_with_the_new_mode(self, hass, setup_integration):
+        entry = setup_integration
+        old_shim = hass.data[DOMAIN][entry.entry_id]["shim"]
+        assert old_shim.force_export_mode == FORCE_EXPORT_MODE_TOU_PEAK
+        hass.config_entries.async_update_entry(
+            entry, options={CONF_FORCE_EXPORT_MODE: FORCE_EXPORT_MODE_DYNAMIC}
+        )
+        await hass.async_block_till_done()
+        new_shim = hass.data[DOMAIN][entry.entry_id]["shim"]
+        assert new_shim is not old_shim
+        assert new_shim.force_export_mode == FORCE_EXPORT_MODE_DYNAMIC
+
+    async def test_unload_reverts_an_active_override(self, hass, setup_integration, fake_client):
+        entry = setup_integration
+        shim = hass.data[DOMAIN][entry.entry_id]["shim"]
+        await shim.discharge_start(
+            end_time=dt_util.utcnow() + timedelta(minutes=30), target_soc_pct=50.0
+        )
+        assert shim.is_active
+        assert fake_client.switch_mode.await_count == 1        # the override
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert fake_client.switch_mode.await_count == 2        # the revert
+        assert not shim.is_active
+
+    async def test_unload_with_nothing_active_writes_nothing(
+        self, hass, setup_integration, fake_client
+    ):
+        entry = setup_integration
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert fake_client.switch_mode.await_count == 0

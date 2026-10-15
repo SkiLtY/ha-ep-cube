@@ -13,11 +13,14 @@ from custom_components.ep_cube.const import (
     CONF_BEARER_TOKEN,
     CONF_CAPACITY_KWH,
     CONF_DEV_ID,
+    CONF_FORCE_EXPORT_MODE,
     CONF_PASSWORD,
     CONF_REGION,
     CONF_SG_SN,
     CONF_USERNAME,
     DOMAIN,
+    FORCE_EXPORT_MODE_DYNAMIC,
+    FORCE_EXPORT_MODE_TOU_PEAK,
     REGION_EU,
     REGION_OTHER,
     REGION_US,
@@ -309,3 +312,46 @@ class TestMigration:
         entry.add_to_hass(hass)
         assert await async_migrate_entry(hass, entry) is True
         assert entry.version == 5
+
+
+# ----------------------------------------------------------------------
+# Options flow (Configure button): the force-export mode
+# ----------------------------------------------------------------------
+class TestOptionsFlow:
+    async def test_form_defaults_to_the_legacy_tou_peak_mode(self, hass, mock_config_entry):
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "init"
+        defaults = {str(key): key.default() for key in result["data_schema"].schema}
+        assert defaults[CONF_FORCE_EXPORT_MODE] == FORCE_EXPORT_MODE_TOU_PEAK
+
+    async def test_choosing_dynamic_is_saved_on_the_entry(self, hass, mock_config_entry):
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_FORCE_EXPORT_MODE: FORCE_EXPORT_MODE_DYNAMIC}
+        )
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert entry.options[CONF_FORCE_EXPORT_MODE] == FORCE_EXPORT_MODE_DYNAMIC
+
+    async def test_the_saved_mode_is_the_next_default(self, hass, mock_config_entry):
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+        hass.config_entries.async_update_entry(
+            entry, options={CONF_FORCE_EXPORT_MODE: FORCE_EXPORT_MODE_DYNAMIC}
+        )
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        defaults = {str(key): key.default() for key in result["data_schema"].schema}
+        assert defaults[CONF_FORCE_EXPORT_MODE] == FORCE_EXPORT_MODE_DYNAMIC
+
+    async def test_an_unknown_mode_is_rejected(self, hass, mock_config_entry):
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        with pytest.raises(data_entry_flow.InvalidData):
+            await hass.config_entries.options.async_configure(
+                result["flow_id"], {CONF_FORCE_EXPORT_MODE: "not-a-mode"}
+            )
