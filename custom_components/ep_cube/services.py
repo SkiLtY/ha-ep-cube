@@ -149,6 +149,7 @@ PROBE_ROUTES = (
     "dynamicPrice/getRegionList",
     "dynamicPrice/getBrands",
     "dynamicPrice/getProducts",
+    "dynamicPrice/calcuPrice",
     # vpp/*: read-style routes only. Registration, commissioning, site auth,
     # flip/updateSoc and the address / user-info routes are left out.
     "vpp/allPrograms",
@@ -166,6 +167,7 @@ PROBE_ROUTES = (
 PROBE_PARAM_KEYS = (
     "devId", "sgSn", "queryDateStr", "scopeType", "dateStr",
     "supportCountryId", "regionCode", "region", "brandName", "productType",
+    "brandId", "dynamicChargePrice", "checkTime",
 )
 PROBE_MAX_LIST = 20
 _PROBE_REDACT = re.compile(

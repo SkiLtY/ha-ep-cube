@@ -120,6 +120,7 @@ debug_probe:
             - dynamicPrice/getRegionList
             - dynamicPrice/getBrands
             - dynamicPrice/getProducts
+            - dynamicPrice/calcuPrice
             - vpp/allPrograms
             - vpp/enrollments
             - vpp/events
