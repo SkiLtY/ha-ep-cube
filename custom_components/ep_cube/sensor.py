@@ -3,9 +3,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 
 from homeassistant.components.sensor import (
     RestoreSensor,
+    SensorEntity,
     SensorDeviceClass,
     SensorEntityDescription,
     SensorStateClass,
@@ -20,14 +23,20 @@ from homeassistant.const import (
     UnitOfPower,
     UnitOfTime,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .api import DeviceStatus
 from .const import DOMAIN
-from .coordinator import EPCubeCoordinator, EPCubeStatsCoordinator
+from .coordinator import (
+    EPCubeCoordinator,
+    EPCubePriceCoordinator,
+    EPCubeStatsCoordinator,
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -78,6 +87,26 @@ def _pv_sensors() -> tuple[EPCubePVSensorDescription, ...]:
 
 
 PV_SENSORS: tuple[EPCubePVSensorDescription, ...] = _pv_sensors()
+
+
+@dataclass(frozen=True, kw_only=True)
+class EPCubePriceSensorDescription(SensorEntityDescription):
+    """Current Dynamic-tariff price; `side` is "import" or "export"."""
+
+    side: str
+
+
+PRICE_SENSORS: tuple[EPCubePriceSensorDescription, ...] = tuple(
+    EPCubePriceSensorDescription(
+        key=f"dynamic_{side}_price",
+        translation_key=f"dynamic_{side}_price",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="p/kWh",
+        suggested_display_precision=2,
+        side=side,
+    )
+    for side in ("import", "export")
+)
 
 
 # Instant-KPI helpers (v1.2). Operate over DeviceStatus power-W readings
@@ -748,6 +777,10 @@ async def async_setup_entry(
         for desc in STATS_SENSORS
     )
     entities.extend(EPCubePVSensor(coordinator, entry.entry_id, desc) for desc in PV_SENSORS)
+    price_coordinator: EPCubePriceCoordinator = stored["price_coordinator"]
+    entities.extend(
+        EPCubePriceSensor(price_coordinator, entry.entry_id, desc) for desc in PRICE_SENSORS
+    )
     async_add_entities(entities)
 
 
@@ -811,6 +844,78 @@ class EPCubePVSensor(EPCubeSensor):
         if not self.coordinator.pv_strings:
             return self._restored_value
         return self.entity_description.value_fn(self.coordinator.pv_strings)
+
+
+class EPCubePriceSensor(CoordinatorEntity[EPCubePriceCoordinator], SensorEntity):
+    """The price of the half-hour slot we are in, from the cube's Dynamic tariff.
+
+    The coordinator polls every 15 minutes; this entity also re-evaluates at
+    every :00 and :30 so the value changes with the slot. Attributes carry the
+    whole schedule for charts. Not a RestoreSensor: a stale price is worse
+    than an unknown one.
+    """
+
+    _attr_has_entity_name = True
+    _unrecorded_attributes = frozenset({"slots"})
+    entity_description: EPCubePriceSensorDescription
+
+    def __init__(
+        self,
+        coordinator: EPCubePriceCoordinator,
+        entry_id: str,
+        description: EPCubePriceSensorDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry_id}_{description.key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name="EP Cube",
+            manufacturer="Canadian Solar",
+            model="EP Cube",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_change(self.hass, self._slot_changed, minute=(0, 30), second=3)
+        )
+
+    @callback
+    def _slot_changed(self, _now: datetime) -> None:
+        self.async_write_ha_state()
+
+    def _slots(self) -> list[dict[str, Any]]:
+        data = self.coordinator.data or {}
+        return data.get(self.entity_description.side, [])
+
+    def _current(self) -> dict[str, Any] | None:
+        now = dt_util.utcnow()
+        for slot in self._slots():
+            if slot["start"] <= now < slot["end"]:
+                return slot
+        return None
+
+    @property
+    def native_value(self) -> float | None:
+        current = self._current()
+        return current["price"] if current else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        slots = self._slots()
+        now = dt_util.utcnow()
+        upcoming = next((s for s in slots if s["start"] > now), None)
+        return {
+            "next_start": dt_util.as_local(upcoming["start"]).isoformat() if upcoming else None,
+            "next_price": upcoming["price"] if upcoming else None,
+            "slots": [
+                {"start": dt_util.as_local(s["start"]).isoformat(),
+                 "end": dt_util.as_local(s["end"]).isoformat(),
+                 "price": s["price"]}
+                for s in slots
+            ],
+        }
 
 
 class EPCubeStatsSensor(CoordinatorEntity[EPCubeStatsCoordinator], RestoreSensor):

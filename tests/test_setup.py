@@ -561,3 +561,43 @@ class TestDebugProbeWrite:
         assert body["devId"] == "5613" and body["regionCode"] == "L"
         assert body["productCodeOut"] == "OUTGOING-VAR-24-10-26"
         assert "workStatus" not in body
+
+
+class TestPriceSensors:
+    async def test_current_slot_price_and_schedule_attributes(self, hass, setup_integration):
+        registry = er.async_get(hass)
+        entry_id = setup_integration.entry_id
+        ids = {
+            e.unique_id[len(entry_id) + 1:]: e.entity_id
+            for e in er.async_entries_for_config_entry(registry, entry_id)
+            if e.domain == "sensor"
+        }
+        imp = hass.states.get(ids["dynamic_import_price"])
+        exp = hass.states.get(ids["dynamic_export_price"])
+        assert float(imp.state) == 30.0 and imp.attributes["unit_of_measurement"] == "p/kWh"
+        assert float(exp.state) == 15.0
+        slots = imp.attributes["slots"]
+        assert len(slots) >= 48 and slots[0]["price"] == 30.0
+        assert imp.attributes["next_price"] == 30.0 and imp.attributes["next_start"]
+
+    async def test_failed_price_fetch_does_not_fail_setup(self, hass, mock_config_entry, fake_client):
+        from unittest.mock import AsyncMock, patch
+
+        from custom_components.ep_cube.api import EPCubeError
+
+        fake_client.get_dynamic_prices = AsyncMock(side_effect=EPCubeError("no dynamic tariff"))
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+        with (
+            patch("custom_components.ep_cube.EPCubeClient", return_value=fake_client),
+            patch("custom_components.ep_cube.make_reauth_callback",
+                  return_value=AsyncMock(return_value=None)),
+        ):
+            assert await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+            registry = er.async_get(hass)
+            price = [e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+                     if e.unique_id.endswith("dynamic_import_price")]
+            assert price and hass.states.get(price[0].entity_id).state == "unavailable"
+            await hass.config_entries.async_unload(entry.entry_id)
+            await hass.async_block_till_done()

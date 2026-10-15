@@ -22,6 +22,7 @@ EP_CUBE_PACK_KWH = 5.0
 DEFAULT_BASE_URL = "https://monitoring-eu.epcube.com"
 DEFAULT_API_PREFIX = "/api"
 DEFAULT_POLL_INTERVAL_SECONDS = 60   # real cloud polls at ~55s; we match
+DEFAULT_PRICE_POLL_INTERVAL_SECONDS = 900  # dynamicPrice/calcuPrice: half-hourly prices, published once a day
 DEFAULT_STATS_POLL_INTERVAL_SECONDS = 300  # queryDataElectricityV2 today bucket — slow-moving cumulative kWh
 
 # queryDataElectricityV2 scopeType values. Date-string formats below are what

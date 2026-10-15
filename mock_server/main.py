@@ -200,6 +200,43 @@ async def get_solar_pv_power(
     return envelope(dev.to_solar_pv_power())
 
 
+@app.get("/api/dynamicPrice/calcuPrice")
+async def calcu_price(
+    devId: str,
+    checkTime: str | None = None,
+    dynamicChargePrice: str | None = None,
+    authorization: str | None = Header(default=None),
+):
+    """Half-hourly Dynamic-tariff prices (pence, VAT included) for one day.
+
+    A plain YYYY-MM-DD checkTime; anything else is a 500, like the real cloud.
+    The mock serves a repeating cheap-night / pricey-evening shape and the
+    same for every date (the real cloud has no prices for unpublished days)."""
+    from datetime import date, datetime, timedelta
+
+    _require_bearer(authorization)
+    dev = _require_devid(devId)
+    try:
+        day = date.fromisoformat(checkTime) if checkTime else date.today()
+    except ValueError:
+        return envelope(None, status=500, message="Failed to convert property value of type String to LocalDate")
+    rows, rows_out = [], []
+    start = datetime.combine(day, datetime.min.time())
+    for n in range(48):
+        s, e = start + timedelta(minutes=30 * n), start + timedelta(minutes=30 * (n + 1))
+        hour = n // 2
+        imp = 12.0 if hour < 5 else (45.0 if 16 <= hour < 19 else 25.0)
+        fmt = "%Y-%m-%d %H:%M:%S"
+        rows.append({"priceInc": imp, "priceExc": imp, "startTime": s.strftime(fmt), "endTime": e.strftime(fmt)})
+        rows_out.append({"priceInc": round(imp / 2, 2), "priceExc": round(imp / 2, 2),
+                         "startTime": s.strftime(fmt), "endTime": e.strftime(fmt)})
+    return envelope({
+        "unitDefault": "\u00a3", "unitSmallest": "p", "unitMulti": "100", "devId": dev.devId,
+        "newestTime": start.replace(hour=22, minute=59).strftime("%Y-%m-%d %H:%M:%S"),
+        "prices": rows, "pricesExport": rows_out,
+    })
+
+
 @app.get("/api/device/queryDataElectricityV2")
 async def query_data_electricity_v2(
     devId: str,

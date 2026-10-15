@@ -223,3 +223,13 @@ async def test_pv_strings_read_from_the_mock(rig):
     assert pv[1]["voltage_v"] == 250.0
     assert pv[1]["current_a"] == 4.8        # 1200 W / 250 V
     assert pv[3] == {"power_w": 0.0, "voltage_v": 0.0, "current_a": 0.0}
+
+
+async def test_dynamic_prices_read_from_the_mock(rig):
+    client, _session, _base, _dev, _make = rig
+    prices = await client.get_dynamic_prices("2026-10-15")
+    assert len(prices["import"]) == 48 and len(prices["export"]) == 48
+    assert prices["import"][0]["price"] == 12.0 and prices["export"][0]["price"] == 6.0
+    assert prices["import"][34]["price"] == 45.0       # 17:00 slot
+    with pytest.raises(EPCubeError):
+        await client.get_dynamic_prices("not-a-date")

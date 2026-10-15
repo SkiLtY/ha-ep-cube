@@ -76,6 +76,25 @@ def fake_client(get_switch_mode, device_list):
     client.get_device_list = AsyncMock(return_value=device_list)
     client.get_switch_mode = AsyncMock(return_value=dict(get_switch_mode))
     client.switch_mode = AsyncMock(return_value=dict(get_switch_mode))
+    async def _dynamic_prices(date_str=None):
+        from datetime import date, datetime, timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        day = date.fromisoformat(date_str) if date_str else dt_util.now().date()
+        start = datetime.combine(day, datetime.min.time())
+        fmt = "%Y-%m-%d %H:%M:%S"
+        slots = [
+            {"start": (start + timedelta(minutes=30 * n)).strftime(fmt),
+             "end": (start + timedelta(minutes=30 * (n + 1))).strftime(fmt)}
+            for n in range(48)
+        ]
+        return {
+            "import": [{**s, "price": 30.0} for s in slots],
+            "export": [{**s, "price": 15.0} for s in slots],
+        }
+
+    client.get_dynamic_prices = AsyncMock(side_effect=_dynamic_prices)
     client.get_pv_strings = AsyncMock(return_value={
         1: {"power_w": 180.0, "voltage_v": 255.5, "current_a": 0.7},
         2: {"power_w": 170.0, "voltage_v": 179.4, "current_a": 0.9},

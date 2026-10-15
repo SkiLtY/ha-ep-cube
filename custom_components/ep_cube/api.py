@@ -647,6 +647,40 @@ class EPCubeClient:
         _verify_write(body, readback, verify_keys)
         return readback
 
+    async def get_dynamic_prices(self, date_str: str | None = None) -> dict[str, list[dict[str, Any]]]:
+        """Half-hourly prices the cube uses for Dynamic-tariff mode.
+
+        GET dynamicPrice/calcuPrice (found in the Android app's ApiService).
+        `date_str` is a plain YYYY-MM-DD; without it the cloud answers for
+        today. Prices are pence per kWh including VAT (`priceInc`); times are
+        UK local, as naive "YYYY-MM-DD HH:MM:SS" strings. A day that is not
+        published yet comes back with no price lists, which gives empty lists.
+
+        Returns {"import": [...], "export": [...]}, each slot
+        {"start": str, "end": str, "price": float}.
+        """
+        path = f"{self._api_prefix}/dynamicPrice/calcuPrice?devId={self._dev_id}"
+        if date_str:
+            path += f"&checkTime={date_str}"
+        data = await self._get(path)
+        if not isinstance(data, dict):
+            return {"import": [], "export": []}
+
+        def slots(rows: Any) -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            for row in rows if isinstance(rows, list) else []:
+                try:
+                    out.append({
+                        "start": str(row["startTime"]),
+                        "end": str(row["endTime"]),
+                        "price": float(row["priceInc"]),
+                    })
+                except (KeyError, TypeError, ValueError):
+                    continue
+            return out
+
+        return {"import": slots(data.get("prices")), "export": slots(data.get("pricesExport"))}
+
     async def probe(self, route: str, params: dict[str, str] | None = None) -> Any:
         """GET an arbitrary read-only route under the API prefix (diagnostics).
 

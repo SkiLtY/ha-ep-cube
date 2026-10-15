@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 from .api import DeviceStatus, EPCubeClient, EPCubeError
 from .const import (
     DEFAULT_POLL_INTERVAL_SECONDS,
+    DEFAULT_PRICE_POLL_INTERVAL_SECONDS,
     DEFAULT_STATS_POLL_INTERVAL_SECONDS,
     DOMAIN,
     STATS_SCOPE_ANNUAL,
@@ -190,3 +191,64 @@ class EPCubeStatsCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     def _is_stale(self, bucket: str, now: datetime, max_age: timedelta) -> bool:
         last = self._last_fetched.get(bucket)
         return last is None or (now - last) >= max_age
+
+
+# ----------------------------------------------------------------------
+# Dynamic-tariff prices
+# ----------------------------------------------------------------------
+# The cloud publishes the next day's prices late in the afternoon (Agile:
+# about 16:00 UK time), so ask for tomorrow only after this hour.
+_TOMORROW_FROM_HOUR = 15
+
+
+def _to_aware(naive: str) -> datetime | None:
+    """Parse the cloud's UK-local "YYYY-MM-DD HH:MM:SS" into an aware datetime."""
+    parsed = dt_util.parse_datetime(naive)
+    if parsed is None:
+        return None
+    return dt_util.as_utc(parsed.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE))
+
+
+class EPCubePriceCoordinator(DataUpdateCoordinator[dict[str, list[dict[str, Any]]]]):
+    """Half-hourly import and export prices used by the cube's Dynamic mode.
+
+    State: {"import": [...], "export": [...]}; each slot is
+    {"start": aware datetime, "end": aware datetime, "price": float p/kWh},
+    sorted by start. Covers today, plus tomorrow once it is published.
+    """
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: EPCubeClient) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_prices_{entry.entry_id}",
+            update_interval=timedelta(seconds=DEFAULT_PRICE_POLL_INTERVAL_SECONDS),
+        )
+        self.client = client
+
+    async def _async_update_data(self) -> dict[str, list[dict[str, Any]]]:
+        now = dt_util.now()
+        try:
+            raw = await self.client.get_dynamic_prices()
+        except EPCubeError as err:
+            raise UpdateFailed(f"dynamic prices fetch failed: {err}") from err
+
+        raws = [raw]
+        if now.hour >= _TOMORROW_FROM_HOUR:
+            tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+            try:
+                raws.append(await self.client.get_dynamic_prices(tomorrow))
+            except EPCubeError as err:
+                _LOGGER.debug("tomorrow's dynamic prices not available: %s", err)
+
+        out: dict[str, list[dict[str, Any]]] = {"import": [], "export": []}
+        for part in raws:
+            for side in out:
+                for slot in part.get(side, []):
+                    start, end = _to_aware(slot["start"]), _to_aware(slot["end"])
+                    if start is None or end is None:
+                        continue
+                    out[side].append({"start": start, "end": end, "price": slot["price"]})
+        for side in out:
+            out[side].sort(key=lambda s: s["start"])
+        return out

@@ -28,7 +28,11 @@ from .const import (
     REGION_OTHER,
     REGIONS,
 )
-from .coordinator import EPCubeCoordinator, EPCubeStatsCoordinator
+from .coordinator import (
+    EPCubeCoordinator,
+    EPCubePriceCoordinator,
+    EPCubeStatsCoordinator,
+)
 from .services import (
     PredbatShim,
     async_register_services,
@@ -110,6 +114,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     stats_coordinator = EPCubeStatsCoordinator(hass, entry, client)
     await stats_coordinator.async_config_entry_first_refresh()
 
+    # Dynamic-tariff prices (dynamicPrice/calcuPrice). Not critical: an
+    # account without Dynamic tariff set up just gets unavailable price
+    # sensors, so a failed first fetch must not fail the whole setup.
+    price_coordinator = EPCubePriceCoordinator(hass, entry, client)
+    await price_coordinator.async_refresh()
+
     # How Predbat's "force export" windows are realised: the legacy TOU peak
     # slot (default — drains to the house only) or Dynamic-tariff mode (real
     # grid export; needs Dynamic tariff set up in the EP Cube app first).
@@ -125,6 +135,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "coordinator": coordinator,
         "stats_coordinator": stats_coordinator,
+        "price_coordinator": price_coordinator,
         "client": client,
         "shim": shim,
     }
