@@ -233,22 +233,27 @@ async def switch_mode(
             )
 
     # Modelled on a report from a real Dynamic-tariff cube (GitHub issue on
-    # this repo): while touType is 1 (Dynamic tariff), a slot-based TOU write
-    # that still says touType 1 is rejected with HTTP 500 "Failure". The shim
-    # must send touType 0 with slot lists.
-    if (
-        str(payload["workStatus"]) == "2"
-        and int(payload.get("touType", 0) or 0) == 1
-        and any(
-            payload.get(k)
-            for k in (
-                "peakTimeList", "midPeakTimeList", "offPeakTimeList",
-                "peakTimeListNonWorkDay", "midPeakTimeListNonWorkDay",
-                "offPeakTimeListNonWorkDay",
-            )
+    # this repo): a TOU slot-list EDIT that still says touType 1 (Dynamic
+    # tariff) is rejected with HTTP 500 "Failure"; the shim must send touType 0
+    # when it changes slots.
+    #
+    # Deliberately narrow: a real cube in Dynamic mode *holds* touType 1 with
+    # its (non-empty) TOU lists - captured from the web portal's getSwitchMode
+    # on 2026-10-15 - so a touType 1 write that leaves the stored lists
+    # unchanged (the shim's own Dynamic export write) is accepted. What
+    # actually triggers the cloud's 500 is an ASSUMPTION; "lists differ from
+    # the stored ones" fits the issue #1 payload (baseline lists plus an
+    # appended shim slot) and the portal/app wanting a schedule before they
+    # will switch back to TOU.
+    if str(payload["workStatus"]) == "2" and int(payload.get("touType", 0) or 0) == 1:
+        stored = dev.tou.to_wire()
+        tier_keys = (
+            "peakTimeList", "midPeakTimeList", "offPeakTimeList",
+            "peakTimeListNonWorkDay", "midPeakTimeListNonWorkDay",
+            "offPeakTimeListNonWorkDay",
         )
-    ):
-        raise HTTPException(status_code=500, detail="Failure")
+        if any(list(payload.get(k) or []) != list(stored.get(k) or []) for k in tier_keys):
+            raise HTTPException(status_code=500, detail="Failure")
 
     dev.workStatus = str(payload["workStatus"])
     dev.weatherWatch = str(payload["weatherWatch"])
