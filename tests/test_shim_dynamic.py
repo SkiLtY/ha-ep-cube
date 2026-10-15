@@ -696,3 +696,46 @@ class TestUserReserve:
                               "selfConsumptioinReserveSoc": "20"}
         dyn_shim._active_override = {"kind": "discharge"}
         assert dyn_shim.user_reserve_pct() == 40.0
+
+
+class TestStaleRecoveryMode:
+    """A cube found in a leftover shim Dynamic override goes back to Self-Consumption,
+    not to the ToU that Dynamic mode left behind."""
+
+    async def test_snapshot_adopts_self_consumption_not_tou(
+        self, dyn_shim, fake_client, get_switch_mode
+    ):
+        stale = _dynamic_read(get_switch_mode, sell=0.0, buy=0.0)      # workStatus "2", touType 1
+        stale["selfConsumptioinReserveSoc"] = "55"
+        fake_client.get_switch_mode.return_value = stale
+        await dyn_shim._snapshot_baseline()
+        assert dyn_shim._baseline["workStatus"] == "1"
+        assert dyn_shim._baseline["touType"] == 0
+        assert dyn_shim._baseline["selfConsumptioinReserveSoc"] == "20"
+
+    async def test_the_revert_after_a_recovered_baseline_writes_self_consumption(
+        self, dyn_shim, fake_client, get_switch_mode
+    ):
+        fake_client.get_switch_mode.return_value = _dynamic_read(get_switch_mode, sell=0.0, buy=0.0)
+        await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=55.0)
+        await dyn_shim.discharge_stop()
+        final = fake_client.switch_mode.await_args_list[-1].args[0]
+        assert final["workStatus"] == "1" and final["touType"] == 0
+
+    async def test_the_watchdog_without_a_baseline_forces_self_consumption(
+        self, dyn_shim, fake_client, get_switch_mode
+    ):
+        fake_client.get_switch_mode.return_value = _dynamic_read(get_switch_mode, sell=0.0, buy=0.0)
+        await dyn_shim._on_watchdog(dt_util.utcnow())
+        assert _write(fake_client, 1)["workStatus"] == "1"
+
+    async def test_a_known_baseline_is_not_touched_by_the_recovery_rule(
+        self, dyn_shim, fake_client, get_switch_mode
+    ):
+        # A real ToU baseline (captured before any override) must still be restored as ToU.
+        tou = {**get_switch_mode, "workStatus": "2"}
+        fake_client.get_switch_mode.return_value = tou
+        await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=55.0)
+        await dyn_shim.discharge_stop()
+        final = fake_client.switch_mode.await_args_list[-1].args[0]
+        assert final["workStatus"] == "2"

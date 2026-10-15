@@ -479,6 +479,20 @@ def _is_empty_tou(state: dict[str, Any]) -> bool:
     return not any(state.get(key) for key in _TIER_LIST_KEYS)
 
 
+def _recover_from_stale_dynamic(state: dict[str, Any]) -> dict[str, Any]:
+    """The baseline to use when the cube is found in a shim Dynamic override whose
+    revert never ran (HA restarted mid-window): Dynamic switched off, and the mode
+    set to Self-Consumption.
+
+    The override left the cube in TOU (`workStatus` 2), which is a side effect of
+    Dynamic mode, not the user's setting; adopting it made later reverts put the cube
+    back in ToU (seen 2026-10-15). The shim's default mode is Self-Consumption, and a
+    ToU baseline with no slots behaves the same way anyway."""
+    recovered = _clear_dynamic(state)
+    recovered["workStatus"] = WORK_STATUS_SELF_CONSUMPTION
+    return recovered
+
+
 def _clear_dynamic(state: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of `state` with Dynamic-tariff mode switched off:
     standard TOU `touType` and no dynamic thresholds."""
@@ -1028,13 +1042,13 @@ class PredbatShim:
             _LOGGER.warning(
                 "baseline snapshot found a stale shim Dynamic-tariff export "
                 "(sell above %sp, reserve %s%%); treating the baseline as "
-                "standard TOU with the default %s%% self-consumption reserve",
+                "Self-Consumption with the default %s%% self-consumption reserve",
                 live.get("dynamicDischargePrice"),
                 live.get("selfConsumptioinReserveSoc"),
                 DEFAULT_SELF_CONSUMPTION_RESERVE_PCT,
             )
             charge_leftover = _is_shim_dynamic_charge_signature(live)
-            live = _clear_dynamic(live)
+            live = _recover_from_stale_dynamic(live)
             if charge_leftover:
                 # A forced charge left its target in the Charging Limit SoC.
                 live["backupPowerReserveSoc"] = str(DEFAULT_CHARGING_LIMIT_PCT)
@@ -1372,7 +1386,11 @@ class PredbatShim:
         _LOGGER.error(
             "dynamic export watchdog: cube is STILL in forced-export Dynamic mode — forcing it back"
         )
-        base = _clear_dynamic(self._baseline if self._baseline is not None else live)
+        base = (
+            _clear_dynamic(self._baseline)
+            if self._baseline is not None
+            else _recover_from_stale_dynamic(live)
+        )
         try:
             await self._post_baseline(base, verify_tou_type=True)
         except EPCubeError as err:
