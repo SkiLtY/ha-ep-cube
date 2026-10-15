@@ -7,3 +7,10 @@
 pytest>=8.0,<9
 pytest-asyncio>=0.23,<1
 pytest-homeassistant-custom-component>=0.13.150
+# End-to-end tests (tests/test_e2e_mock_server.py) run the real client against
+# the real mock_server over loopback HTTP. They skip themselves if these are
+# missing. Same minimums as mock_server/requirements.txt; verified to install
+# alongside the Home Assistant test packages (pip check clean).
+fastapi>=0.115
+uvicorn>=0.30
+Pillow>=10
