@@ -530,3 +530,13 @@ class TestDynamicCharge:
         fake_client.get_switch_mode.return_value = state
         await dyn_shim._snapshot_baseline()
         assert dyn_shim._baseline["backupPowerReserveSoc"] == "90"
+
+
+    async def test_sell_above_override_is_written_exactly(self, dyn_shim, fake_client):
+        await dyn_shim.debug_dynamic_export(5, 60.0, 0.0)
+        assert _write(fake_client, 0)["dynamicDischargePrice"] == 0.0
+        assert _write(fake_client, 0)["selfConsumptioinReserveSoc"] == "60"
+
+    async def test_without_an_override_the_guard_picks_the_threshold(self, dyn_shim, fake_client):
+        await dyn_shim.debug_dynamic_export(5, 60.0)
+        assert _write(fake_client, 0)["dynamicDischargePrice"] == 5.0

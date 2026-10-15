@@ -89,6 +89,16 @@ debug_dynamic_export:
           min: 0
           max: 100
           unit_of_measurement: "%"
+    sell_above:
+      name: Sell-above override (p/kWh)
+      required: false
+      description: Test hook. Writes exactly this sell-above (0-5) instead of the one chosen from the window's export prices, for example 0 to see whether the cube treats 0.00 as "selling off".
+      selector:
+        number:
+          min: 0
+          max: 5
+          step: 0.01
+          unit_of_measurement: p/kWh
     device_id:
       name: Device ID
       required: false

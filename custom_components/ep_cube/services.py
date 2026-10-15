@@ -134,6 +134,9 @@ DEBUG_DYNAMIC_EXPORT_SCHEMA = vol.Schema(
         vol.Optional("reserve_pct", default=50): vol.All(
             vol.Coerce(float), vol.Range(min=0, max=100)
         ),
+        # Test hook: write this exact sell-above (for example 0.00 to learn whether
+        # the cube reads 0 as "selling off") instead of the one the guard picks.
+        vol.Optional("sell_above"): vol.All(vol.Coerce(float), vol.Range(min=0, max=5)),
     }
 )
 
@@ -625,7 +628,10 @@ class PredbatShim:
     # Dynamic-tariff forced export
     # ------------------------------------------------------------------
     async def _discharge_start_dynamic(
-        self, end_time: datetime, target_soc_pct: float
+        self,
+        end_time: datetime,
+        target_soc_pct: float,
+        sell_above_override: float | None = None,
     ) -> None:
         """Force a grid export by switching the cube to Dynamic-tariff mode.
 
@@ -648,7 +654,11 @@ class PredbatShim:
         if self._matches_active(params):
             _LOGGER.debug("discharge_start (dynamic): idempotent no-op")
             return
-        sell_above = self._sell_above_for_window(end_time)
+        sell_above = (
+            sell_above_override
+            if sell_above_override is not None
+            else self._sell_above_for_window(end_time)
+        )
         payload = self._build_dynamic_override(reserve, sell_above)
         await self._apply_dynamic_override(payload, params)
         self._schedule_revert(end_time)
@@ -660,12 +670,14 @@ class PredbatShim:
             sell_above, DYNAMIC_EXPORT_BUY_BELOW_P,
         )
 
-    async def debug_dynamic_export(self, duration_minutes: int, reserve_pct: float) -> None:
+    async def debug_dynamic_export(
+        self, duration_minutes: int, reserve_pct: float, sell_above: float | None = None
+    ) -> None:
         """Manual forced export for `duration_minutes`, stopping at `reserve_pct`.
         Diagnostic tool (like debug_freeze) for exercising the Dynamic-tariff
         path against the live cube without involving Predbat."""
         end_time = dt_util.utcnow() + timedelta(minutes=duration_minutes)
-        await self._discharge_start_dynamic(end_time, reserve_pct)
+        await self._discharge_start_dynamic(end_time, reserve_pct, sell_above)
 
     async def debug_dynamic_charge(self, duration_minutes: int, limit_pct: float) -> None:
         """Experiment: charge from the grid in Dynamic-tariff mode for
@@ -1391,11 +1403,12 @@ async def async_register_services(hass: HomeAssistant) -> None:
         shim = _resolve_shim(call)
         duration = int(call.data.get("duration_minutes", 5))
         reserve = float(call.data.get("reserve_pct", 50))
+        sell_above = call.data.get("sell_above")
         _LOGGER.warning(
-            "debug_dynamic_export: bypassing predbat plan — forced export for %d min, reserve %.0f%%",
-            duration, reserve,
+            "debug_dynamic_export: bypassing predbat plan — forced export for %d min, reserve %.0f%%, sell above %s",
+            duration, reserve, "guard" if sell_above is None else f"{sell_above:.2f}p",
         )
-        await shim.debug_dynamic_export(duration, reserve)
+        await shim.debug_dynamic_export(duration, reserve, sell_above)
 
     async def handle_debug_dynamic_charge(call: ServiceCall) -> None:
         # Diagnostic: skips read_plan and charges from the grid in Dynamic-tariff
