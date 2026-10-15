@@ -133,12 +133,54 @@
     "step": {
       "init": {
         "title": "EP Cube-opties",
-        "description": "Hoe moeten de geforceerde exportvensters (ontladen) van Predbat worden uitgevoerd?\n\n**TOU-piekslot** (standaard) gebruikt een time-of-use-piekslot: de batterij voedt het huis maar wordt nooit op het net ontladen.\n\n**Dynamisch tarief** zet de cube voor het venster in de modus dynamisch tarief, zodat hij echt op het net exporteert en stopt bij het doel van Predbat. Vereist dat het dynamische tarief al is ingesteld in de EP Cube-app (Octopus-prijsbron, regio, tarieven en doelprijzen). Een wijziging laadt de integratie opnieuw.\n\nHoe moeten de geforceerde laadvensters van Predbat worden uitgevoerd?\n\n**Time of Use** (standaard) gebruikt een time-of-use-dalslot; de cube laadt tot het slot eindigt. **Dynamisch tarief** zet de cube in de modus dynamisch tarief met de maximale inkoopprijs, en het laaddoel van Predbat wordt de laadlimiet, zodat het laden bij het doel stopt. Zelfde vereiste als hierboven. Een wijziging van een van beide opties laadt de integratie opnieuw.",
+        "description": "Hoe moeten de geforceerde exportvensters (ontladen) van Predbat worden uitgevoerd?\n\n**TOU-piekslot** (standaard) gebruikt een time-of-use-piekslot: de batterij voedt het huis maar wordt nooit op het net ontladen.\n\n**Dynamisch tarief** zet de cube voor het venster in de modus dynamisch tarief, zodat hij echt op het net exporteert en stopt bij het doel van Predbat. Vereist dat het dynamische tarief al is ingesteld in de EP Cube-app (Octopus-prijsbron, regio, tarieven en doelprijzen). Een wijziging laadt de integratie opnieuw.\n\nHoe moeten de geforceerde laadvensters van Predbat worden uitgevoerd?\n\n**Time of Use** (standaard) gebruikt een time-of-use-dalslot; de cube laadt tot het slot eindigt. **Dynamisch tarief** zet de cube in de modus dynamisch tarief met de maximale inkoopprijs, en het laaddoel van Predbat wordt de laadlimiet, zodat het laden bij het doel stopt. Zelfde vereiste als hierboven. Een wijziging van een van beide opties laadt de integratie opnieuw.\n\nVink **Dynamisch tarief wijzigen** aan om land, regio, leverancier en inkoop- / terugleveringstarief te kiezen die de cube in dynamische modus gebruikt. Ze worden opgeslagen in de cloud van de cube, dezelfde instelling als in de EP Cube-app; modus, prijzen en schema van de cube veranderen niet.",
         "data": {
           "force_export_mode": "Modus voor geforceerde export",
-          "force_charge_mode": "Modus voor geforceerd laden"
+          "force_charge_mode": "Modus voor geforceerd laden",
+          "change_tariff": "Dynamisch tarief wijzigen (land, leverancier, tarieven)"
         }
+      },
+      "tariff_country": {
+        "title": "Dynamisch tarief: land",
+        "description": "De landen die de cloud van de cube voor dynamisch tarief ondersteunt.",
+        "data": {
+          "supportCountryId": "Land"
+        }
+      },
+      "tariff_region": {
+        "title": "Dynamisch tarief: regio",
+        "description": "Jouw netregio.",
+        "data": {
+          "regionCode": "Regio"
+        }
+      },
+      "tariff_supplier": {
+        "title": "Dynamisch tarief: leverancier",
+        "description": "Leveranciers waarvan de cloud van de cube in deze regio prijzen kan halen.",
+        "data": {
+          "brandName": "Leverancier"
+        }
+      },
+      "tariff_products": {
+        "title": "Dynamisch tarief: tarieven",
+        "description": "Alleen de tarieven die de fabrikant voor deze regio aanbiedt worden getoond; het jouwe kan ontbreken. De dynamische modus rekent hiermee; de geforceerde export en lading van EP Cube hangen er niet van af.",
+        "data": {
+          "importCode": "Inkooptarief",
+          "exportCode": "Terugleveringstarief"
+        }
+      },
+      "tariff_confirm": {
+        "title": "Dynamisch tarief opslaan?",
+        "description": "Sla **{import_name}** (inkoop) en **{export_name}** (teruglevering) van {supplier}, {region}, {country} op in de cloud van de cube. De cloud kan een minuut nodig hebben om het toe te passen."
       }
+    },
+    "error": {
+      "save_failed": "Opslaan in de cloud is mislukt. Probeer het opnieuw.",
+      "not_confirmed": "De cloud toont het nieuwe tarief nog niet. Dat kan een minuut duren: controleer de EP Cube-app of verstuur opnieuw."
+    },
+    "abort": {
+      "tariff_unavailable": "De tarieflijsten konden niet uit de cloud worden gelezen. Probeer het later opnieuw.",
+      "tariff_unsupported": "De cloud biedt geen tarieven om te kiezen voor dit land, deze regio of deze leverancier. Stel het in via de EP Cube-app."
     }
   },
   "selector": {

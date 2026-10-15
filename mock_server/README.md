@@ -47,6 +47,8 @@ docker compose up -d --build mock
 | GET | `/api/device/getSwitchMode?devId=<id>` | Current mode + reserves + full TOU schedule. The canonical read for both mode and schedule. |
 | GET | `/api/device/getSolarPvPower?devId=<id>` | Per-string PV telemetry: a one-element list of string fields `pvNPower` (kW), `pvNVoltage` (V), `pvNCurrent` (A) for N=1..4. The mock splits `solarPower` 60/40 across PV1/PV2; PV3/PV4 are zero. |
 | GET | `/api/dynamicPrice/calcuPrice?devId=<id>&checkTime=YYYY-MM-DD` | Half-hourly Dynamic-tariff prices in pence (`prices` import, `pricesExport` export), UK-local naive times. The mock serves 12p overnight, 45p 16:00-19:00, 25p otherwise; export is half the import. A `checkTime` that is not a plain date gives a 500, as the real cloud does. |
+| GET | `/api/dynamicPrice/getRelation`, `getCountry`, `getRegionList`, `getBrands`, `getProducts` | The saved Dynamic-tariff choice and the lists it is picked from (UK / Octopus catalogue, as the real EU server returned on 2026-10-15). |
+| POST | `/api/dynamicPrice/saveBinding` | Saves the choice (JSON body: `devId`, `brandId`, `productBrand`, `supportCountryId`, `productCode`, `productCodeOut`, `regionCode`, `ratio`). Mode, thresholds and schedule are untouched. A missing field is a 500. |
 | POST | `/api/device/switchMode` | Unified mode + TOU write. Body must include `devId`, `workStatus`, `weatherWatch`, `onlySave`; missing required field → 500. |
 
 ## Default device state

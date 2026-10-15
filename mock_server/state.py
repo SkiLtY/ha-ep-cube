@@ -177,6 +177,13 @@ class DeviceState:
     # 2026-10-14 from the web portal's own getSwitchMode call).
     dynamicChargePrice: float = 0.0
     dynamicDischargePrice: float = 0.0
+    # The saved Dynamic-tariff choice (dynamicPrice/getRelation / saveBinding).
+    bindingCountryId: str = "237"
+    bindingRegionCode: str = "L"
+    bindingBrandId: str = "99"
+    bindingBrandName: str = "OCTOPUS_ENERGY"
+    bindingProductCode: str = "AGILE-24-10-01"
+    bindingProductCodeOut: str = "AGILE-OUTGOING-19-05-13"
     weatherWatch: str = "0"
     onlySave: str = "0"
 

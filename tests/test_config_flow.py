@@ -398,3 +398,167 @@ class TestChargeModeOption:
             await hass.config_entries.options.async_configure(
                 result["flow_id"], {CONF_FORCE_CHARGE_MODE: "not-a-mode"}
             )
+
+
+class TestTariffSelection:
+    """Configure -> tick "Change the Dynamic tariff" -> country, region, supplier,
+    tariffs, confirm -> saved through saveBinding."""
+
+    @staticmethod
+    async def _start(hass, entry):
+        from custom_components.ep_cube.const import CONF_CHANGE_TARIFF
+
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        return await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {CONF_FORCE_EXPORT_MODE: FORCE_EXPORT_MODE_TOU_PEAK, CONF_CHANGE_TARIFF: True},
+        )
+
+    @pytest.fixture
+    def live(self, hass, mock_config_entry, fake_client):
+        """The entry with the fake client published where the flow looks for it."""
+        from custom_components.ep_cube.const import DOMAIN
+
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+        hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {"client": fake_client}
+        yield entry
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+
+    async def test_the_checkbox_is_off_by_default_and_not_stored(self, hass, mock_config_entry):
+        from custom_components.ep_cube.const import CONF_CHANGE_TARIFF
+
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        defaults = {str(k): k.default() for k in result["data_schema"].schema}
+        assert defaults[CONF_CHANGE_TARIFF] is False
+        done = await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_FORCE_EXPORT_MODE: FORCE_EXPORT_MODE_DYNAMIC}
+        )
+        assert done["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert CONF_CHANGE_TARIFF not in entry.options
+
+    async def test_each_picker_defaults_to_the_saved_choice(self, hass, live):
+        result = await self._start(hass, live)
+        assert result["step_id"] == "tariff_country"
+        assert {str(k): k.default() for k in result["data_schema"].schema} == {"supportCountryId": "237"}
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"supportCountryId": "237"})
+        assert result["step_id"] == "tariff_region"
+        assert {str(k): k.default() for k in result["data_schema"].schema} == {"regionCode": "L"}
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"regionCode": "C"})
+        assert result["step_id"] == "tariff_supplier"
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"brandName": "OCTOPUS_ENERGY"})
+        assert result["step_id"] == "tariff_products"
+        defaults = {str(k): k.default() for k in result["data_schema"].schema}
+        assert defaults == {"importCode": "AGILE-24-10-01", "exportCode": "AGILE-OUTGOING-19-05-13"}
+
+    async def test_the_full_walk_saves_the_binding_and_the_modes(
+        self, hass, live, fake_client, monkeypatch
+    ):
+        from custom_components.ep_cube import config_flow
+
+        monkeypatch.setattr(config_flow, "TARIFF_VERIFY_DELAY_SECONDS", 0)
+        fake_client.get_dynamic_relation.side_effect = [
+            # read for the defaults, then (after the save) the cloud shows the new choice
+            {"supportCountryId": "237", "regionCode": "L", "productBrand": "OCTOPUS_ENERGY",
+             "productCode": "AGILE-24-10-01", "productCodeOut": "AGILE-OUTGOING-19-05-13"},
+            {"supportCountryId": "237", "regionCode": "C", "productBrand": "OCTOPUS_ENERGY",
+             "productCode": "AGILE-24-04-03", "productCodeOut": "OUTGOING-VAR-24-10-26"},
+        ]
+        result = await self._start(hass, live)
+        flow_id = result["flow_id"]
+        for user_input in (
+            {"supportCountryId": "237"},
+            {"regionCode": "C"},
+            {"brandName": "OCTOPUS_ENERGY"},
+            {"importCode": "AGILE-24-04-03", "exportCode": "OUTGOING-VAR-24-10-26"},
+        ):
+            result = await hass.config_entries.options.async_configure(flow_id, user_input)
+        assert result["step_id"] == "tariff_confirm"
+        assert result["description_placeholders"]["export_name"] == "Outgoing Octopus"
+        assert result["description_placeholders"]["region"] == "London"
+
+        result = await hass.config_entries.options.async_configure(flow_id, {})
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        binding = fake_client.save_dynamic_binding.await_args.args[0]
+        assert binding["devId"] == "5613" and binding["brandId"] == "99"
+        assert binding["productBrand"] == "OCTOPUS_ENERGY" and binding["regionCode"] == "C"
+        assert binding["productCode"] == "AGILE-24-04-03"
+        assert binding["productCodeOut"] == "OUTGOING-VAR-24-10-26"
+        assert live.options[CONF_FORCE_EXPORT_MODE] == FORCE_EXPORT_MODE_TOU_PEAK
+
+    async def _to_confirm(self, hass, live):
+        result = await self._start(hass, live)
+        flow_id = result["flow_id"]
+        for user_input in (
+            {"supportCountryId": "237"}, {"regionCode": "L"}, {"brandName": "OCTOPUS_ENERGY"},
+            {"importCode": "AGILE-24-10-01", "exportCode": "OUTGOING-VAR-24-10-26"},
+        ):
+            result = await hass.config_entries.options.async_configure(flow_id, user_input)
+        return flow_id, result
+
+    async def test_a_failed_save_stays_on_the_confirm_step(self, hass, live, fake_client):
+        from custom_components.ep_cube.api import EPCubeError
+
+        flow_id, _ = await self._to_confirm(hass, live)
+        fake_client.save_dynamic_binding.side_effect = EPCubeError("500 Failure")
+        result = await hass.config_entries.options.async_configure(flow_id, {})
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "tariff_confirm" and result["errors"] == {"base": "save_failed"}
+
+    async def test_a_save_the_cloud_never_shows_is_reported_not_confirmed(
+        self, hass, live, fake_client, monkeypatch
+    ):
+        from custom_components.ep_cube import config_flow
+
+        monkeypatch.setattr(config_flow, "TARIFF_VERIFY_DELAY_SECONDS", 0)
+        flow_id, _ = await self._to_confirm(hass, live)      # getRelation keeps the OLD choice
+        result = await hass.config_entries.options.async_configure(flow_id, {})
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["errors"] == {"base": "not_confirmed"}
+        assert fake_client.get_dynamic_relation.await_count > config_flow.TARIFF_VERIFY_TRIES
+
+    async def test_unreadable_lists_abort(self, hass, live, fake_client):
+        from custom_components.ep_cube.api import EPCubeError
+
+        fake_client.get_dynamic_countries.side_effect = EPCubeError("down")
+        result = await self._start(hass, live)
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result["reason"] == "tariff_unavailable"
+
+    async def test_nothing_to_choose_for_the_region_aborts(self, hass, live, fake_client):
+        flow_id, _ = None, None
+        result = await self._start(hass, live)
+        flow_id = result["flow_id"]
+        fake_client.get_dynamic_regions.return_value = []
+        result = await hass.config_entries.options.async_configure(
+            flow_id, {"supportCountryId": "56"})
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result["reason"] == "tariff_unsupported"
+
+    async def test_no_products_for_the_supplier_aborts(self, hass, live, fake_client):
+        result = await self._start(hass, live)
+        flow_id = result["flow_id"]
+        for user_input in ({"supportCountryId": "237"}, {"regionCode": "L"}):
+            result = await hass.config_entries.options.async_configure(flow_id, user_input)
+        fake_client.get_dynamic_products.side_effect = None
+        fake_client.get_dynamic_products.return_value = []
+        result = await hass.config_entries.options.async_configure(
+            flow_id, {"brandName": "OCTOPUS_ENERGY"})
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result["reason"] == "tariff_unsupported"
+
+    async def test_without_a_loaded_entry_it_aborts(self, hass, mock_config_entry):
+        from custom_components.ep_cube.const import CONF_CHANGE_TARIFF
+
+        entry = mock_config_entry()
+        entry.add_to_hass(hass)                              # not set up: no client published
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_CHANGE_TARIFF: True})
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result["reason"] == "tariff_unavailable"

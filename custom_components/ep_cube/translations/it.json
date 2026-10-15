@@ -133,12 +133,54 @@
     "step": {
       "init": {
         "title": "Opzioni EP Cube",
-        "description": "Come devono essere eseguite le finestre di esportazione forzata (scarica) di Predbat?\n\n**Fascia TOU di picco** (predefinito) usa una fascia di picco a tempo: la batteria alimenta la casa ma non viene mai scaricata nella rete.\n\n**Tariffa dinamica** porta il cube in modalità tariffa dinamica per la finestra, così esporta davvero nella rete fermandosi all'obiettivo di Predbat. Richiede che la tariffa dinamica sia già configurata nell'app EP Cube (fonte prezzi Octopus, regione, tariffe e prezzi target). La modifica ricarica l'integrazione.\n\nCome devono essere eseguite le finestre di carica forzata di Predbat?\n\n**Time of Use** (predefinito) usa una fascia oraria a basso costo; il cube carica fino alla fine della fascia. **Tariffa dinamica** porta il cube in modalità tariffa dinamica con prezzo d'acquisto al massimo, e l'obiettivo di carica di Predbat diventa il limite di carica, così la carica si ferma all'obiettivo. Stesso requisito di sopra. La modifica di una delle due opzioni ricarica l'integrazione.",
+        "description": "Come devono essere eseguite le finestre di esportazione forzata (scarica) di Predbat?\n\n**Fascia TOU di picco** (predefinito) usa una fascia di picco a tempo: la batteria alimenta la casa ma non viene mai scaricata nella rete.\n\n**Tariffa dinamica** porta il cube in modalità tariffa dinamica per la finestra, così esporta davvero nella rete fermandosi all'obiettivo di Predbat. Richiede che la tariffa dinamica sia già configurata nell'app EP Cube (fonte prezzi Octopus, regione, tariffe e prezzi target). La modifica ricarica l'integrazione.\n\nCome devono essere eseguite le finestre di carica forzata di Predbat?\n\n**Time of Use** (predefinito) usa una fascia oraria a basso costo; il cube carica fino alla fine della fascia. **Tariffa dinamica** porta il cube in modalità tariffa dinamica con prezzo d'acquisto al massimo, e l'obiettivo di carica di Predbat diventa il limite di carica, così la carica si ferma all'obiettivo. Stesso requisito di sopra. La modifica di una delle due opzioni ricarica l'integrazione.\n\nSpunta **Cambia la tariffa dinamica** per scegliere paese, regione, fornitore e tariffe di acquisto / vendita che il cube usa nella modalità dinamica. Vengono salvate nel cloud del cube, la stessa impostazione dell'app EP Cube; modalità, prezzi e programmazione del cube non cambiano.",
         "data": {
           "force_export_mode": "Modalità di esportazione forzata",
-          "force_charge_mode": "Modalità di carica forzata"
+          "force_charge_mode": "Modalità di carica forzata",
+          "change_tariff": "Cambia la tariffa dinamica (paese, fornitore, tariffe)"
         }
+      },
+      "tariff_country": {
+        "title": "Tariffa dinamica: paese",
+        "description": "I paesi supportati dal cloud del cube per la tariffa dinamica.",
+        "data": {
+          "supportCountryId": "Paese"
+        }
+      },
+      "tariff_region": {
+        "title": "Tariffa dinamica: regione",
+        "description": "La tua regione di rete.",
+        "data": {
+          "regionCode": "Regione"
+        }
+      },
+      "tariff_supplier": {
+        "title": "Tariffa dinamica: fornitore",
+        "description": "I fornitori da cui il cloud del cube può ricavare i prezzi in questa regione.",
+        "data": {
+          "brandName": "Fornitore"
+        }
+      },
+      "tariff_products": {
+        "title": "Tariffa dinamica: tariffe",
+        "description": "Sono elencate solo le tariffe offerte dal produttore per questa regione, tra cui potrebbe non esserci la tua. La modalità dinamica usa queste; l'esportazione e la carica forzate di EP Cube non ne dipendono.",
+        "data": {
+          "importCode": "Tariffa di acquisto",
+          "exportCode": "Tariffa di vendita"
+        }
+      },
+      "tariff_confirm": {
+        "title": "Salvare la tariffa dinamica?",
+        "description": "Salva **{import_name}** (acquisto) e **{export_name}** (vendita) di {supplier}, {region}, {country} nel cloud del cube. Il cloud può impiegare un minuto ad applicarla."
       }
+    },
+    "error": {
+      "save_failed": "Salvataggio nel cloud non riuscito. Riprova.",
+      "not_confirmed": "Il cloud non mostra ancora la nuova tariffa. Può servire un minuto: controlla l'app EP Cube o invia di nuovo."
+    },
+    "abort": {
+      "tariff_unavailable": "Impossibile leggere gli elenchi delle tariffe dal cloud. Riprova più tardi.",
+      "tariff_unsupported": "Il cloud non offre tariffe da scegliere per questo paese, regione o fornitore. Impostala nell'app EP Cube."
     }
   },
   "selector": {

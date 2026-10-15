@@ -237,6 +237,117 @@ async def calcu_price(
     })
 
 
+# --- Dynamic-tariff choice (dynamicPrice/*) -------------------------------
+# A small fixed catalogue modelled on what the real EU server returned for the UK
+# (2026-10-15): one supplier, Agile import products, two export products.
+_COUNTRIES = {"237": "United Kingdom", "56": "Germany"}
+_UK_REGIONS = {"A": "Eastern England", "C": "London", "L": "South Western England", "P": "Northern Scotland"}
+_IMPORT_PRODUCTS = {
+    "AGILE-24-10-01": "Agile Octopus October 2024 v1",
+    "AGILE-24-04-03": "Agile Octopus April 2024 v1",
+}
+_EXPORT_PRODUCTS = {
+    "AGILE-OUTGOING-19-05-13": "Agile Outgoing Octopus May 2019",
+    "OUTGOING-VAR-24-10-26": "Outgoing Octopus",
+}
+
+
+@app.get("/api/dynamicPrice/getRelation")
+async def dyn_get_relation(devId: str, authorization: str | None = Header(default=None)):
+    _require_bearer(authorization)
+    dev = _require_devid(devId)
+    return envelope({
+        "brandId": dev.bindingBrandId,
+        "supportCountryId": dev.bindingCountryId,
+        "supportCountryName": _COUNTRIES.get(dev.bindingCountryId, ""),
+        "productBrand": dev.bindingBrandName,
+        "productCode": dev.bindingProductCode,
+        "productCodeOut": dev.bindingProductCodeOut,
+        "region": dev.bindingRegionCode,
+        "regionCode": dev.bindingRegionCode,
+        "regionName": _UK_REGIONS.get(dev.bindingRegionCode, ""),
+        "productName": _IMPORT_PRODUCTS.get(dev.bindingProductCode, ""),
+        "productOutName": _EXPORT_PRODUCTS.get(dev.bindingProductCodeOut, ""),
+    })
+
+
+@app.get("/api/dynamicPrice/getCountry")
+async def dyn_get_country(devId: str, authorization: str | None = Header(default=None)):
+    _require_bearer(authorization)
+    dev = _require_devid(devId)
+    return envelope([
+        {"supportCountryId": cid, "supportCountryName": name,
+         "currentCountry": cid == dev.bindingCountryId}
+        for cid, name in _COUNTRIES.items()
+    ])
+
+
+@app.get("/api/dynamicPrice/getRegionList")
+async def dyn_get_regions(
+    devId: str, supportCountryId: str, authorization: str | None = Header(default=None)
+):
+    _require_bearer(authorization)
+    _require_devid(devId)
+    if supportCountryId != "237":
+        return envelope([])
+    return envelope([
+        {"countryName": "United Kingdom", "regionName": name, "regionCode": code,
+         "regionCodeCheck": code}
+        for code, name in _UK_REGIONS.items()
+    ])
+
+
+@app.get("/api/dynamicPrice/getBrands")
+async def dyn_get_brands(
+    devId: str, supportCountryId: str, regionCode: str,
+    authorization: str | None = Header(default=None),
+):
+    _require_bearer(authorization)
+    _require_devid(devId)
+    if supportCountryId != "237" or regionCode not in _UK_REGIONS:
+        return envelope([])
+    return envelope([{"id": "99", "brandName": "OCTOPUS_ENERGY", "regionCode": regionCode,
+                      "regionName": _UK_REGIONS[regionCode]}])
+
+
+@app.get("/api/dynamicPrice/getProducts")
+async def dyn_get_products(
+    devId: str, brandName: str, region: str, productType: int,
+    authorization: str | None = Header(default=None),
+):
+    _require_bearer(authorization)
+    _require_devid(devId)
+    if brandName != "OCTOPUS_ENERGY" or region not in _UK_REGIONS:
+        return envelope([])
+    table = _EXPORT_PRODUCTS if productType == 1 else _IMPORT_PRODUCTS
+    return envelope([
+        {"brandName": brandName, "productCode": code, "productName": name.split(" ")[0],
+         "productFullName": name, "description": "", "productType": productType}
+        for code, name in table.items()
+    ])
+
+
+@app.post("/api/dynamicPrice/saveBinding")
+async def dyn_save_binding(
+    payload: dict[str, Any], authorization: str | None = Header(default=None)
+):
+    """Saves the choice. The mode, thresholds and schedule are not touched (as on the
+    real cube)."""
+    _require_bearer(authorization)
+    dev = _require_devid(str(payload.get("devId", "")))
+    required = ("brandId", "productBrand", "supportCountryId", "productCode",
+                "productCodeOut", "regionCode")
+    if any(not payload.get(k) for k in required):
+        return envelope(None, status=500, message="Failure")
+    dev.bindingBrandId = str(payload["brandId"])
+    dev.bindingBrandName = str(payload["productBrand"])
+    dev.bindingCountryId = str(payload["supportCountryId"])
+    dev.bindingProductCode = str(payload["productCode"])
+    dev.bindingProductCodeOut = str(payload["productCodeOut"])
+    dev.bindingRegionCode = str(payload["regionCode"])
+    return envelope(None)
+
+
 @app.get("/api/device/queryDataElectricityV2")
 async def query_data_electricity_v2(
     devId: str,

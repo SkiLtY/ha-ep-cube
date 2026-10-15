@@ -531,3 +531,49 @@ class TestPVStrings:
     async def test_unexpected_shape_gives_empty(self, aioclient_mock, client_factory):
         aioclient_mock.get(_url_re("/api/device/getSolarPvPower"), json=_envelope(None))
         assert await client_factory().get_pv_strings() == {}
+
+
+class TestDynamicTariffClient:
+    @staticmethod
+    def _env(data):
+        return {"timestamp": "2026-10-15 10:00:00", "message": "OK", "status": 200, "data": data}
+
+    async def test_reads_use_the_dynamic_price_routes_and_parameters(
+        self, aioclient_mock, client_factory
+    ):
+        for route in ("getRelation", "getCountry", "getRegionList", "getBrands", "getProducts"):
+            aioclient_mock.get(
+                re.compile(rf"^https://mock\.invalid/api/dynamicPrice/{route}\?.*$"),
+                json=self._env([] if route != "getRelation" else {"productCode": "X"}),
+            )
+        client = client_factory()
+        assert (await client.get_dynamic_relation())["productCode"] == "X"
+        assert await client.get_dynamic_countries() == []
+        assert await client.get_dynamic_regions("237") == []
+        assert await client.get_dynamic_brands("237", "L") == []
+        assert await client.get_dynamic_products("OCTOPUS_ENERGY", "L", 1) == []
+        calls = {c[1].path.rsplit("/", 1)[1]: dict(c[1].query) for c in aioclient_mock.mock_calls}
+        assert calls["getRegionList"] == {"devId": "5613", "supportCountryId": "237"}
+        assert calls["getBrands"] == {"devId": "5613", "supportCountryId": "237", "regionCode": "L"}
+        assert calls["getProducts"] == {
+            "devId": "5613", "brandName": "OCTOPUS_ENERGY", "region": "L", "productType": "1"}
+
+    async def test_a_non_list_reply_gives_an_empty_list(self, aioclient_mock, client_factory):
+        aioclient_mock.get(
+            re.compile(r"^https://mock\.invalid/api/dynamicPrice/getCountry\?.*$"),
+            json=self._env(None),
+        )
+        assert await client_factory().get_dynamic_countries() == []
+
+    async def test_save_posts_the_binding_body(self, aioclient_mock, client_factory):
+        from custom_components.ep_cube.api import build_dynamic_binding
+
+        aioclient_mock.post("https://mock.invalid/api/dynamicPrice/saveBinding", json=self._env(None))
+        binding = build_dynamic_binding(
+            "5613", brand_id="99", brand_name="OCTOPUS_ENERGY", country_id="237",
+            region_code="L", import_code="AGILE-24-10-01", export_code="OUTGOING-VAR-24-10-26")
+        await client_factory().save_dynamic_binding(binding)
+        sent = aioclient_mock.mock_calls[0][2]
+        assert sent == binding
+        assert sent["ratio"]["fraunhofer"]["standardImportRatio"] == 0
+        assert sent["productCodeOut"] == "OUTGOING-VAR-24-10-26"

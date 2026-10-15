@@ -133,12 +133,54 @@
     "step": {
       "init": {
         "title": "EP-Cube-Optionen",
-        "description": "Wie sollen die Zwangs-Export-Fenster (Entladen) von Predbat ausgeführt werden?\n\n**TOU-Spitze** (Standard) nutzt einen Time-of-Use-Spitzenslot: Die Batterie versorgt das Haus, wird aber nie ins Netz entladen.\n\n**Dynamischer Tarif** schaltet den Cube für das Fenster in den Dynamic-Tarif-Modus, sodass er wirklich ins Netz einspeist und beim Ziel von Predbat stoppt. Voraussetzung: Der dynamische Tarif ist in der EP-Cube-App bereits eingerichtet (Octopus-Preisquelle, Region, Tarife und Zielpreise). Eine Änderung lädt die Integration neu.\n\nWie sollen die Zwangs-Lade-Fenster von Predbat ausgeführt werden?\n\n**Time of Use** (Standard) nutzt einen Time-of-Use-Nachtslot; der Cube lädt, bis der Slot endet. **Dynamischer Tarif** schaltet den Cube mit maximalem Kaufpreis in den Dynamic-Tarif-Modus, und Predbats Ladeziel wird zur Ladegrenze, sodass das Laden beim Ziel stoppt. Gleiche Voraussetzung wie oben. Die Änderung einer der beiden Optionen lädt die Integration neu.",
+        "description": "Wie sollen die Zwangs-Export-Fenster (Entladen) von Predbat ausgeführt werden?\n\n**TOU-Spitze** (Standard) nutzt einen Time-of-Use-Spitzenslot: Die Batterie versorgt das Haus, wird aber nie ins Netz entladen.\n\n**Dynamischer Tarif** schaltet den Cube für das Fenster in den Dynamic-Tarif-Modus, sodass er wirklich ins Netz einspeist und beim Ziel von Predbat stoppt. Voraussetzung: Der dynamische Tarif ist in der EP-Cube-App bereits eingerichtet (Octopus-Preisquelle, Region, Tarife und Zielpreise). Eine Änderung lädt die Integration neu.\n\nWie sollen die Zwangs-Lade-Fenster von Predbat ausgeführt werden?\n\n**Time of Use** (Standard) nutzt einen Time-of-Use-Nachtslot; der Cube lädt, bis der Slot endet. **Dynamischer Tarif** schaltet den Cube mit maximalem Kaufpreis in den Dynamic-Tarif-Modus, und Predbats Ladeziel wird zur Ladegrenze, sodass das Laden beim Ziel stoppt. Gleiche Voraussetzung wie oben. Die Änderung einer der beiden Optionen lädt die Integration neu.\n\nMit **Dynamischen Tarif ändern** wählst du Land, Region, Anbieter sowie Bezugs- und Einspeisetarif, die der Cube im Dynamic-Modus verwendet. Sie werden in der Cloud des Cubes gespeichert, genau wie in der EP-Cube-App; Modus, Preise und Zeitplan des Cubes ändern sich nicht.",
         "data": {
           "force_export_mode": "Modus für erzwungenen Export",
-          "force_charge_mode": "Modus für erzwungenes Laden"
+          "force_charge_mode": "Modus für erzwungenes Laden",
+          "change_tariff": "Dynamischen Tarif ändern (Land, Anbieter, Tarife)"
         }
+      },
+      "tariff_country": {
+        "title": "Dynamischer Tarif: Land",
+        "description": "Die Länder, die die Cloud des Cubes für den dynamischen Tarif unterstützt.",
+        "data": {
+          "supportCountryId": "Land"
+        }
+      },
+      "tariff_region": {
+        "title": "Dynamischer Tarif: Region",
+        "description": "Deine Netzregion.",
+        "data": {
+          "regionCode": "Region"
+        }
+      },
+      "tariff_supplier": {
+        "title": "Dynamischer Tarif: Anbieter",
+        "description": "Anbieter, von denen die Cloud des Cubes in dieser Region Preise beziehen kann.",
+        "data": {
+          "brandName": "Anbieter"
+        }
+      },
+      "tariff_products": {
+        "title": "Dynamischer Tarif: Tarife",
+        "description": "Es werden nur die Tarife aufgelistet, die der Hersteller für diese Region anbietet; dein tatsächlicher Tarif kann fehlen. Der Dynamic-Modus rechnet mit diesen; der erzwungene Export und das erzwungene Laden von EP Cube hängen nicht davon ab.",
+        "data": {
+          "importCode": "Bezugstarif",
+          "exportCode": "Einspeisetarif"
+        }
+      },
+      "tariff_confirm": {
+        "title": "Dynamischen Tarif speichern?",
+        "description": "**{import_name}** (Bezug) und **{export_name}** (Einspeisung) von {supplier}, {region}, {country} in der Cloud des Cubes speichern. Die Cloud braucht dafür etwa eine Minute."
       }
+    },
+    "error": {
+      "save_failed": "Speichern in der Cloud fehlgeschlagen. Bitte erneut versuchen.",
+      "not_confirmed": "Die Cloud zeigt den neuen Tarif noch nicht an. Das kann eine Minute dauern: prüfe die EP-Cube-App oder sende erneut."
+    },
+    "abort": {
+      "tariff_unavailable": "Die Tariflisten konnten nicht aus der Cloud gelesen werden. Bitte später erneut versuchen.",
+      "tariff_unsupported": "Die Cloud bietet für dieses Land, diese Region oder diesen Anbieter keine Tarife zur Auswahl. Stelle ihn in der EP-Cube-App ein."
     }
   },
   "selector": {

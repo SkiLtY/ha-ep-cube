@@ -115,6 +115,9 @@ DEFAULT_FORCE_EXPORT_MODE = FORCE_EXPORT_MODE_TOU_PEAK
 #                 from the grid up to the Charging Limit SoC, which the shim sets to
 #                 Predbat's target (verified 2026-10-15: ~6.5 kW, stopped at the limit).
 CONF_FORCE_CHARGE_MODE = "force_charge_mode"
+# One-shot checkbox in Configure: walk through the cloud's Dynamic-tariff pickers
+# (country, region, supplier, tariffs) and save the choice with saveBinding.
+CONF_CHANGE_TARIFF = "change_tariff"
 FORCE_CHARGE_MODE_TOU_OFFPEAK = "tou_offpeak"
 FORCE_CHARGE_MODE_DYNAMIC = "dynamic"
 DEFAULT_FORCE_CHARGE_MODE = FORCE_CHARGE_MODE_TOU_OFFPEAK

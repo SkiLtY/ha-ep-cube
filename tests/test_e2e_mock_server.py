@@ -268,3 +268,33 @@ async def test_revert_leaves_the_safe_dynamic_thresholds_in_the_cloud(rig):
     assert float(back["dynamicChargePrice"]) == 0.0
     assert float(back["dynamicDischargePrice"]) == 999.99
     assert int(back["backupPowerReserveSoc"]) == 100
+
+
+async def test_tariff_choice_round_trip_through_the_mock(rig):
+    client, _session, _base, _dev, _make = rig
+    from custom_components.ep_cube.api import build_dynamic_binding
+
+    rel = await client.get_dynamic_relation()
+    assert rel["productCode"] == "AGILE-24-10-01" and rel["regionCode"] == "L"
+    countries = await client.get_dynamic_countries()
+    assert [c["supportCountryId"] for c in countries] == ["237", "56"]
+    assert await client.get_dynamic_regions("56") == []            # nothing to choose abroad
+    regions = await client.get_dynamic_regions("237")
+    assert {r["regionCode"] for r in regions} >= {"L", "C"}
+    brands = await client.get_dynamic_brands("237", "C")
+    assert brands[0]["brandName"] == "OCTOPUS_ENERGY"
+    exports = await client.get_dynamic_products("OCTOPUS_ENERGY", "C", 1)
+    assert {p["productCode"] for p in exports} == {"AGILE-OUTGOING-19-05-13", "OUTGOING-VAR-24-10-26"}
+
+    before_mode = await client.get_switch_mode()
+    await client.save_dynamic_binding(build_dynamic_binding(
+        client.dev_id, brand_id=brands[0]["id"], brand_name="OCTOPUS_ENERGY", country_id="237",
+        region_code="C", import_code="AGILE-24-04-03", export_code="OUTGOING-VAR-24-10-26"))
+    after = await client.get_dynamic_relation()
+    assert after["regionCode"] == "C" and after["productCodeOut"] == "OUTGOING-VAR-24-10-26"
+    assert after["productName"] == "Agile Octopus April 2024 v1"
+    # the mode, thresholds and schedule are untouched (as on the real cube)
+    assert await client.get_switch_mode() == before_mode
+
+    with pytest.raises(EPCubeError):                                # an incomplete body is a 500
+        await client.save_dynamic_binding({"devId": client.dev_id})

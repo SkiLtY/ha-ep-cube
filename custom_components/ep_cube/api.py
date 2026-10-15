@@ -341,6 +341,38 @@ def _float_or_none(value: Any) -> float | None:
 # ----------------------------------------------------------------------
 # Client
 # ----------------------------------------------------------------------
+def build_dynamic_binding(
+    dev_id: str,
+    *,
+    brand_id: str,
+    brand_name: str,
+    country_id: str,
+    region_code: str,
+    import_code: str,
+    export_code: str,
+) -> dict[str, Any]:
+    """The body of POST dynamicPrice/saveBinding (the Dynamic-tariff choice).
+
+    Found in the Android app 3.2.0 (`ApiService.saveBinding(@Body)`); verified on a
+    real cube 2026-10-15: `getRelation` follows within about a minute and the mode,
+    thresholds and schedule are untouched. The `ratio` block is for countries that
+    price from fixed factors instead of a product list; products-based regions
+    (the UK) send zeros."""
+    return {
+        "devId": str(dev_id),
+        "brandId": str(brand_id),
+        "productBrand": brand_name,
+        "supportCountryId": str(country_id),
+        "productCode": import_code,
+        "productCodeOut": export_code,
+        "regionCode": region_code,
+        "ratio": {"fraunhofer": {
+            "standardImportRatio": 0, "importServiceCharge": 0,
+            "standardExportRatio": 0, "exportServiceCharge": 0,
+        }},
+    }
+
+
 class EPCubeClient:
     """Async client for the EP Cube cloud mobile-app surface."""
 
@@ -680,6 +712,47 @@ class EPCubeClient:
             return out
 
         return {"import": slots(data.get("prices")), "export": slots(data.get("pricesExport"))}
+
+    # ------------------------------------------------------------------
+    # Dynamic-tariff choice (country / region / supplier / products)
+    # ------------------------------------------------------------------
+    async def get_dynamic_relation(self) -> dict[str, Any]:
+        """The saved choice: country, region, supplier, import and export product."""
+        data = await self._get(f"{self._api_prefix}/dynamicPrice/getRelation?devId={self._dev_id}")
+        return data if isinstance(data, dict) else {}
+
+    async def get_dynamic_countries(self) -> list[dict[str, Any]]:
+        data = await self._get(f"{self._api_prefix}/dynamicPrice/getCountry?devId={self._dev_id}")
+        return data if isinstance(data, list) else []
+
+    async def get_dynamic_regions(self, country_id: str) -> list[dict[str, Any]]:
+        data = await self._get(
+            f"{self._api_prefix}/dynamicPrice/getRegionList"
+            f"?devId={self._dev_id}&supportCountryId={country_id}"
+        )
+        return data if isinstance(data, list) else []
+
+    async def get_dynamic_brands(self, country_id: str, region_code: str) -> list[dict[str, Any]]:
+        data = await self._get(
+            f"{self._api_prefix}/dynamicPrice/getBrands"
+            f"?devId={self._dev_id}&supportCountryId={country_id}&regionCode={region_code}"
+        )
+        return data if isinstance(data, list) else []
+
+    async def get_dynamic_products(
+        self, brand_name: str, region_code: str, product_type: int
+    ) -> list[dict[str, Any]]:
+        """Tariffs on offer for a supplier and region; `product_type` 0 is import, 1 export."""
+        data = await self._get(
+            f"{self._api_prefix}/dynamicPrice/getProducts"
+            f"?devId={self._dev_id}&brandName={brand_name}&region={region_code}"
+            f"&productType={product_type}"
+        )
+        return data if isinstance(data, list) else []
+
+    async def save_dynamic_binding(self, binding: dict[str, Any]) -> None:
+        """Save the Dynamic-tariff choice (see build_dynamic_binding)."""
+        await self._post(f"{self._api_prefix}/dynamicPrice/saveBinding", json=binding)
 
     async def probe(self, route: str, params: dict[str, str] | None = None) -> Any:
         """GET an arbitrary read-only route under the API prefix (diagnostics).

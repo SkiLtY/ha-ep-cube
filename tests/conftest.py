@@ -95,6 +95,41 @@ def fake_client(get_switch_mode, device_list):
         }
 
     client.get_dynamic_prices = AsyncMock(side_effect=_dynamic_prices)
+    # Dynamic-tariff pickers (UK / Octopus, as the real EU server returned them).
+    client.get_dynamic_relation = AsyncMock(return_value={
+        "brandId": "99", "supportCountryId": "237", "productBrand": "OCTOPUS_ENERGY",
+        "productCode": "AGILE-24-10-01", "productCodeOut": "AGILE-OUTGOING-19-05-13",
+        "regionCode": "L", "supportCountryName": "United Kingdom",
+    })
+    client.get_dynamic_countries = AsyncMock(return_value=[
+        {"supportCountryId": "237", "supportCountryName": "United Kingdom", "currentCountry": True},
+        {"supportCountryId": "56", "supportCountryName": "Germany", "currentCountry": False},
+    ])
+    client.get_dynamic_regions = AsyncMock(return_value=[
+        {"regionCode": "L", "regionName": "South Western England"},
+        {"regionCode": "C", "regionName": "London"},
+    ])
+    client.get_dynamic_brands = AsyncMock(return_value=[
+        {"id": "99", "brandName": "OCTOPUS_ENERGY"},
+    ])
+
+    async def _products(brand, region, product_type):
+        if product_type == 1:
+            return [
+                {"productCode": "AGILE-OUTGOING-19-05-13", "productName": "Agile Outgoing Octopus",
+                 "productFullName": "Agile Outgoing Octopus May 2019"},
+                {"productCode": "OUTGOING-VAR-24-10-26", "productName": "Outgoing Octopus",
+                 "productFullName": "Outgoing Octopus"},
+            ]
+        return [
+            {"productCode": "AGILE-24-10-01", "productName": "Agile Octopus",
+             "productFullName": "Agile Octopus October 2024 v1"},
+            {"productCode": "AGILE-24-04-03", "productName": "Agile Octopus",
+             "productFullName": "Agile Octopus April 2024 v1"},
+        ]
+
+    client.get_dynamic_products = AsyncMock(side_effect=_products)
+    client.save_dynamic_binding = AsyncMock(return_value=None)
     client.get_pv_strings = AsyncMock(return_value={
         1: {"power_w": 180.0, "voltage_v": 255.5, "current_a": 0.7},
         2: {"power_w": 170.0, "voltage_v": 179.4, "current_a": 0.9},
