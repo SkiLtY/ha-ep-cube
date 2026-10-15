@@ -564,16 +564,34 @@ class TestDebugProbeWrite:
 
 
 class TestPriceSensors:
-    async def test_current_slot_price_and_schedule_attributes(self, hass, setup_integration):
+    @staticmethod
+    def _ids(hass, entry_id):
         registry = er.async_get(hass)
-        entry_id = setup_integration.entry_id
-        ids = {
-            e.unique_id[len(entry_id) + 1:]: e.entity_id
+        return {
+            e.unique_id[len(entry_id) + 1:]: e
             for e in er.async_entries_for_config_entry(registry, entry_id)
             if e.domain == "sensor"
         }
-        imp = hass.states.get(ids["dynamic_import_price"])
-        exp = hass.states.get(ids["dynamic_export_price"])
+
+    async def test_cube_price_sensors_are_off_by_default(self, hass, setup_integration):
+        ids = self._ids(hass, setup_integration.entry_id)
+        for key in ("dynamic_import_price", "dynamic_export_price"):
+            entry = ids[key]
+            assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+            assert entry.entity_category is not None      # diagnostic
+            assert hass.states.get(entry.entity_id) is None
+
+    async def test_enabled_sensors_show_the_current_slot_and_schedule(
+        self, hass, setup_integration
+    ):
+        registry = er.async_get(hass)
+        ids = self._ids(hass, setup_integration.entry_id)
+        for key in ("dynamic_import_price", "dynamic_export_price"):
+            registry.async_update_entity(ids[key].entity_id, disabled_by=None)
+        await hass.config_entries.async_reload(setup_integration.entry_id)
+        await hass.async_block_till_done()
+        imp = hass.states.get(ids["dynamic_import_price"].entity_id)
+        exp = hass.states.get(ids["dynamic_export_price"].entity_id)
         assert float(imp.state) == 30.0 and imp.attributes["unit_of_measurement"] == "p/kWh"
         assert float(exp.state) == 15.0
         slots = imp.attributes["slots"]
@@ -595,13 +613,11 @@ class TestPriceSensors:
         ):
             assert await hass.config_entries.async_setup(entry.entry_id)
             await hass.async_block_till_done()
-            registry = er.async_get(hass)
-            price = [e for e in er.async_entries_for_config_entry(registry, entry.entry_id)
-                     if e.unique_id.endswith("dynamic_import_price")]
-            assert price and hass.states.get(price[0].entity_id).state == "unavailable"
+            coordinator = hass.data[DOMAIN][entry.entry_id]["price_coordinator"]
+            assert coordinator.last_update_success is False
+            assert coordinator.data is None
             await hass.config_entries.async_unload(entry.entry_id)
             await hass.async_block_till_done()
-
 
 class TestDebugDynamicCharge:
     async def test_schema_bounds_the_test(self, hass, setup_integration):

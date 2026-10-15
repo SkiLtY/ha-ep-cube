@@ -91,7 +91,12 @@ PV_SENSORS: tuple[EPCubePVSensorDescription, ...] = _pv_sensors()
 
 @dataclass(frozen=True, kw_only=True)
 class EPCubePriceSensorDescription(SensorEntityDescription):
-    """Current Dynamic-tariff price; `side` is "import" or "export"."""
+    """The cube's own price for the current half-hour; `side` is "import" or "export".
+
+    This is the price feed the cube uses in Dynamic mode, not what the user pays:
+    the cube can only offer a few tariffs (for the UK, Agile Octopus for import),
+    so it differs from the real tariff. The user's real prices belong with
+    Octopus and Predbat, so these are off by default."""
 
     side: str
 
@@ -103,6 +108,8 @@ PRICE_SENSORS: tuple[EPCubePriceSensorDescription, ...] = tuple(
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="p/kWh",
         suggested_display_precision=2,
+        entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
         side=side,
     )
     for side in ("import", "export")
@@ -847,7 +854,7 @@ class EPCubePVSensor(EPCubeSensor):
 
 
 class EPCubePriceSensor(CoordinatorEntity[EPCubePriceCoordinator], SensorEntity):
-    """The price of the half-hour slot we are in, from the cube's Dynamic tariff.
+    """The price of the half-hour slot we are in, on the cube's own tariff.
 
     The coordinator polls every 15 minutes; this entity also re-evaluates at
     every :00 and :30 so the value changes with the slot. Attributes carry the
