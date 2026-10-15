@@ -657,6 +657,14 @@ class EPCubeClient:
         path = f"{self._api_prefix}/{route.strip('/')}"
         return await self._get(f"{path}?{query}" if query else path)
 
+    async def probe_post(self, route: str, body: dict[str, Any]) -> Any:
+        """POST `body` to an arbitrary route under the API prefix (diagnostics).
+
+        Writes to the cloud. Only the debug_probe_write service uses it, with
+        a whitelisted route and a body built from the cube's current state.
+        """
+        return await self._post(f"{self._api_prefix}/{route.strip('/')}", json=body)
+
     # ------------------------------------------------------------------
     # Transport
     # ------------------------------------------------------------------

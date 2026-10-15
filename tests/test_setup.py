@@ -444,3 +444,102 @@ class TestPVStringSensors:
         await coordinator.async_refresh()
         assert coordinator.last_update_success
         assert coordinator.pv_strings[1]["power_w"] == 180.0
+
+
+class TestDebugProbeWrite:
+    LIVE = {
+        "workStatus": "2", "touType": 0, "selfConsumptioinReserveSoc": "20",
+        "backupPowerReserveSoc": "100", "dynamicChargePrice": 0.0,
+        "dynamicDischargePrice": 999.99, "allowChargingXiaGrid": "1",
+        "offPeakTimeList": ["00:30_05:30_2.22"],
+    }
+    REL = {
+        "brandId": "99", "supportCountryId": "237", "productBrand": "OCTOPUS_ENERGY",
+        "productCode": "AGILE-24-10-01", "productCodeOut": "AGILE-OUTGOING-19-05-13",
+        "regionCode": "L",
+    }
+
+    async def test_portal_style_body_is_built_from_current_state(
+        self, hass, setup_integration, fake_client
+    ):
+        fake_client.get_switch_mode = AsyncMock(return_value=dict(self.LIVE))
+        fake_client.probe = AsyncMock(return_value=dict(self.REL))
+        fake_client.probe_post = AsyncMock(return_value=None)
+        result = await hass.services.async_call(
+            DOMAIN, "debug_probe_write", {"route": "device/setDynamicPrice"},
+            blocking=True, return_response=True,
+        )
+        route, body = fake_client.probe_post.await_args.args
+        assert route == "device/setDynamicPrice"
+        assert body["dynamicDischargePrice"] == 999.99
+        assert body["backupPowerReserveSoc"] == "100"
+        assert body["dynamicPriceBinding"]["productCodeOut"] == "AGILE-OUTGOING-19-05-13"
+        assert body["dynamicPriceBinding"]["regionCode"] == "L"
+        assert result["ok"] is True and result["after"]["workStatus"] == "2"
+
+    async def test_switchmode_route_carries_the_binding_on_the_full_payload(
+        self, hass, setup_integration, fake_client
+    ):
+        fake_client.get_switch_mode = AsyncMock(return_value=dict(self.LIVE))
+        fake_client.probe = AsyncMock(return_value=dict(self.REL))
+        fake_client.probe_post = AsyncMock(return_value=None)
+        await hass.services.async_call(
+            DOMAIN, "debug_probe_write", {"route": "device/switchMode"},
+            blocking=True, return_response=True,
+        )
+        _route, body = fake_client.probe_post.await_args.args
+        assert body["workStatus"] == "2" and body["offPeakTimeList"] == ["00:30_05:30_2.22"]
+        assert body["dynamicPriceBinding"]["productCode"] == "AGILE-24-10-01"
+
+    async def test_unknown_route_and_user_body_are_rejected(
+        self, hass, setup_integration, fake_client
+    ):
+        import voluptuous as vol
+        fake_client.probe_post = AsyncMock()
+        for data in ({"route": "device/deleteDevice"}, {"route": "device/switchMode", "body": {"a": 1}}):
+            with pytest.raises(vol.Invalid):
+                await hass.services.async_call(
+                    DOMAIN, "debug_probe_write", data, blocking=True, return_response=True
+                )
+        fake_client.probe_post.assert_not_awaited()
+
+    async def test_cloud_error_is_reported(self, hass, setup_integration, fake_client):
+        from custom_components.ep_cube.api import EPCubeError
+        fake_client.get_switch_mode = AsyncMock(return_value=dict(self.LIVE))
+        fake_client.probe = AsyncMock(return_value=dict(self.REL))
+        fake_client.probe_post = AsyncMock(side_effect=EPCubeError("404 not found"))
+        result = await hass.services.async_call(
+            DOMAIN, "debug_probe_write", {"route": "dynamicPrice/save"},
+            blocking=True, return_response=True,
+        )
+        assert result["ok"] is False and "404" in result["error"]
+
+
+    async def test_export_product_override_changes_only_the_export_code(
+        self, hass, setup_integration, fake_client
+    ):
+        fake_client.get_switch_mode = AsyncMock(return_value=dict(self.LIVE))
+        fake_client.probe = AsyncMock(return_value=dict(self.REL))
+        fake_client.probe_post = AsyncMock(return_value=None)
+        await hass.services.async_call(
+            DOMAIN, "debug_probe_write",
+            {"route": "device/switchMode", "export_product": "OUTGOING-VAR-24-10-26"},
+            blocking=True, return_response=True,
+        )
+        _route, body = fake_client.probe_post.await_args.args
+        binding = body["dynamicPriceBinding"]
+        assert binding["productCodeOut"] == "OUTGOING-VAR-24-10-26"
+        assert binding["productCode"] == "AGILE-24-10-01"
+
+    async def test_other_export_products_are_rejected(
+        self, hass, setup_integration, fake_client
+    ):
+        import voluptuous as vol
+        fake_client.probe_post = AsyncMock()
+        with pytest.raises(vol.Invalid):
+            await hass.services.async_call(
+                DOMAIN, "debug_probe_write",
+                {"route": "device/switchMode", "export_product": "SOMETHING-ELSE"},
+                blocking=True, return_response=True,
+            )
+        fake_client.probe_post.assert_not_awaited()

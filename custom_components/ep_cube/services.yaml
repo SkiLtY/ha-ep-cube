@@ -149,3 +149,39 @@ debug_probe:
       description: Cube devId — only required if multiple EP Cubes are configured.
       selector:
         text:
+
+
+debug_probe_write:
+  name: Debug - try a route that saves the Dynamic-tariff binding
+  description: Diagnostic only. WRITES to the cloud. Posts the cube's current tariff and Dynamic settings, unchanged, to one candidate route, to find which route the mobile app uses to save the supplier and tariff. The body is built from the cube's current state, never from input. A wrong route name just returns an error; a right one re-saves the same values (which may still switch the cube's mode).
+  fields:
+    route:
+      name: Route
+      required: true
+      selector:
+        select:
+          options:
+            - device/switchMode
+            - device/setDynamicPrice
+            - device/saveDynamicPrice
+            - device/setDynamicPriceBinding
+            - dynamicPrice/setRelation
+            - dynamicPrice/saveRelation
+            - dynamicPrice/setDynamicPrice
+            - dynamicPrice/save
+            - dynamicPrice/bind
+    export_product:
+      name: Export product override
+      required: false
+      description: Replaces only the export tariff code in the body, to show whether the route really saves it. Leave empty to re-send the current values.
+      selector:
+        select:
+          options:
+            - AGILE-OUTGOING-19-05-13
+            - OUTGOING-VAR-24-10-26
+    device_id:
+      name: Device ID
+      required: false
+      description: Cube devId - only required if multiple EP Cubes are configured.
+      selector:
+        text:

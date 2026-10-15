@@ -92,6 +92,7 @@ SERVICE_IDLE = "idle"
 SERVICE_DEBUG_FREEZE = "debug_freeze"
 SERVICE_DEBUG_DYNAMIC_EXPORT = "debug_dynamic_export"
 SERVICE_DEBUG_PROBE = "debug_probe"
+SERVICE_DEBUG_PROBE_WRITE = "debug_probe_write"
 
 # Override kinds
 KIND_CHARGE = "charge"
@@ -183,6 +184,84 @@ DEBUG_PROBE_SCHEMA = vol.Schema(
         vol.Optional("full", default=False): cv.boolean,
     }
 )
+
+
+# debug_probe_write: find the mobile route that saves the Dynamic-tariff
+# binding (country / region / supplier / tariff). The portal's own route
+# (home/setDynamicPrice) answers 500. The body is never user-supplied: it is
+# built from the cube's CURRENT settings, so a route that works re-saves what
+# is already there. The first entry sends the usual switchMode body with the
+# portal's `dynamicPriceBinding` block added; the rest guess the route name
+# and send the portal's body.
+PROBE_WRITE_ROUTES = (
+    "device/switchMode",
+    "device/setDynamicPrice",
+    "device/saveDynamicPrice",
+    "device/setDynamicPriceBinding",
+    "dynamicPrice/setRelation",
+    "dynamicPrice/saveRelation",
+    "dynamicPrice/setDynamicPrice",
+    "dynamicPrice/save",
+    "dynamicPrice/bind",
+)
+
+# The only value a caller may change: the export product, from the two codes
+# the cloud lists for region L. Lets a test show whether a route really saves
+# the binding (re-sending the current value can't tell).
+PROBE_EXPORT_PRODUCTS = ("AGILE-OUTGOING-19-05-13", "OUTGOING-VAR-24-10-26")
+
+DEBUG_PROBE_WRITE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("device_id"): cv.string,
+        vol.Required("route"): vol.In(PROBE_WRITE_ROUTES),
+        vol.Optional("export_product"): vol.In(PROBE_EXPORT_PRODUCTS),
+    }
+)
+
+
+def _binding_from_relation(dev_id: str, rel: dict[str, Any]) -> dict[str, Any]:
+    """The portal's `dynamicPriceBinding` block, from getRelation's read-back."""
+    return {
+        "brandId": str(rel.get("brandId", "")),
+        "devId": str(dev_id),
+        "productBrand": rel.get("productBrand", ""),
+        "supportCountryId": str(rel.get("supportCountryId", "")),
+        "productCode": rel.get("productCode", ""),
+        "productCodeOut": rel.get("productCodeOut", ""),
+        "regionCode": rel.get("regionCode") or rel.get("region", ""),
+        "ratio": {"fraunhofer": {
+            "standardImportRatio": 0, "importServiceCharge": 0,
+            "standardExportRatio": 0, "exportServiceCharge": 0,
+        }},
+    }
+
+
+def build_probe_write_body(
+    route: str,
+    dev_id: str,
+    live: dict[str, Any],
+    rel: dict[str, Any],
+    export_product: str | None = None,
+) -> dict[str, Any]:
+    """The body for `route`, built from the current cloud state.
+
+    A no-op unless `export_product` is given, which replaces only the export
+    tariff code."""
+    binding = _binding_from_relation(dev_id, rel)
+    if export_product:
+        binding["productCodeOut"] = export_product
+    if route == "device/switchMode":
+        return payload_from_switch_mode_read(
+            dev_id, live, overrides={"dynamicPriceBinding": binding}
+        )
+    return {
+        "devId": str(dev_id),
+        "dynamicChargePrice": float(live.get("dynamicChargePrice") or 0),
+        "dynamicDischargePrice": float(live.get("dynamicDischargePrice") or 0),
+        "backupPowerReserveSoc": str(live.get("backupPowerReserveSoc", "100")),
+        "selfConsumptioinReserveSoc": str(live.get("selfConsumptioinReserveSoc", "20")),
+        "dynamicPriceBinding": binding,
+    }
 
 
 def _redact_probe(value: Any, full: bool) -> Any:
@@ -1132,6 +1211,35 @@ async def async_register_services(hass: HomeAssistant) -> None:
         _LOGGER.warning("debug_probe %s -> %s", route, result)
         return {"ok": True, "route": route, "data": result}
 
+    async def handle_debug_probe_write(call: ServiceCall) -> dict[str, Any]:
+        shim = _resolve_shim(call)
+        client = shim.client
+        route = call.data["route"]
+        live = await client.get_switch_mode()
+        rel = await client.probe("dynamicPrice/getRelation", {"devId": client.dev_id})
+        body = build_probe_write_body(
+            route, client.dev_id, live, rel, call.data.get("export_product")
+        )
+        _LOGGER.warning(
+            "debug_probe_write POST %s (mode before: workStatus=%s touType=%s)",
+            route, live.get("workStatus"), live.get("touType"),
+        )
+        try:
+            data = await client.probe_post(route, body)
+            result: dict[str, Any] = {
+                "ok": True, "route": route, "data": _redact_probe(data, False)
+            }
+        except EPCubeError as err:
+            _LOGGER.warning("debug_probe_write %s failed: %s", route, err)
+            result = {"ok": False, "route": route, "error": str(err)}
+        # The cloud can take a minute or two to settle, so this read-back is
+        # only a first look; check getSwitchMode again later.
+        after = await client.get_switch_mode()
+        result["after"] = {k: after.get(k) for k in (
+            "workStatus", "touType", "dynamicChargePrice", "dynamicDischargePrice",
+            "selfConsumptioinReserveSoc", "backupPowerReserveSoc")}
+        return result
+
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_START, handle_charge_start, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_CHARGE_STOP, handle_charge_stop, schema=SHIM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_DISCHARGE_START, handle_discharge_start, schema=SHIM_SCHEMA)
@@ -1150,6 +1258,13 @@ async def async_register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_DEBUG_PROBE_WRITE,
+        handle_debug_probe_write,
+        schema=DEBUG_PROBE_WRITE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_DEBUG_PROBE,
         handle_debug_probe,
         schema=DEBUG_PROBE_SCHEMA,
@@ -1161,6 +1276,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
     for service in (
         SERVICE_DEBUG_DYNAMIC_EXPORT,
         SERVICE_DEBUG_PROBE,
+        SERVICE_DEBUG_PROBE_WRITE,
         SERVICE_CHARGE_START,
         SERVICE_CHARGE_STOP,
         SERVICE_DISCHARGE_START,
