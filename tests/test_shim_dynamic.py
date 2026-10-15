@@ -370,3 +370,71 @@ class TestClampBeforeChargeWindow:
         plan = self._plan(charge_in_minutes=20, enabled=False)
         end = _future(60)
         assert _clamp_before_charge_window(plan, end) == end
+
+
+# ----------------------------------------------------------------------
+# Sell-above guard: the threshold must sit under the window's export prices
+# ----------------------------------------------------------------------
+def _export_slots(prices):
+    """Half-hour export slots starting 10 minutes ago, one per price."""
+    start = dt_util.utcnow() - timedelta(minutes=10)
+    return [
+        {"start": start + timedelta(minutes=30 * i),
+         "end": start + timedelta(minutes=30 * (i + 1)), "price": p}
+        for i, p in enumerate(prices)
+    ]
+
+
+@pytest.fixture
+def priced_shim(hass, fake_client):
+    coordinator = MagicMock()
+    coordinator.data = {"import": [], "export": []}
+    instance = PredbatShim(
+        hass=hass, entry_id="test-entry", client=fake_client,
+        force_export_mode=FORCE_EXPORT_MODE_DYNAMIC, price_coordinator=coordinator,
+    )
+    instance.coordinator = coordinator
+    yield instance
+    instance.cancel_revert_timer()
+
+
+class TestSellAboveGuard:
+    def _sell_above(self, shim, prices, minutes=60):
+        shim.coordinator.data = {"import": [], "export": _export_slots(prices)}
+        return shim._sell_above_for_window(_future(minutes))
+
+    async def test_comfortable_prices_keep_the_default(self, priced_shim):
+        assert self._sell_above(priced_shim, [11.3, 12.0]) == 5.0
+
+    async def test_low_prices_lower_the_threshold_below_them(self, priced_shim):
+        assert self._sell_above(priced_shim, [3.5, 9.0]) == 2.5
+        assert self._sell_above(priced_shim, [5.5]) == 4.5
+
+    async def test_threshold_never_goes_under_the_cubes_minimum(self, priced_shim, caplog):
+        assert self._sell_above(priced_shim, [0.5]) == 0.01
+        assert self._sell_above(priced_shim, [0.0]) == 0.01
+        assert "will not export in that slot" in caplog.text
+
+    async def test_only_slots_inside_the_window_count(self, priced_shim):
+        # A cheap slot after the window ends must not lower the threshold.
+        prices = [12.0, 12.0, 1.0]            # third slot starts at +50 min
+        assert self._sell_above(priced_shim, prices, minutes=40) == 5.0
+
+    async def test_no_prices_falls_back_to_the_default(self, hass, fake_client):
+        plain = PredbatShim(hass=hass, entry_id="e", client=fake_client,
+                            force_export_mode=FORCE_EXPORT_MODE_DYNAMIC)
+        assert plain._sell_above_for_window(_future(30)) == 5.0
+
+    async def test_written_payload_uses_the_lowered_threshold(self, priced_shim, fake_client):
+        priced_shim.coordinator.data = {"import": [], "export": _export_slots([3.0, 3.0])}
+        await priced_shim.discharge_start(end_time=_future(50), target_soc_pct=50.0)
+        payload = fake_client.switch_mode.await_args_list[-1].args[0]
+        assert payload["dynamicDischargePrice"] == 2.0
+        assert payload["dynamicChargePrice"] == 0.0
+
+    async def test_stale_export_with_a_lowered_threshold_is_still_recognised(
+        self, get_switch_mode
+    ):
+        assert _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=2.0, buy=0.0))
+        assert not _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=999.99, buy=0.0))
+        assert not _is_shim_dynamic_signature(_dynamic_read(get_switch_mode, sell=0.0, buy=0.0))

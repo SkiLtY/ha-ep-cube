@@ -130,6 +130,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         force_export_mode=entry.options.get(
             CONF_FORCE_EXPORT_MODE, DEFAULT_FORCE_EXPORT_MODE
         ),
+        price_coordinator=price_coordinator,
     )
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {

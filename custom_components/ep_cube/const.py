@@ -114,6 +114,12 @@ DEFAULT_FORCE_EXPORT_MODE = FORCE_EXPORT_MODE_TOU_PEAK
 # means "export now"; buy-below 0 means "never buy from the grid" (an Agile
 # import price below 0p, i.e. paid-to-consume, is the only exception).
 DYNAMIC_EXPORT_SELL_ABOVE_P = 5.0
+# The sell-above actually written is lowered for a window whose export price
+# dips near or under it (see PredbatShim._sell_above_for_window): it is kept
+# this far below the window's lowest export price, and never under the cube's
+# smallest usable value (the app takes 0.00-999.99 in 0.01 steps).
+DYNAMIC_EXPORT_PRICE_MARGIN_P = 1.0
+DYNAMIC_EXPORT_SELL_ABOVE_MIN_P = 0.01
 DYNAMIC_EXPORT_BUY_BELOW_P = 0.0
 
 # The cube's self-consumption reserve default. When a stale shim Dynamic export

@@ -63,6 +63,8 @@ from .const import (
     DOMAIN,
     DEFAULT_SELF_CONSUMPTION_RESERVE_PCT,
     DYNAMIC_EXPORT_BUY_BELOW_P,
+    DYNAMIC_EXPORT_PRICE_MARGIN_P,
+    DYNAMIC_EXPORT_SELL_ABOVE_MIN_P,
     DYNAMIC_EXPORT_SELL_ABOVE_P,
     DYNAMIC_REVERT_MAX_RETRIES,
     DYNAMIC_REVERT_RETRY_SECONDS,
@@ -392,7 +394,12 @@ def _is_shim_dynamic_signature(state: dict[str, Any]) -> bool:
         buy = float(state.get("dynamicChargePrice"))
     except (TypeError, ValueError):
         return False
-    return sell == float(DYNAMIC_EXPORT_SELL_ABOVE_P) and buy == float(DYNAMIC_EXPORT_BUY_BELOW_P)
+    # The sell-above is the default or a value lowered for the window's prices,
+    # so it is anywhere in (0, default]; buy-below is always the fixed value.
+    return (
+        float(DYNAMIC_EXPORT_SELL_ABOVE_MIN_P) <= sell <= float(DYNAMIC_EXPORT_SELL_ABOVE_P)
+        and buy == float(DYNAMIC_EXPORT_BUY_BELOW_P)
+    )
 
 
 def _is_user_dynamic_baseline(state: dict[str, Any]) -> bool:
@@ -467,10 +474,14 @@ class PredbatShim:
         entry_id: str,
         client: EPCubeClient,
         force_export_mode: str = DEFAULT_FORCE_EXPORT_MODE,
+        price_coordinator: Any = None,
     ) -> None:
         self.hass = hass
         self.entry_id = entry_id
         self.client = client
+        # Optional EPCubePriceCoordinator: its half-hourly export prices let a
+        # forced export pick a sell-above that is safely under them.
+        self.price_coordinator = price_coordinator
         # How discharge_start realises "force export": legacy TOU peak slot
         # (default) or Dynamic-tariff mode (real grid export).
         self.force_export_mode = force_export_mode
@@ -586,15 +597,16 @@ class PredbatShim:
         if self._matches_active(params):
             _LOGGER.debug("discharge_start (dynamic): idempotent no-op")
             return
-        payload = self._build_dynamic_override(reserve)
+        sell_above = self._sell_above_for_window(end_time)
+        payload = self._build_dynamic_override(reserve, sell_above)
         await self._apply_dynamic_override(payload, params)
         self._schedule_revert(end_time)
         self._schedule_watchdog(end_time)
         _LOGGER.info(
             "discharge_start applied: dynamic export until %s, reserve %d%% "
-            "(sell above %.1fp, buy below %.1fp)",
+            "(sell above %.2fp, buy below %.2fp)",
             end_time.isoformat(), reserve,
-            DYNAMIC_EXPORT_SELL_ABOVE_P, DYNAMIC_EXPORT_BUY_BELOW_P,
+            sell_above, DYNAMIC_EXPORT_BUY_BELOW_P,
         )
 
     async def debug_dynamic_export(self, duration_minutes: int, reserve_pct: float) -> None:
@@ -614,7 +626,43 @@ class PredbatShim:
         rounded = int(math.ceil(target / 2.0) * 2)
         return max(floor, min(100, rounded))
 
-    def _build_dynamic_override(self, reserve_pct: int) -> dict[str, Any]:
+    def _sell_above_for_window(self, end_time: datetime) -> float:
+        """Sell-above threshold for a forced export ending at `end_time`.
+
+        The cube exports only while its export price is above the threshold,
+        and that price is the live tariff's, which moves (Agile Outgoing was
+        11p at midday and can be far lower). A fixed value would silently do
+        nothing in a slot priced under it. So: the default, lowered to
+        DYNAMIC_EXPORT_PRICE_MARGIN_P under the window's cheapest export price,
+        and never below the cube's smallest usable value. Without a price
+        source (or any price for the window) the default is used. A window
+        that includes a slot at or under the smallest value gets a warning,
+        as the cube will not export in that slot.
+        """
+        default = float(DYNAMIC_EXPORT_SELL_ABOVE_P)
+        slots = ((getattr(self.price_coordinator, "data", None) or {}).get("export")) or []
+        now = dt_util.utcnow()
+        prices = [
+            s["price"] for s in slots
+            if s["end"] > now and s["start"] < end_time
+        ]
+        if not prices:
+            _LOGGER.debug("dynamic export: no export prices for the window, sell above %.2fp", default)
+            return default
+        lowest = min(prices)
+        floor = float(DYNAMIC_EXPORT_SELL_ABOVE_MIN_P)
+        if lowest <= floor:
+            _LOGGER.warning(
+                "dynamic export: the export price falls to %.2fp in this window; "
+                "the cube will not export in that slot",
+                lowest,
+            )
+        wanted = math.floor((lowest - float(DYNAMIC_EXPORT_PRICE_MARGIN_P)) * 100) / 100
+        return round(max(floor, min(default, wanted)), 2)
+
+    def _build_dynamic_override(
+        self, reserve_pct: int, sell_above: float = DYNAMIC_EXPORT_SELL_ABOVE_P
+    ) -> dict[str, Any]:
         """Compose the /api/device/switchMode body that puts the cube into
         Dynamic-tariff mode with the forced-export thresholds."""
         return payload_from_switch_mode_read(
@@ -624,7 +672,7 @@ class PredbatShim:
                 "workStatus": WORK_STATUS_TOU,
                 "touType": TOU_TYPE_DYNAMIC,
                 "dynamicChargePrice": float(DYNAMIC_EXPORT_BUY_BELOW_P),
-                "dynamicDischargePrice": float(DYNAMIC_EXPORT_SELL_ABOVE_P),
+                "dynamicDischargePrice": float(sell_above),
                 "selfConsumptioinReserveSoc": str(reserve_pct),
                 "allowChargingXiaGrid": "0",
             },
