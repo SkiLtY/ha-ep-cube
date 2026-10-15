@@ -103,7 +103,7 @@ class TestDynamicExport:
         assert payload["dynamicDischargePrice"] == 0.0   # sell above 0p: export at any price
         assert payload["dynamicChargePrice"] == 0.0      # never buy for the export
         assert payload["allowChargingXiaGrid"] == "0"
-        assert payload["selfConsumptioinReserveSoc"] == "52"
+        assert payload["selfConsumptioinReserveSoc"] == "51"
         assert dyn_shim._active_override["kind"] == KIND_DISCHARGE
         assert dyn_shim._active_override["dynamic"] is True
 
@@ -118,9 +118,10 @@ class TestDynamicExport:
     @pytest.mark.parametrize(
         ("target", "expected"),
         [
-            (51.0, 52),    # rounded UP to even: never export below Predbat's target
+            (51.0, 51),    # exactly Predbat's target when it is a whole number
+            (55.0, 55),
             (50.0, 50),
-            (49.1, 50),
+            (49.1, 50),    # rounded UP: never export below Predbat's target
             (100.0, 100),
             (150.0, 100),  # clamped
             (5.0, 20),     # never below the cube's own self-consumption reserve
@@ -133,12 +134,14 @@ class TestDynamicExport:
         await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=target)
         assert _write(fake_client, 0)["selfConsumptioinReserveSoc"] == str(expected)
 
-    async def test_idempotent_within_the_same_reserve_step(self, dyn_shim, fake_client):
+    async def test_idempotent_for_the_same_reserve_and_rewritten_when_it_changes(
+        self, dyn_shim, fake_client
+    ):
         end = _future(30)
-        await dyn_shim.discharge_start(end_time=end, target_soc_pct=51.0)  # reserve 52
-        await dyn_shim.discharge_start(end_time=end, target_soc_pct=52.0)  # reserve 52
+        await dyn_shim.discharge_start(end_time=end, target_soc_pct=55.0)   # reserve 55
+        await dyn_shim.discharge_start(end_time=end, target_soc_pct=55.0)   # same: no write
         assert fake_client.switch_mode.await_count == 1
-        await dyn_shim.discharge_start(end_time=end, target_soc_pct=55.0)  # reserve 56
+        await dyn_shim.discharge_start(end_time=end, target_soc_pct=56.0)   # reserve 56
         assert fake_client.switch_mode.await_count == 2
 
     async def test_revert_restores_standard_tou_and_checks_it(self, dyn_shim, fake_client):

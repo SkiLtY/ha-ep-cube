@@ -829,14 +829,13 @@ class PredbatShim:
             _LOGGER.error("dynamic charge: re-sending the setting failed (%s)", err)
 
     def _dynamic_reserve(self, target_soc_pct: float) -> int:
-        """Reserve SoC for a forced export: Predbat's target, rounded UP to an
-        even percent (so the export never overshoots the target and tiny plan
-        changes do not trigger a rewrite every cycle), never below the cube's
-        own self-consumption reserve and never above 100."""
+        """Reserve SoC for a forced export: Predbat's target, rounded UP to a whole
+        percent (the cube takes integers, and rounding up means the export never
+        overshoots the target), never below the cube's own self-consumption
+        reserve and never above 100. A target of 55 is written as 55."""
         floor = int(float((self._baseline or {}).get("selfConsumptioinReserveSoc") or 20))
         target = max(0.0, min(100.0, float(target_soc_pct)))
-        rounded = int(math.ceil(target / 2.0) * 2)
-        return max(floor, min(100, rounded))
+        return max(floor, min(100, int(math.ceil(target))))
 
     def _sell_above_for_window(self, end_time: datetime) -> float:
         """Sell-above threshold for a forced export ending at `end_time`.

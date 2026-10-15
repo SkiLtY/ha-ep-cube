@@ -144,7 +144,7 @@ The cube *can* export its battery to the grid — just not through TOU. In the E
 With `force_export_mode: dynamic` the shim's `discharge_start`:
 
 1. Snapshots the baseline as usual.
-2. POSTs `/api/device/switchMode` with `workStatus` `2`, `touType` `1`, `dynamicDischargePrice` = `DYNAMIC_EXPORT_SELL_ABOVE_P` (0p, export at any positive price; see the note below), `dynamicChargePrice` = `DYNAMIC_EXPORT_BUY_BELOW_P` (0p, never buy), and `selfConsumptioinReserveSoc` = Predbat's export target (rounded up to an even percent, never below the cube's own reserve). The cube stops exporting at the reserve, so Predbat's target SoC is the stopping point.
+2. POSTs `/api/device/switchMode` with `workStatus` `2`, `touType` `1`, `dynamicDischargePrice` = `DYNAMIC_EXPORT_SELL_ABOVE_P` (0p, export at any positive price; see the note below), `dynamicChargePrice` = `DYNAMIC_EXPORT_BUY_BELOW_P` (0p, never buy), and `selfConsumptioinReserveSoc` = Predbat's export target (rounded up to a whole percent, so 55 is written as 55, never below the cube's own reserve). The cube stops exporting at the reserve, so Predbat's target SoC is the stopping point.
 3. Reverts to the baseline at the window end, verifying `touType` has left Dynamic mode. If the cloud rejects a switch to an *empty* TOU schedule it falls back to Self-Consumption (equivalent behaviour).
 4. Arms a **watchdog** a few minutes after the window that confirms the cube really left Dynamic mode, and forces it out if not. Failed reverts are retried. A cube stuck in Dynamic mode would miss the cheap-rate charge, because Dynamic mode's *import* side prices against the Agile tariffs offered in the app, not a Go/Flux tariff.
 
