@@ -514,3 +514,20 @@ class TestProbe:
         (_method, url, _data, _headers) = aioclient_mock.mock_calls[0]
         assert url.path == "/api/device/getSettingsData"
         assert dict(url.query) == {"devId": "5613", "scopeType": "1"}
+
+
+class TestPVStrings:
+    async def test_parses_strings_and_converts_kw_to_w(self, aioclient_mock, client_factory):
+        aioclient_mock.get(_url_re("/api/device/getSolarPvPower"), json=_envelope([{
+            "pv1Power": "0.18", "pv1Voltage": "255.50", "pv1Current": "0.70",
+            "pv2Power": "0.17", "pv2Voltage": "179.40", "pv2Current": "0.90",
+            "pv3Power": "0.00", "pv3Voltage": "0.00", "pv3Current": "0.00",
+        }]))
+        pv = await client_factory().get_pv_strings()
+        assert pv[1] == {"power_w": 180.0, "voltage_v": 255.5, "current_a": 0.7}
+        assert pv[2]["power_w"] == 170.0 and pv[3]["voltage_v"] == 0.0
+        assert 4 not in pv      # fields missing -> string left out
+
+    async def test_unexpected_shape_gives_empty(self, aioclient_mock, client_factory):
+        aioclient_mock.get(_url_re("/api/device/getSolarPvPower"), json=_envelope(None))
+        assert await client_factory().get_pv_strings() == {}

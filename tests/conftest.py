@@ -76,6 +76,12 @@ def fake_client(get_switch_mode, device_list):
     client.get_device_list = AsyncMock(return_value=device_list)
     client.get_switch_mode = AsyncMock(return_value=dict(get_switch_mode))
     client.switch_mode = AsyncMock(return_value=dict(get_switch_mode))
+    client.get_pv_strings = AsyncMock(return_value={
+        1: {"power_w": 180.0, "voltage_v": 255.5, "current_a": 0.7},
+        2: {"power_w": 170.0, "voltage_v": 179.4, "current_a": 0.9},
+        3: {"power_w": 0.0, "voltage_v": 0.0, "current_a": 0.0},
+        4: {"power_w": 0.0, "voltage_v": 0.0, "current_a": 0.0},
+    })
     # Phase 4.2 stats endpoint. Returns a small but representative payload
     # so the stats coordinator's first_refresh succeeds and STATS_SENSORS
     # get registered. Same dict for every scope — tests that care about the

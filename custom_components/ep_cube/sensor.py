@@ -14,6 +14,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
     UnitOfEnergy,
     UnitOfPower,
     UnitOfTime,
@@ -42,6 +44,40 @@ class EPCubeStatsSensorDescription(SensorEntityDescription):
     """
 
     value_fn: Callable[[dict[str, dict]], float | str | None]
+
+
+@dataclass(frozen=True, kw_only=True)
+class EPCubePVSensorDescription(SensorEntityDescription):
+    """Per-string PV sensor; `value_fn` takes {string: {power_w, voltage_v, current_a}}."""
+
+    value_fn: Callable[[dict[int, dict[str, float]]], float | None]
+
+
+def _pv_sensors() -> tuple[EPCubePVSensorDescription, ...]:
+    """PV1-PV4 power / voltage / current. Strings 3 and 4 are off by default
+    (most systems have one or two); the cloud reports 0 for unused ones."""
+    kinds = (
+        ("power", "power_w", SensorDeviceClass.POWER, UnitOfPower.WATT, 0),
+        ("voltage", "voltage_v", SensorDeviceClass.VOLTAGE, UnitOfElectricPotential.VOLT, 0),
+        ("current", "current_a", SensorDeviceClass.CURRENT, UnitOfElectricCurrent.AMPERE, 1),
+    )
+    return tuple(
+        EPCubePVSensorDescription(
+            key=f"pv{n}_{kind}",
+            translation_key=f"pv{n}_{kind}",
+            device_class=dev_class,
+            state_class=SensorStateClass.MEASUREMENT,
+            native_unit_of_measurement=unit,
+            suggested_display_precision=precision,
+            entity_registry_enabled_default=n <= 2,
+            value_fn=lambda pv, n=n, field=field: (pv.get(n) or {}).get(field),
+        )
+        for n in range(1, 5)
+        for kind, field, dev_class, unit, precision in kinds
+    )
+
+
+PV_SENSORS: tuple[EPCubePVSensorDescription, ...] = _pv_sensors()
 
 
 # Instant-KPI helpers (v1.2). Operate over DeviceStatus power-W readings
@@ -711,6 +747,7 @@ async def async_setup_entry(
         EPCubeStatsSensor(stats_coordinator, entry.entry_id, desc)
         for desc in STATS_SENSORS
     )
+    entities.extend(EPCubePVSensor(coordinator, entry.entry_id, desc) for desc in PV_SENSORS)
     async_add_entities(entities)
 
 
@@ -762,6 +799,18 @@ class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], RestoreSensor):
         if self.coordinator.data is None:
             return self._restored_value
         return self.entity_description.value_fn(self.coordinator.data)
+
+
+class EPCubePVSensor(EPCubeSensor):
+    """Per-string PV reading, fed by the main coordinator's getSolarPvPower cache."""
+
+    entity_description: EPCubePVSensorDescription  # type: ignore[assignment]
+
+    @property
+    def native_value(self) -> float | None:
+        if not self.coordinator.pv_strings:
+            return self._restored_value
+        return self.entity_description.value_fn(self.coordinator.pv_strings)
 
 
 class EPCubeStatsSensor(CoordinatorEntity[EPCubeStatsCoordinator], RestoreSensor):

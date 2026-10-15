@@ -595,6 +595,30 @@ class EPCubeClient:
             return {}
         return {k.lower(): v for k, v in data.items()}
 
+    async def get_pv_strings(self) -> dict[int, dict[str, float]]:
+        """Per-string PV telemetry from getSolarPvPower.
+
+        The cloud returns a one-element list of string-typed fields
+        (pv1Power in kW, pv1Voltage in V, pv1Current in A, for strings 1-4).
+        Returns {string_number: {"power_w", "voltage_v", "current_a"}}; a
+        string whose fields are missing or non-numeric is left out.
+        """
+        data = await self._get(f"{self._api_prefix}/device/getSolarPvPower?devId={self._dev_id}")
+        row = data[0] if isinstance(data, list) and data else data
+        if not isinstance(row, dict):
+            return {}
+        out: dict[int, dict[str, float]] = {}
+        for n in range(1, 5):
+            try:
+                out[n] = {
+                    "power_w": round(float(row[f"pv{n}Power"]) * 1000.0, 1),
+                    "voltage_v": float(row[f"pv{n}Voltage"]),
+                    "current_a": float(row[f"pv{n}Current"]),
+                }
+            except (KeyError, TypeError, ValueError):
+                continue
+        return out
+
     # ------------------------------------------------------------------
     # Writes
     # ------------------------------------------------------------------

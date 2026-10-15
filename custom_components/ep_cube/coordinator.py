@@ -42,6 +42,14 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
         # critical path); we keep the previous snapshot so a transient
         # network blip doesn't flip the repair flow on and off.
         self._switch_mode: dict[str, Any] | None = None
+        # Latest per-string PV readings (getSolarPvPower), best-effort like
+        # the schedule: a failed fetch keeps the previous values.
+        self._pv_strings: dict[int, dict[str, float]] = {}
+
+    @property
+    def pv_strings(self) -> dict[int, dict[str, float]]:
+        """Latest per-string PV readings, {} until the first success."""
+        return self._pv_strings
 
     @property
     def switch_mode(self) -> dict[str, Any] | None:
@@ -59,6 +67,11 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
             self._switch_mode = await self.client.get_switch_mode()
         except EPCubeError as err:
             _LOGGER.debug("get_switch_mode failed (keeping cached): %s", err)
+
+        try:
+            self._pv_strings = await self.client.get_pv_strings()
+        except EPCubeError as err:
+            _LOGGER.debug("get_pv_strings failed (keeping cached): %s", err)
 
         # Raise / clear the Predbat-priority repair issue based on the
         # latest snapshot. Idempotent — safe to call every tick.

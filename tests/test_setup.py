@@ -415,3 +415,32 @@ class TestDebugProbe:
             blocking=True, return_response=True,
         )
         assert result["ok"] is False and "404" in result["error"]
+
+
+class TestPVStringSensors:
+    async def test_pv_sensors_registered_and_valued(self, hass, setup_integration):
+        registry = er.async_get(hass)
+        entry_id = setup_integration.entry_id
+        by_uid = {
+            e.unique_id[len(entry_id) + 1:]: e
+            for e in er.async_entries_for_config_entry(registry, entry_id)
+            if e.domain == "sensor"
+        }
+        for n in range(1, 5):
+            for kind in ("power", "voltage", "current"):
+                assert f"pv{n}_{kind}" in by_uid
+        # Strings 3 and 4 exist but are disabled by default.
+        assert by_uid["pv1_power"].disabled_by is None
+        assert by_uid["pv3_power"].disabled_by is not None
+        state = hass.states.get(by_uid["pv2_voltage"].entity_id)
+        assert float(state.state) == 179.4
+        assert float(hass.states.get(by_uid["pv1_power"].entity_id).state) == 180.0
+
+    async def test_failed_pv_fetch_keeps_previous_values(self, hass, setup_integration, fake_client):
+        from custom_components.ep_cube.api import EPCubeError
+        coordinator = hass.data[DOMAIN][setup_integration.entry_id]["coordinator"]
+        assert coordinator.pv_strings[1]["power_w"] == 180.0
+        fake_client.get_pv_strings.side_effect = EPCubeError("cloud down")
+        await coordinator.async_refresh()
+        assert coordinator.last_update_success
+        assert coordinator.pv_strings[1]["power_w"] == 180.0
