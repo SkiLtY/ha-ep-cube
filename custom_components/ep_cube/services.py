@@ -141,8 +141,31 @@ PROBE_ROUTES = (
     "device/getDevPowerCutLog",
     "device/netWorkInfo",
     "device/getWarranty",
+    # dynamicPrice/*: the country / region / supplier / tariff the cube is
+    # set to use for Dynamic mode, and the lists the app picks them from.
+    "dynamicPrice/getRelation",
+    "dynamicPrice/getCountry",
+    "dynamicPrice/getRegionList",
+    "dynamicPrice/getBrands",
+    "dynamicPrice/getProducts",
+    # vpp/*: read-style routes only. Registration, commissioning, site auth,
+    # flip/updateSoc and the address / user-info routes are left out.
+    "vpp/allPrograms",
+    "vpp/enrollments",
+    "vpp/events",
+    "vpp/event",
+    "vpp/globalEnrollmentStatus",
+    "vpp/site/programs",
+    "vpp/site/program",
+    "vpp/energyhub/program",
+    "vpp/energyhub/events",
+    "vpp/energyhub/enrollment",
+    "vpp/flip/getGlobalSoc",
 )
-PROBE_PARAM_KEYS = ("devId", "sgSn", "queryDateStr", "scopeType", "dateStr")
+PROBE_PARAM_KEYS = (
+    "devId", "sgSn", "queryDateStr", "scopeType", "dateStr",
+    "supportCountryId", "regionCode", "region", "brandName", "productType",
+)
 PROBE_MAX_LIST = 20
 _PROBE_REDACT = re.compile(
     r"mail|address|phone|token|password|postcode|user|ssid|wifiname"

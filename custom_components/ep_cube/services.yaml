@@ -115,6 +115,22 @@ debug_probe:
             - device/getDevPowerCutLog
             - device/netWorkInfo
             - device/getWarranty
+            - dynamicPrice/getRelation
+            - dynamicPrice/getCountry
+            - dynamicPrice/getRegionList
+            - dynamicPrice/getBrands
+            - dynamicPrice/getProducts
+            - vpp/allPrograms
+            - vpp/enrollments
+            - vpp/events
+            - vpp/event
+            - vpp/globalEnrollmentStatus
+            - vpp/site/programs
+            - vpp/site/program
+            - vpp/energyhub/program
+            - vpp/energyhub/events
+            - vpp/energyhub/enrollment
+            - vpp/flip/getGlobalSoc
     params:
       name: Extra query parameters
       required: false
