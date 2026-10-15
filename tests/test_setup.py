@@ -733,3 +733,22 @@ class TestUserReserveSensor:
         await coordinator.async_refresh()
         await hass.async_block_till_done()
         assert float(hass.states.get(entity_id).state) == 55.0   # live again after the revert
+
+
+class TestSelectKeepsTheBaselineInStep:
+    async def test_a_manual_mode_change_updates_a_held_baseline(
+        self, hass, setup_integration, fake_client
+    ):
+        shim = hass.data[DOMAIN][setup_integration.entry_id]["shim"]
+        shim._baseline = {"workStatus": "2", "selfConsumptioinReserveSoc": "20"}   # stale, no override
+        entity_id = next(
+            e.entity_id for e in er.async_entries_for_config_entry(
+                er.async_get(hass), setup_integration.entry_id)
+            if e.domain == "select" and e.unique_id.endswith("operating_mode_select")
+        )
+        await hass.services.async_call(
+            "select", "select_option",
+            {"entity_id": entity_id, "option": "self_consumption"}, blocking=True,
+        )
+        assert shim._baseline["workStatus"] == "1"
+        assert fake_client.switch_mode.await_count == 1

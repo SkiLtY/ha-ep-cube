@@ -128,6 +128,11 @@ class EPCubeOperatingModeSelect(CoordinatorEntity[EPCubeCoordinator], SelectEnti
         except EPCubeError as err:
             raise HomeAssistantError(f"failed to switch mode to {option}: {err}") from err
 
+        # The user's pick is the new ground truth. With no override active the shim may
+        # still hold a baseline captured earlier (it lives for the shim's lifetime), and
+        # the next revert would put the old mode back; keep it in step.
+        self._shim.patch_baseline("workStatus", target_work_status)
+
         await self.coordinator.async_request_refresh()
 
 
