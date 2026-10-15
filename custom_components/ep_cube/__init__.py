@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import EPCubeClient
+from .api import EPCubeClient, EPCubeError
 from .captcha import make_reauth_callback
 from .const import (
     CONF_API_PREFIX,
@@ -130,10 +130,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Reload when the options change (the Configure button), so the shim is
+    # rebuilt with the chosen force-export mode.
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+
     if len(hass.data[DOMAIN]) == 1:
         await async_register_services(hass)
 
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Options changed: reload the entry so the new settings take effect."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -206,6 +215,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         shim: PredbatShim | None = hass.data[DOMAIN][entry.entry_id].get("shim")
         if shim is not None:
+            if shim.is_active:
+                # An override is running (for example a Dynamic export) and the
+                # entry is being unloaded, e.g. an options change reloaded it.
+                # Cancelling the timers alone would leave the cube on the
+                # override with nothing left to revert it, so put the baseline
+                # back first. Best effort: a failure is logged and the stale-
+                # state recovery at the next snapshot deals with the rest.
+                try:
+                    await shim.idle()
+                except EPCubeError as err:
+                    _LOGGER.error(
+                        "could not revert the active override while unloading: %s", err
+                    )
             shim.cancel_revert_timer()
         hass.data[DOMAIN].pop(entry.entry_id)
         if not hass.data[DOMAIN]:

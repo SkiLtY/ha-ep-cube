@@ -21,8 +21,19 @@ from typing import Any
 
 import aiohttp
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from .api import (
     AuthError,
@@ -37,13 +48,17 @@ from .const import (
     CONF_BEARER_TOKEN,
     CONF_CAPACITY_KWH,
     CONF_DEV_ID,
+    CONF_FORCE_EXPORT_MODE,
     CONF_PASSWORD,
     CONF_REGION,
     CONF_SG_SN,
     CONF_USERNAME,
     DEFAULT_API_PREFIX,
+    DEFAULT_FORCE_EXPORT_MODE,
     DEFAULT_REGION,
     DOMAIN,
+    FORCE_EXPORT_MODE_DYNAMIC,
+    FORCE_EXPORT_MODE_TOU_PEAK,
     REGION_OTHER,
     REGIONS,
 )
@@ -65,8 +80,48 @@ USER_SCHEMA = vol.Schema(
 )
 
 
+class EPCubeOptionsFlow(OptionsFlow):
+    """Integration options (Configure button on the integration card).
+
+    One option so far: how Predbat's "force export" windows are realised.
+    `tou_peak` (default) is the legacy TOU peak slot, which only drains the
+    battery to the house. `dynamic` uses the cube's Dynamic-tariff mode to
+    really export to the grid; it needs Dynamic tariff set up in the EP Cube
+    app first (see docs/ARCHITECTURE.md). The entry is reloaded when the option
+    changes (see __init__.py), so a new shim is built with the chosen mode.
+    """
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        current = self.config_entry.options.get(
+            CONF_FORCE_EXPORT_MODE, DEFAULT_FORCE_EXPORT_MODE
+        )
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_FORCE_EXPORT_MODE, default=current): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[FORCE_EXPORT_MODE_TOU_PEAK, FORCE_EXPORT_MODE_DYNAMIC],
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key=CONF_FORCE_EXPORT_MODE,
+                    )
+                )
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)
+
+
 class EPCubeConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 5
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> EPCubeOptionsFlow:
+        """Expose the Configure button."""
+        return EPCubeOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
