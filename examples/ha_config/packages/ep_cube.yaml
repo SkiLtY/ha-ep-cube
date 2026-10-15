@@ -56,33 +56,42 @@ template:
           {% set gp = states('sensor.ep_cube_grid_power') | float(0) %}
           {{ [-gp, 0] | max }}
 
-# Riemann sum integrals (W → kWh, trapezoidal) feeding the four daily counters
-# Predbat reads: load_today, pv_today, import_today, export_today.
+# Riemann sum integrals (W → kWh) feeding the four daily counters Predbat
+# reads: load_today, pv_today, import_today, export_today.
+#
+# `method: left`, NOT trapezoidal. The source power sensors only write a new
+# state when the value changes, so a flat stretch (for example grid import at
+# 0 W for 7 hours while the battery covers the house) produces no updates. A
+# trapezoidal sum then draws a straight ramp from the last flat sample to the
+# next one, inventing energy: on 2026-10-13 the import integral gained a
+# phantom ~20 kWh in one step when the overnight charge started (real import
+# that day 18.4 kWh; the integral said 38.6). A left sum holds the last value
+# until the next change, which is exactly what a change-only sensor means.
 sensor:
   - platform: integration
     source: sensor.ep_cube_load_power
     name: ep_cube_load_energy
     unit_prefix: k
     unit_time: h
-    method: trapezoidal
+    method: left
   - platform: integration
     source: sensor.ep_cube_solar_power
     name: ep_cube_pv_energy
     unit_prefix: k
     unit_time: h
-    method: trapezoidal
+    method: left
   - platform: integration
     source: sensor.ep_cube_grid_import_power
     name: ep_cube_grid_import_energy
     unit_prefix: k
     unit_time: h
-    method: trapezoidal
+    method: left
   - platform: integration
     source: sensor.ep_cube_grid_export_power
     name: ep_cube_grid_export_energy
     unit_prefix: k
     unit_time: h
-    method: trapezoidal
+    method: left
 
 # Daily reset on each integral → kWh since midnight. Predbat reads these for
 # its multi-day pattern tracking (load_today is hard-required since Phase 2b;
