@@ -479,6 +479,26 @@ views:
                   const t = Date.now();
                   return [[t, -9], [t, 9]];
 
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:html-template-card
+            grid_options:
+              columns: full
+            ignore_line_breaks: true
+            content: |
+              {% macro tile(label, value, unit, color) -%}
+              <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+              {%- endmacro %}
+              {% macro ring(label, pct, color) -%}
+              <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+              {%- endmacro %}
+              {% set p1 = states('sensor.ep_cube_pv1_power')|float(0) %}{% set p2 = states('sensor.ep_cube_pv2_power')|float(0) %}{% set v1 = states('sensor.ep_cube_pv1_voltage')|float(0) %}{% set v2 = states('sensor.ep_cube_pv2_voltage')|float(0) %}{% set a1 = states('sensor.ep_cube_pv1_current')|float(0) %}{% set a2 = states('sensor.ep_cube_pv2_current')|float(0) %}{% set tot = p1 + p2 %}{% set n1 = ((state_attr('sensor.ep_cube_pv1_power', 'friendly_name') or 'PV1')|replace('EP Cube ', '')|regex_replace(' power$', '', ignorecase=true)) or 'PV1' %}{% set n2 = ((state_attr('sensor.ep_cube_pv2_power', 'friendly_name') or 'PV2')|replace('EP Cube ', '')|regex_replace(' power$', '', ignorecase=true)) or 'PV2' %}
+              <div style="padding:18px 20px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Solar strings</div>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px 40px">
+              {% for n, p, v, a in [(n1, p1, v1, a1), (n2, p2, v2, a2)] %}<div>{{ tile(n, '%.2f'|format(p / 1000), 'kW', '#ffb300') }}<div style="margin:6px 0 0 15px;font-size:13px;opacity:.6">{{ '%.0f'|format(v) }} V · {{ '%.1f'|format(a) }} A{% if tot > 0 %} · {{ '%.0f'|format(p / tot * 100) }}% of solar{% endif %}</div><div style="margin:10px 0 0 15px;height:6px;border-radius:3px;background:rgba(255,255,255,.10);overflow:hidden"><div style="width:{{ (p / tot * 100) if tot > 0 else 0 }}%;height:100%;background:#ffb300"></div></div></div>{% endfor %}
+              </div></div>
+
   - title: Today
     path: today
     icon: mdi:calendar-today
