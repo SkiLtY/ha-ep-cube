@@ -47,6 +47,7 @@ A single `502` from the cloud used to make every entity unavailable for about a 
 A full redesign. **Needs more HACS cards**: Power Flow Card Plus, ApexCharts Card, Tabbed Card, Lovelace Card-mod and HTML Jinja2 Template card (see [README → Dashboard](../README.md#-dashboard)).
 
 - **Now** — a "right now" headline (what the cube is doing, battery full by, next charge / hold / export, live price) with a plan strip for the day, the animated power flow and a ±2 h power chart with Predbat's forecast dotted. Holds (Predbat freezes) are drawn apart from real exports.
+- **Solar strings** (Now tab) — per-string power, voltage, current and share of solar, from the new PV sensors. The card takes each string's name from its sensor's friendly name, so renaming `sensor.ep_cube_pv1_power` in Home Assistant (for example to "West roof") renames the card.
 - **Today / Yesterday** — Power / Battery / Prices charts plus energy-cost and energy cards.
 - **Week** — the last seven days, with week-to-date energy and cost cards.
 - Optional `examples/ha_config/packages/ep_cube_weekly.yaml` adds the weekly meters.
