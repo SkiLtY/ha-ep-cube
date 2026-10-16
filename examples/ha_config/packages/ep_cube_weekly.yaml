@@ -1,0 +1,28 @@
+# Week-to-date energy totals for the EP Cube dashboard's Week tab.
+#
+# The integration only exposes "today" and "yesterday" figures. These weekly
+# utility meters sit on top of the *_today sensors (same pattern as the
+# monthly/yearly battery meters in ep_cube.yaml) and reset on Monday.
+# Drop this file next to ep_cube.yaml in /config/packages/ and restart.
+utility_meter:
+  ep_cube_week_solar:
+    source: sensor.ep_cube_solar_today
+    cycle: weekly
+  ep_cube_week_import:
+    source: sensor.ep_cube_grid_import_today
+    cycle: weekly
+  ep_cube_week_export:
+    source: sensor.ep_cube_grid_export_today
+    cycle: weekly
+  ep_cube_week_consumed:
+    source: sensor.ep_cube_backup_loads_today
+    cycle: weekly
+  # Money: Octopus's billed cost for the previous day (the Octopus Energy
+  # integration's *_previous_accumulative_cost, which carries a last_reset), summed
+  # per week. Real billed figures, so they lag by a day.
+  ep_cube_week_billed_import:
+    source: sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost
+    cycle: weekly
+  ep_cube_week_billed_export:
+    source: sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost
+    cycle: weekly
