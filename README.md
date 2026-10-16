@@ -370,6 +370,12 @@ This stack uses **HA Container** (lightweight, no Supervisor). HA Container cann
 
 ---
 
+## 🙏 Acknowledgements
+
+Finding my way around the EP Cube cloud started from the API notes in [lowsbarrel/epcube-ha](https://github.com/lowsbarrel/epcube-ha) (MIT). Several routes listed there, including the tariff and earnings ones, don't exist on the EU server; what I found while testing them, including the Dynamic-tariff (`dynamicPrice`) routes, went back upstream in [lowsbarrel/epcube-ha#14](https://github.com/lowsbarrel/epcube-ha/pull/14), which has been merged.
+
+---
+
 ## 📄 Licence
 
 MIT — see [LICENSE](LICENSE).
