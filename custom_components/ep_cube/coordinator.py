@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any
 
+import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .api import DeviceStatus, EPCubeClient, EPCubeError
+from .api import DeviceStatus, EPCubeClient, EPCubeError, RateLimitError, ServerError
 from .const import (
     DEFAULT_POLL_INTERVAL_SECONDS,
     DEFAULT_PRICE_POLL_INTERVAL_SECONDS,
@@ -24,6 +26,13 @@ from .const import (
 from .repairs import evaluate_predbat_priority_issue
 
 _LOGGER = logging.getLogger(__name__)
+
+# Errors worth riding out for a few polls: cloud 5xx, rate limiting, and
+# network / timeout problems. Auth and other 4xx errors still fail at once.
+_TRANSIENT_ERRORS = (ServerError, RateLimitError, aiohttp.ClientError, asyncio.TimeoutError)
+# Consecutive failed polls (at the 60 s cadence, about 3 minutes) for which the
+# last good data is kept before the entities go unavailable.
+MAX_TRANSIENT_FAILURES = 3
 
 
 class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
@@ -46,6 +55,8 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
         # Latest per-string PV readings (getSolarPvPower), best-effort like
         # the schedule: a failed fetch keeps the previous values.
         self._pv_strings: dict[int, dict[str, float]] = {}
+        # Consecutive transient poll failures (reset on any success).
+        self._transient_failures = 0
 
     @property
     def pv_strings(self) -> dict[int, dict[str, float]]:
@@ -60,8 +71,23 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
     async def _async_update_data(self) -> DeviceStatus:
         try:
             status = await self.client.get_status()
+        except _TRANSIENT_ERRORS as err:
+            # A cloud 5xx / rate-limit / network blip. Keep the last good data
+            # for a few polls rather than flipping every entity to unavailable
+            # (a single 502 did that for a minute at 03:52 on 2026-10-16).
+            self._transient_failures += 1
+            if self.data is not None and self._transient_failures <= MAX_TRANSIENT_FAILURES:
+                _LOGGER.warning(
+                    "EP Cube cloud error, keeping last data (%d/%d): %s",
+                    self._transient_failures,
+                    MAX_TRANSIENT_FAILURES,
+                    err,
+                )
+                return self.data
+            raise UpdateFailed(str(err)) from err
         except EPCubeError as err:
             raise UpdateFailed(str(err)) from err
+        self._transient_failures = 0
 
         # Schedule fetch is non-critical — log + keep previous cache on failure.
         try:
