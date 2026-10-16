@@ -1,19 +1,30 @@
 # EP Cube dashboard
 #
-# Drop-in Lovelace YAML for the Canadian Solar EP Cube. Three views:
+# Drop-in Lovelace YAML for the Canadian Solar EP Cube. Views:
 #
-#   - Now     — live power flow, battery status, and what Predbat plans
-#               next (export / charge windows, with the real Octopus rates)
-#   - Today   — today + yesterday energy rollups (mirrors HA's own
-#               Energy tab pattern)
-#   - Control — operating-mode picker + mode-specific controls
+#   - Now       — a "right now" headline (what the cube is doing, battery
+#                 full by, next charge / export, live price) with a plan
+#                 strip for the day, the live power-flow card and a
+#                 +-2 h power chart with Predbat's forecast dotted
+#   - Today     — Power / Battery / Prices charts (tabs) plus energy-cost
+#                 and energy cards for the day
+#   - Yesterday — the same charts and cards for the previous day
+#   - Week      — the last 7 days; week-to-date energy and cost cards
+#                 need packages/ep_cube_weekly.yaml (see examples/)
+#   - Control   — operating-mode picker + mode-specific controls
 #               (the "header switch" that swaps the active settings card)
 #
 # Install
 # -------
-# 1. Install power-flow-card-plus via HACS:
-#      HACS → Frontend → "Power Flow Card Plus" by flixlix → Install
-#      then restart HA so the new resource is picked up.
+# 1. Install these via HACS (Frontend), then reload the browser:
+#      - Power Flow Card Plus (flixlix)
+#      - ApexCharts Card (RomRider)
+#      - Tabbed Card
+#      - Lovelace Card-mod (thomasloven)
+#      - HTML Jinja2 Template card
+#    The chart and tile cards also assume the Octopus Energy integration
+#    (rate and cost sensors) and Predbat (plan entities); edit the
+#    entity IDs below to suit your meters.
 # 2. Settings → Dashboards → Add Dashboard → From YAML.
 #    Title: "EP Cube"  Icon: mdi:home-battery
 # 3. Edit the new dashboard → "Raw configuration editor" (top-right
@@ -70,323 +81,2048 @@ views:
   - title: Now
     path: now
     icon: mdi:flash
-    cards:
-      # ───────────────────────────────────────────────────────────────
-      # Live power flow
-      # ───────────────────────────────────────────────────────────────
-      - type: custom:power-flow-card-plus
-        title: Energy Flow
-        clickable_entities: true
-        display_zero_lines:
-          mode: show
-          transparency: 50
-          grey_color:
-            - 189
-            - 189
-            - 189
-        use_new_flow_rate_model: true
-        # Precision options use the card's `base_decimals` / `kilo_decimals`
-        # / `kilo_threshold` keys (NOT the w_decimals / kw_decimals /
-        # watt_threshold names that show up in older community examples —
-        # those are silently ignored and the card falls back to 1dp for
-        # kW). The two-dp kW format matches the EP Cube app's display.
-        base_decimals: 0       # watts: "810 W"
-        kilo_decimals: 2       # kilowatts: "2.36 kW"
-        kilo_threshold: 1000   # switch to kW above 1 kW
-        min_flow_rate: 0.75
-        max_flow_rate: 6
-        max_expected_power: 6500   # 6.51 kWp array — clamps line speed at full output
-        min_expected_power: 0.01
-        transparency_zero_lines: 0
-        entities:
-          battery:
-            entity: sensor.ep_cube_battery_power
-            state_of_charge: sensor.ep_cube_battery_soc
-            # The card's NATIVE convention (without invert) is
-            # negative=charging / positive=discharging — verified in
-            # power-flow-card-plus.js where toBattery = |min(value,0)|
-            # and fromBattery = max(value,0). Our integration uses the
-            # opposite (positive=charging, negative=discharging — see
-            # api.py DeviceStatus.battery_power_w), so we MUST invert
-            # the state for the card. Without this the flow dots
-            # animate Solar→Battery during discharge and Battery is
-            # mislabelled (↓ shown for charging instead of discharging).
-            invert_state: true
-            name: Battery
-            icon: mdi:battery
-            display_state: two_way
-            color_circle: true
-          grid:
-            entity: sensor.ep_cube_grid_power
-            name: Grid
-            icon: mdi:transmission-tower
-            color_circle: true
-          solar:
-            entity: sensor.ep_cube_solar_power
-            name: Solar
-            icon: mdi:solar-power
-            color_value: true
-            color_icon: true
-            display_zero_state: true
-          home:
-            entity: sensor.ep_cube_load_power
-            # Without override_state the card derives home consumption
-            # from energy balance (solar + battery_out + grid_in -
-            # battery_in - grid_out) and uses `entity` only for the
-            # click-through "More info" dialog. Its derivation clamped
-            # to 0 on the EP Cube on first live render even though the
-            # entity itself read ~800 W (verified 2026-05-22 via
-            # Developer Tools → States). Bypass the derivation and use
-            # the integration's `load_power_w` directly — it's already
-            # backUpPower + nonBackUpPower from the cube, which is what
-            # the EP Cube mobile app shows as "Load".
-            override_state: true
-            name: Home
-            icon: mdi:home
-            color_icon: true
-
-      # ───────────────────────────────────────────────────────────────
-      # Battery status + at-a-glance status, stacked together
-      #
-      # These two are grouped in a vertical-stack (not left as separate
-      # top-level cards) so they always render as one block — masonry
-      # view balances columns by estimated height and reorders cards
-      # freely across window widths/resizes; a stack is the only way to
-      # pin two cards together regardless of that layout algorithm.
-      #
-      # The status card gives one plain-English line for "what is it
-      # doing and is it costing me money right now". The gauges/flow
-      # card alongside are great once you know the sign conventions,
-      # but still require combining 3 numbers + a rate sensor in your
-      # head; this does that combination for you. Grid power is the
-      # decider (importing/exporting always means money is moving);
-      # battery power decides the free-solar cases. ±50W deadband
-      # avoids flicker from measurement noise around zero.
-      # ───────────────────────────────────────────────────────────────
-      - type: vertical-stack
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
         cards:
-          - type: entities
-            title: Battery
-            show_header_toggle: false
-            entities:
-              - entity: sensor.ep_cube_battery_soc
-                name: State of charge
-              - entity: sensor.ep_cube_battery_energy
-                name: Energy stored
-              - entity: sensor.ep_cube_battery_capacity
-                name: Usable capacity
-              - entity: sensor.ep_cube_reserve_soc
-                name: Active reserve
-          # What Predbat plans next, with the rates you actually pay. The old
-          # "Discharging battery - 1.5 kW" text only repeated the power-flow card.
-          # Window times come from Predbat's best_export_* / best_charge_* entities;
-          # the export target is the plan's SoC at the end of the window (from the
-          # planned SoC curve), the charge target is Predbat's charge limit.
-          - type: markdown
-            title: Next up
+          - type: custom:html-template-card
+            grid_options:
+              columns: full
+            ignore_line_breaks: true
             content: |
-              {%- set imp = (states('sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate')|float(0) * 100)|round(1) -%}
-              {%- set exp = (states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate')|float(0) * 100)|round(1) -%}
-              {%- set curve = state_attr('predbat.soc_kw_best', 'results') or {} -%}
-              {%- set cap = state_attr('predbat.soc_kw_best', 'soc_max')|float(0) -%}
-              {%- set bad = ['', 'unknown', 'unavailable', 'None'] -%}
-              Import **{{ imp }}p** · Export **{{ exp }}p**
-
-              {% set es = states('predbat.best_export_start') %}
-              {%- set ee = states('predbat.best_export_end') %}
-              {%- set ets = state_attr('predbat.best_export_end', 'timestamp') %}
-              {%- set sts = state_attr('predbat.best_export_start', 'timestamp') %}
-              {%- if es not in bad and ee not in bad %}
-              **Export** {{ 'tomorrow ' if sts and as_datetime(sts).date() != now().date() else '' }}{{ es[:5] }}–{{ ee[:5] }}{% if cap > 0 and ets in curve %} down to **{{ ((curve[ets]|float / cap * 100) + 0.25)|int }}%**{% endif %}
-              {%- else %}
-              **Export** none planned
-              {%- endif %}
-
-              {% set cs = states('predbat.best_charge_start') %}
-              {%- set ce = states('predbat.best_charge_end') %}
-              {%- set csts = state_attr('predbat.best_charge_start', 'timestamp') %}
-              {%- if cs not in bad and ce not in bad %}
-              **Charge** {{ 'tomorrow ' if csts and as_datetime(csts).date() != now().date() else '' }}{{ cs[:5] }}–{{ ce[:5] }} up to **{{ states('predbat.best_charge_limit')|int(100) }}%**
-              {%- else %}
-              **Charge** none planned
-              {%- endif %}
+              {% macro tile(label, value, unit, color) -%}
+              <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+              {%- endmacro %}
+              {% macro ring(label, pct, color) -%}
+              <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+              {%- endmacro %}
+              {% set bp = states('sensor.ep_cube_battery_power')|float(0) %}{% set gp = states('sensor.ep_cube_grid_power')|float(0) %}{% set sp = states('sensor.ep_cube_solar_power')|float(0) %}{% set lp = states('sensor.ep_cube_load_power')|float(0) %}{% set soc = states('sensor.ep_cube_battery_soc')|float(0) %}
+              {% if gp > 300 and bp > 300 %}{% set title = 'Charging from the grid' %}{% set col = '#42a5f5' %}{% set big = bp %}{% elif gp < -300 %}{% set title = 'Selling to the grid' %}{% set col = '#ab47bc' %}{% set big = -gp %}{% elif bp > 300 %}{% set title = 'Charging from solar' %}{% set col = '#ffb300' %}{% set big = bp %}{% elif bp < -300 %}{% set title = 'Battery powering the home' %}{% set col = '#4db6ac' %}{% set big = -bp %}{% elif sp > 300 %}{% set title = 'Solar powering the home' %}{% set col = '#ffb300' %}{% set big = sp %}{% else %}{% set title = 'Standing by' %}{% set col = '#9e9e9e' %}{% set big = lp %}{% endif %}
+              {% set cap = state_attr('predbat.soc_kw_best', 'soc_max')|float(0) %}{% set curve = state_attr('predbat.soc_kw_best', 'results') or {} %}{% set ns = namespace(full=none) %}
+              {% if soc < 98 and cap > 0 %}{% for k, v in curve|dictsort %}{% set t = strptime(k, '%Y-%m-%dT%H:%M:%S%z') %}{% if ns.full is none and t > now() and v|float(0) >= cap * 0.985 %}{% set ns.full = t %}{% endif %}{% endfor %}{% endif %}
+              {% set cs = state_attr('predbat.best_charge_start', 'timestamp') %}{% set ce = state_attr('predbat.best_charge_end', 'timestamp') %}{% set es = state_attr('predbat.best_export_start', 'timestamp') %}{% set ee = state_attr('predbat.best_export_end', 'timestamp') %}
+              {% set imp = states('sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate')|float(0) * 100 %}{% set exp = states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate')|float(0) * 100 %}
+              <div style="padding:20px 24px;box-sizing:border-box">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:18px"><div style="width:14px;height:14px;border-radius:50%;background:{{ col }};box-shadow:0 0 14px {{ col }}"></div><div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">Right now</div><div style="font-size:30px;font-weight:600;line-height:1.2">{{ title }}</div></div></div>
+              <div style="display:flex;align-items:baseline;gap:6px"><span style="font-size:46px;font-weight:700;color:{{ col }}">{{ '%.1f'|format(big / 1000) }}</span><span style="font-size:18px;opacity:.6">kW</span></div>
+              <div style="display:flex;align-items:center;gap:14px"><div style="width:72px;height:72px;border-radius:50%;background:conic-gradient(#4db6ac {{ soc|round(0)|int }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:56px;height:56px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700">{{ soc|round(0)|int }}%</div></div><div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">Battery</div><div style="font-size:14px;margin-top:4px">{{ '%.1f'|format(states('sensor.ep_cube_battery_energy')|float(0)) }} of {{ '%.0f'|format(states('sensor.ep_cube_battery_capacity')|float(0)) }} kWh</div><div style="font-size:12px;opacity:.6">reserve {{ states('sensor.ep_cube_reserve_soc')|float(0)|round(0)|int }}%</div></div></div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 24px;margin-top:22px;padding-top:18px;border-top:1px solid rgba(255,255,255,.08)">
+              {{ tile('Battery full' if ns.full else 'Battery', ('about ' ~ ns.full.strftime('%H:%M')) if ns.full else ('Full' if soc >= 98 else 'not filling'), '', '#4db6ac') }}
+              {% if cs and ce and as_datetime(cs) <= now() <= as_datetime(ce) %}{{ tile('Charging until', as_datetime(ce).strftime('%H:%M'), '', '#43a047') }}{% elif cs and ce and as_datetime(cs) > now() %}{{ tile('Next charge', as_datetime(cs).strftime('%H:%M') ~ '–' ~ as_datetime(ce).strftime('%H:%M'), '', '#43a047') }}{% else %}{{ tile('Next charge', 'none planned', '', '#43a047') }}{% endif %}
+              {% if es and ee and as_datetime(es) <= now() <= as_datetime(ee) %}{{ tile('Exporting until', as_datetime(ee).strftime('%H:%M'), '', '#fb8c00') }}{% elif es and ee and as_datetime(es) > now() %}{{ tile('Next export', as_datetime(es).strftime('%H:%M') ~ '–' ~ as_datetime(ee).strftime('%H:%M'), '', '#fb8c00') }}{% else %}{{ tile('Next export', 'none planned', '', '#fb8c00') }}{% endif %}
+              {{ tile('Price now', '%.1fp'|format(imp) ~ ' / %.1fp'|format(exp), 'in / out', '#eceff1') }}
+              </div>
+              {% set mid = today_at('00:00').timestamp() %}{% set rates = (state_attr('event.octopus_energy_electricity_19l3564787_2200019819270_current_day_rates', 'rates') or []) %}
+              {% set nsc = namespace(h='', st=none) %}{% set nse = namespace(h='', st=none) %}
+              {% for k, v in (state_attr('predbat.best_charge_limit', 'results') or {})|dictsort %}{% set t = strptime(k, '%Y-%m-%dT%H:%M:%S%z').timestamp() %}{% if v|float(0) > 0 and nsc.st is none %}{% set nsc.st = t %}{% elif v|float(0) <= 0 and nsc.st is not none %}{% set a = [((nsc.st - mid) / 864), 0]|max %}{% set b = [((t - mid) / 864), 100]|min %}{% if b > a %}{% set nsc.h = nsc.h ~ '<div style="position:absolute;left:' ~ a ~ '%;width:' ~ (b - a) ~ '%;top:0;height:16px;background:#43a047;border-radius:3px"></div>' %}{% endif %}{% set nsc.st = none %}{% endif %}{% endfor %}
+              {% for k, v in (state_attr('predbat.best_export_limit', 'results') or {})|dictsort %}{% set t = strptime(k, '%Y-%m-%dT%H:%M:%S%z').timestamp() %}{% if v|float(100) < 100 and nse.st is none %}{% set nse.st = t %}{% elif v|float(100) >= 100 and nse.st is not none %}{% set a = [((nse.st - mid) / 864), 0]|max %}{% set b = [((t - mid) / 864), 100]|min %}{% if b > a %}{% set nse.h = nse.h ~ '<div style="position:absolute;left:' ~ a ~ '%;width:' ~ (b - a) ~ '%;top:0;height:16px;background:#fb8c00;border-radius:3px"></div>' %}{% endif %}{% set nse.st = none %}{% endif %}{% endfor %}
+              {% set nsp = namespace(h='') %}{% for r in rates %}{% set a = (as_timestamp(r.start) - mid) / 864 %}{% set p = r.value_inc_vat * 100 %}{% set nsp.h = nsp.h ~ '<div style="position:absolute;left:' ~ a ~ '%;width:2.0833%;top:20px;height:12px;background:rgba(66,165,245,' ~ (0.12 + ([p, 40]|min / 40) * 0.75) ~ ')"></div>' %}{% endfor %}
+              {% set nowp = (now().timestamp() - mid) / 864 %}
+              <div style="margin-top:22px;padding-top:18px;border-top:1px solid rgba(255,255,255,.08)"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:10px">The plan today <span style="text-transform:none;opacity:.8">&nbsp; <span style="color:#43a047">&#9632;</span> charge &nbsp; <span style="color:#fb8c00">&#9632;</span> export &nbsp; <span style="color:#42a5f5">&#9632;</span> import price (brighter = dearer)</span></div>
+              <div style="position:relative;height:34px;border-radius:4px;background:rgba(255,255,255,.04);overflow:hidden">{{ nsp.h }}{{ nsc.h }}{{ nse.h }}<div style="position:absolute;left:{{ nowp }}%;top:-2px;bottom:-2px;width:2px;background:#fff;box-shadow:0 0 8px #fff"></div></div>
+              <div style="position:relative;height:16px;margin-top:4px;font-size:11px;opacity:.55">{% for hh in [0, 3, 6, 9, 12, 15, 18, 21] %}<span style="position:absolute;left:{{ hh / 24 * 100 }}%">{{ '%02d'|format(hh) }}:00</span>{% endfor %}</div></div>
+              </div>
+      - type: grid
+        cards:
+          # ───────────────────────────────────────────────────────────────
+          # Live power flow
+          # ───────────────────────────────────────────────────────────────
+          - type: custom:power-flow-card-plus
+            title: Energy Flow
+            clickable_entities: true
+            display_zero_lines:
+              mode: show
+              transparency: 50
+              grey_color:
+                - 189
+                - 189
+                - 189
+            use_new_flow_rate_model: true
+            # Precision options use the card's `base_decimals` / `kilo_decimals`
+            # / `kilo_threshold` keys (NOT the w_decimals / kw_decimals /
+            # watt_threshold names that show up in older community examples —
+            # those are silently ignored and the card falls back to 1dp for
+            # kW). The two-dp kW format matches the EP Cube app's display.
+            base_decimals: 0       # watts: "810 W"
+            kilo_decimals: 2       # kilowatts: "2.36 kW"
+            kilo_threshold: 0   # always kW
+            min_flow_rate: 0.5
+            max_flow_rate: 4
+            max_expected_power: 7500   # 6.51 kWp array — clamps line speed at full output
+            min_expected_power: 0.01
+            transparency_zero_lines: 0
+            card_mod:
+              style:
+                .: |
+                  ha-card {
+                    --energy-grid-consumption-color: #42a5f5;
+                    --energy-grid-return-color: #ab47bc;
+                    background: linear-gradient(160deg, rgba(255,255,255,.035), rgba(255,255,255,0) 60%), var(--ha-card-background, var(--card-background-color));
+                  }
+                  .circle-container.solar .circle { box-shadow: 0 0 8px rgba(255,179,0,.16); }
+                  .circle-container.grid .circle { box-shadow: 0 0 8px rgba(66,165,245,.16); }
+                  .circle-container.battery .circle { box-shadow: 0 0 8px rgba(77,182,172,.16); }
+                  .circle-container.home .circle { box-shadow: 0 0 8px rgba(239,83,80,.16); }
+                  .circle span { font-weight: 600; }
+                  .circle span ha-icon.small { display: none; }
+                  .lines path.solar, .lines path.return, .lines path.battery-solar { stroke: #ffb300 !important; }
+                  .lines circle.solar, .lines circle.return, .lines circle.battery-solar { fill: #ffb300 !important; stroke: #ffb300 !important; }
+                  .lines path.grid, .lines path.battery-from-grid { stroke: #42a5f5 !important; }
+                  .lines circle.grid, .lines circle.battery-from-grid { fill: #42a5f5 !important; stroke: #42a5f5 !important; }
+                  .lines path.battery-home, .lines path.battery-to-grid { stroke: #4db6ac !important; }
+                  .lines circle.battery-home, .lines circle.battery-to-grid { fill: #4db6ac !important; stroke: #4db6ac !important; }
+                  .home-circle-sections { display: none; }
+                  .circle-container.battery .circle {
+                    border: none !important;
+                    background: radial-gradient(closest-side, var(--ha-card-background, var(--card-background-color)) calc(100% - 4px), transparent calc(100% - 3px)), conic-gradient(#4db6ac {{ states('sensor.ep_cube_battery_soc')|float(0) }}%, rgba(255,255,255,.12) 0);
+                  }
+                  #battery-state-of-charge-text { display: none; }
+                  .circle-container.battery ha-icon:not(.small) { color: #4db6ac !important; --icon-battery-color: #4db6ac; }
+                  .circle-container.home .circle { border: 4px solid #ef5350; color: #ef5350 !important; }
+                  .circle-container.home ha-icon { color: #ef5350 !important; }
+                  .circle-container.solar .circle, .circle-container.grid .circle { border-width: 4px !important; }
+                  .circle .secondary-info { font-weight: 500; opacity: .8; }
+                  .label { font-size: 12px !important; letter-spacing: .04em; text-transform: uppercase; opacity: .65; }
+                ha-card$: |
+                  .card-header { font-size: 12px !important; font-weight: 400 !important; letter-spacing: .04em; text-transform: uppercase; opacity: .6; padding-bottom: 0 !important; }
+            entities:
+              battery:
+                entity: sensor.ep_cube_battery_power
+                state_of_charge: sensor.ep_cube_battery_soc
+                # The card's NATIVE convention (without invert) is
+                # negative=charging / positive=discharging — verified in
+                # power-flow-card-plus.js where toBattery = |min(value,0)|
+                # and fromBattery = max(value,0). Our integration uses the
+                # opposite (positive=charging, negative=discharging — see
+                # api.py DeviceStatus.battery_power_w), so we MUST invert
+                # the state for the card. Without this the flow dots
+                # animate Solar→Battery during discharge and Battery is
+                # mislabelled (↓ shown for charging instead of discharging).
+                invert_state: true
+                name: Battery
+                icon: mdi:battery
+                display_state: one_way
+                color:
+                  consumption: '#4db6ac'
+                  production: '#4db6ac'
+                color_circle: true
+              grid:
+                entity: sensor.ep_cube_grid_power
+                name: Grid
+                color_icon: color_dynamically
+                display_state: one_way
+                color:
+                  consumption: '#42a5f5'
+                  production: '#ab47bc'
+                icon: mdi:transmission-tower
+                color_circle: true
+              solar:
+                entity: sensor.ep_cube_solar_power
+                name: Solar
+                icon: mdi:solar-power
+                color_value: true
+                color_icon: true
+                display_zero_state: true
+              home:
+                entity: sensor.ep_cube_load_power
+                # Without override_state the card derives home consumption
+                # from energy balance (solar + battery_out + grid_in -
+                # battery_in - grid_out) and uses `entity` only for the
+                # click-through "More info" dialog. Its derivation clamped
+                # to 0 on the EP Cube on first live render even though the
+                # entity itself read ~800 W (verified 2026-05-22 via
+                # Developer Tools → States). Bypass the derivation and use
+                # the integration's `load_power_w` directly — it's already
+                # backUpPower + nonBackUpPower from the cube, which is what
+                # the EP Cube mobile app shows as "Load".
+                override_state: true
+                name: Home
+                icon: mdi:home
+                color_icon: true
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            grid_options:
+              columns: full
+            header:
+              show: true
+              title: "Power"
+              show_states: false
+            card_mod:
+              style: |
+                #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+            now:
+              show: false
+              label: ''
+            graph_span: 4h
+            span:
+              offset: +2h
+            apex_config:
+              chart:
+                height: 337
+                toolbar:
+                  show: false
+                dropShadow:
+                  enabled: true
+                  enabledOnSeries: [10]
+                  color: '#ffffff'
+                  blur: 6
+                  opacity: 0.9
+                  top: 0
+                  left: 0
+                animations:
+                  enabled: false
+                zoom:
+                  enabled: false
+              fill:
+                type: [solid, solid, gradient, gradient, gradient, solid, solid, solid, solid, solid]
+                opacity: [0.14, 0.14, 1, 1, 1, 1, 1, 1, 1, 1]
+                gradient:
+                  shade: dark
+                  type: vertical
+                  opacityFrom: 0.5
+                  opacityTo: 0.04
+                  stops: [0, 100]
+              grid:
+                borderColor: '#ffffff17'
+              xaxis:
+                labels:
+                  datetimeFormatter:
+                    day: 'HH:mm'
+                axisBorder:
+                  show: false
+                axisTicks:
+                  show: false
+              legend:
+                position: bottom
+                fontSize: '13px'
+                markers:
+                  width: 11
+                  height: 11
+                  radius: 11
+                itemMargin:
+                  horizontal: 10
+              tooltip:
+                theme: dark
+              dataLabels:
+                enabled: false
+            yaxis:
+              - id: kw
+                min: -8
+                max: 8
+                decimals: 0
+                apex_config:
+                  tickAmount: 4
+                  title:
+                    text: kW
+              - id: win
+                show: false
+                min: 0
+                max: 1
+            series:
+              - entity: predbat.best_charge_limit
+                name: Charge window
+                type: area
+                curve: stepline
+                yaxis_id: win
+                color: '#43a047'
+                stroke_width: 0
+                opacity: 0.14
+                show:
+                  legend_value: false
+                data_generator: |
+                  const r = entity.attributes.results || {};
+                  return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) > 0 ? 1 : 0]);
+              - entity: predbat.best_export_limit
+                name: Export window
+                type: area
+                curve: stepline
+                yaxis_id: win
+                color: '#fb8c00'
+                stroke_width: 0
+                opacity: 0.14
+                show:
+                  legend_value: false
+                data_generator: |
+                  const r = entity.attributes.results || {};
+                  return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) < 100 ? 1 : 0]);
+              - entity: sensor.ep_cube_grid_power
+                name: Bought
+                type: area
+                curve: smooth
+                yaxis_id: kw
+                color: '#42a5f5'
+                stroke_width: 1.5
+                extend_to: now
+                transform: "return x > 0 ? x / 1000 : 0;"
+                show:
+                  legend_value: false
+              - entity: sensor.ep_cube_grid_power
+                name: Sold
+                type: area
+                curve: smooth
+                yaxis_id: kw
+                color: '#ab47bc'
+                stroke_width: 1.5
+                extend_to: now
+                transform: "return x < 0 ? x / 1000 : 0;"
+                show:
+                  legend_value: false
+              - entity: sensor.ep_cube_solar_power
+                name: Solar
+                type: area
+                curve: smooth
+                yaxis_id: kw
+                color: '#ffb300'
+                stroke_width: 1.5
+                extend_to: now
+                transform: "return x / 1000;"
+                show:
+                  legend_value: false
+              - entity: sensor.ep_cube_load_power
+                name: Load
+                type: line
+                curve: smooth
+                yaxis_id: kw
+                color: '#eceff1'
+                stroke_width: 1.5
+                extend_to: now
+                transform: "return x / 1000;"
+                show:
+                  legend_value: false
+              - entity: predbat.grid_power_best
+                name: Bought (forecast)
+                type: line
+                curve: stepline
+                yaxis_id: kw
+                color: '#42a5f5'
+                stroke_width: 1.5
+                stroke_dash: 2
+                show:
+                  legend_value: false
+                  in_legend: false
+                data_generator: |
+                  const r = entity.attributes.results || {};
+                  const tn = Date.now();
+                  const a = Number((hass.states['sensor.ep_cube_grid_power'] || {state: 0}).state) / 1000 || 0;
+                  const head = [[tn, Math.min(Math.max(a, 0), 7.27)]];
+                  return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Math.max(Number(r[k]), 0), 7.27)]).filter(p => p[0] > tn));
+              - entity: predbat.grid_power_best
+                name: Sold (forecast)
+                type: line
+                curve: stepline
+                yaxis_id: kw
+                color: '#ab47bc'
+                stroke_width: 1.5
+                stroke_dash: 2
+                show:
+                  legend_value: false
+                  in_legend: false
+                data_generator: |
+                  const r = entity.attributes.results || {};
+                  const tn = Date.now();
+                  const a = Number((hass.states['sensor.ep_cube_grid_power'] || {state: 0}).state) / 1000 || 0;
+                  const head = [[tn, Math.min(a, 0)]];
+                  return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Number(r[k]), 0)]).filter(p => p[0] > tn));
+              - entity: predbat.pv_power_best
+                name: Solar (forecast)
+                type: line
+                curve: stepline
+                yaxis_id: kw
+                color: '#ffb300'
+                stroke_width: 1.5
+                stroke_dash: 2
+                show:
+                  legend_value: false
+                  in_legend: false
+                data_generator: |
+                  const r = entity.attributes.results || {};
+                  const tn = Date.now();
+                  const a = Number((hass.states['sensor.ep_cube_solar_power'] || {state: 0}).state) / 1000 || 0;
+                  const head = [[tn, a]];
+                  return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k])]).filter(p => p[0] > tn));
+              - entity: predbat.load_power_best
+                name: Load (forecast)
+                type: line
+                curve: stepline
+                yaxis_id: kw
+                color: '#eceff1'
+                stroke_width: 1.5
+                stroke_dash: 2
+                show:
+                  legend_value: false
+                  in_legend: false
+                data_generator: |
+                  const r = entity.attributes.results || {};
+                  const tn = Date.now();
+                  const a = Number((hass.states['sensor.ep_cube_load_power'] || {state: 0}).state) / 1000 || 0;
+                  const head = [[tn, a]];
+                  return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k])]).filter(p => p[0] > tn));
+              - entity: sensor.ep_cube_battery_power
+                name: Now
+                type: line
+                curve: straight
+                yaxis_id: kw
+                color: '#ffffff'
+                stroke_width: 2
+                show:
+                  legend_value: false
+                  in_legend: false
+                data_generator: |
+                  const t = Date.now();
+                  return [[t, -9], [t, 9]];
 
   - title: Today
     path: today
     icon: mdi:calendar-today
-    cards:
-      # ───────────────────────────────────────────────────────────────
-      # Cost — Predbat's plan vs what Octopus actually billed
-      #
-      # Predbat's plan tells you what it INTENDS to do and thinks it'll
-      # cost — not what actually happened. This card puts that forecast
-      # next to Octopus's real settled cost so the two are never
-      # confused. Predbat's cost/savings entities are in pence; Octopus's
-      # accumulative-cost sensors are in pounds — converted to £ here so
-      # everything reads the same way.
-      # ───────────────────────────────────────────────────────────────
-      - type: markdown
-        title: Cost — plan vs actual
-        content: |
-          {%- set p_today = (states('predbat.cost_today_import')|float(0) - states('predbat.cost_today_export')|float(0)) / 100 -%}
-          {%- set p_yesterday = states('predbat.cost_yesterday')|float(0) / 100 -%}
-          {%- set p_savings = states('predbat.savings_yesterday_predbat')|float(0) / 100 -%}
-          {%- set a_import = states('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost')|float(0) -%}
-          {%- set a_export = states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost')|float(0) -%}
-          {%- set a_net = a_import - a_export -%}
-          {%- set a_reset = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'last_reset') -%}
-          ##### Predbat's plan
-          Today so far: **£{{ '%.2f'|format(p_today|abs) }}{% if p_today < 0 %} earned{% endif %}**
-          Yesterday: **£{{ '%.2f'|format(p_yesterday|abs) }}{% if p_yesterday < 0 %} earned{% endif %}** (claimed saving vs no battery: £{{ '%.2f'|format(p_savings) }})
-
-          ##### Octopus actual (billed)
-          {%- if a_reset %}
-          For {{ as_timestamp(a_reset) | timestamp_custom('%a %d %b', true) }}:
-          {%- endif %}
-          Import **£{{ '%.2f'|format(a_import) }}** · Export **£{{ '%.2f'|format(a_export) }}** · Net **£{{ '%.2f'|format(a_net|abs) }}{% if a_net < 0 %} earned{% endif %}**
-
-      # ───────────────────────────────────────────────────────────────
-      # Today at a glance — three gauges mirroring HA's Energy
-      # Dashboard pattern. All bucket-today values, refreshed every
-      # 5 min from queryDataElectricityV2.
-      #   Grid — signed net kWh (import - export). Mirrors the Now
-      #          tab's Grid gauge convention: purple left (export),
-      #          blue right (import). ±15 kWh covers a heavy winter
-      #          or sunny summer day; edit if your install differs.
-      #   Self-consumption % — solar generated and used locally.
-      #                 Solid green (renewable theme), no severity
-      #                 grading because what counts as "good" varies
-      #                 by tariff (low SC is fine on export-pays
-      #                 tariffs like Octopus Outgoing).
-      #   Self-sufficiency % — load met from solar/battery vs grid.
-      #                 Solid green, same rationale.
-      # ───────────────────────────────────────────────────────────────
-      - type: horizontal-stack
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
         cards:
-          - type: gauge
-            entity: sensor.ep_cube_grid_net_today
-            name: Grid
-            min: -15
-            max: 15
-            unit: kWh
-            needle: true
-            segments:
-              - from: -15
-                color: '#8353d1'
-              - from: 0
-                color: '#488fc2'
-          - type: gauge
-            entity: sensor.ep_cube_self_consumption_today
-            name: Self-consumption
-            min: 0
-            max: 100
-            unit: "%"
-            needle: true
-            segments:
-              - from: 0
-                color: '#43a047'
-          - type: gauge
-            entity: sensor.ep_cube_self_sufficiency_today
-            name: Self-sufficiency
-            min: 0
-            max: 100
-            unit: "%"
-            needle: true
-            segments:
-              - from: 0
-                color: '#43a047'
-
-      # ───────────────────────────────────────────────────────────────
-      # Daily energy (Phase 4.2 stats sensors)
-      # ───────────────────────────────────────────────────────────────
-      # Sourced from queryDataElectricityV2, refreshed every 5 min. Grid
-      # import vs export are direction-split at the cube — what previously
-      # surfaced as the single direction-ambiguous `grid_today` sensor
-      # (deleted in v1.1.0) now lives here as two clean counters that wire
-      # straight into HA's Energy Dashboard.
-      # Entity IDs are slugified from the *display name* (after translation),
-      # not the description's `key=`. So translation "Backup loads today" →
-      # `sensor.ep_cube_backup_loads_today`, NOT `_backup_today`. Same trap
-      # tripped session 17 with `power-flow-card-plus`.
-      - type: entities
-        title: Energy today
-        show_header_toggle: false
-        entities:
-          - entity: sensor.ep_cube_solar_today
-            name: Solar
-          - entity: sensor.ep_cube_grid_import_today
-            name: Grid import
-          - entity: sensor.ep_cube_grid_export_today
-            name: Grid export
-          # `backup_loads_today` meters kWh delivered through the cube's
-          # backup-output AC terminal, NOT "loads that stayed up during an
-          # outage". If your installer wired the whole house behind the
-          # backup panel (common in the UK) this reads as total household
-          # consumption — feel free to rename `Backed loads` → `Total
-          # consumption` / `House load`. If only essential circuits are
-          # behind the backup output (typical contractor install), this is
-          # just those circuits. See README's "Sensors" NOTE for the full
-          # backup-loads / EPS Gateway semantics.
-          - entity: sensor.ep_cube_backup_loads_today
-            name: Backed loads
-          - entity: sensor.ep_cube_self_consumption_today
-            name: Self-consumption
-          - entity: sensor.ep_cube_self_sufficiency_today
-            name: Self-sufficiency
-
-      # Same three gauges for yesterday — frozen snapshots once the
-      # midnight roll lands. Same colour conventions as the today row.
-      - type: horizontal-stack
+          - type: custom:tabbed-card
+            grid_options:
+              columns: full
+            tabs:
+              - attributes:
+                  label: Power
+                card:
+                  type: custom:apexcharts-card
+                  grid_options:
+                    columns: full
+                  header:
+                    show: true
+                    title: "Power · today"
+                    show_states: false
+                  card_mod:
+                    style: |
+                      #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                  now:
+                    show: false
+                    label: ''
+                  graph_span: 24h
+                  span:
+                    start: day
+                  apex_config:
+                    chart:
+                      height: 300
+                      toolbar:
+                        show: false
+                      dropShadow:
+                        enabled: true
+                        enabledOnSeries: [10]
+                        color: '#ffffff'
+                        blur: 6
+                        opacity: 0.9
+                        top: 0
+                        left: 0
+                      animations:
+                        enabled: false
+                      zoom:
+                        enabled: false
+                    fill:
+                      type: [solid, solid, gradient, gradient, gradient, solid, solid, solid, solid, solid]
+                      opacity: [0.14, 0.14, 1, 1, 1, 1, 1, 1, 1, 1]
+                      gradient:
+                        shade: dark
+                        type: vertical
+                        opacityFrom: 0.5
+                        opacityTo: 0.04
+                        stops: [0, 100]
+                    grid:
+                      borderColor: '#ffffff17'
+                    xaxis:
+                      labels:
+                        datetimeFormatter:
+                          day: 'HH:mm'
+                      axisBorder:
+                        show: false
+                      axisTicks:
+                        show: false
+                    legend:
+                      position: bottom
+                      fontSize: '13px'
+                      markers:
+                        width: 11
+                        height: 11
+                        radius: 11
+                      itemMargin:
+                        horizontal: 10
+                    tooltip:
+                      theme: dark
+                    dataLabels:
+                      enabled: false
+                  yaxis:
+                    - id: kw
+                      min: -8
+                      max: 8
+                      decimals: 0
+                      apex_config:
+                        tickAmount: 4
+                        title:
+                          text: kW
+                    - id: win
+                      show: false
+                      min: 0
+                      max: 1
+                  series:
+                    - entity: predbat.best_charge_limit
+                      name: Charge window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#43a047'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) > 0 ? 1 : 0]);
+                    - entity: predbat.best_export_limit
+                      name: Export window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#fb8c00'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) < 100 ? 1 : 0]);
+                    - entity: sensor.ep_cube_grid_power
+                      name: Bought
+                      type: area
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#42a5f5'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x > 0 ? x / 1000 : 0;"
+                      show:
+                        legend_value: false
+                    - entity: sensor.ep_cube_grid_power
+                      name: Sold
+                      type: area
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#ab47bc'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x < 0 ? x / 1000 : 0;"
+                      show:
+                        legend_value: false
+                    - entity: sensor.ep_cube_solar_power
+                      name: Solar
+                      type: area
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#ffb300'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x / 1000;"
+                      show:
+                        legend_value: false
+                    - entity: sensor.ep_cube_load_power
+                      name: Load
+                      type: line
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#eceff1'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x / 1000;"
+                      show:
+                        legend_value: false
+                    - entity: predbat.grid_power_best
+                      name: Bought (forecast)
+                      type: line
+                      curve: stepline
+                      yaxis_id: kw
+                      color: '#42a5f5'
+                      stroke_width: 1.5
+                      stroke_dash: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const tn = Date.now();
+                        const a = Number((hass.states['sensor.ep_cube_grid_power'] || {state: 0}).state) / 1000 || 0;
+                        const head = [[tn, Math.min(Math.max(a, 0), 7.27)]];
+                        return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Math.max(Number(r[k]), 0), 7.27)]).filter(p => p[0] > tn));
+                    - entity: predbat.grid_power_best
+                      name: Sold (forecast)
+                      type: line
+                      curve: stepline
+                      yaxis_id: kw
+                      color: '#ab47bc'
+                      stroke_width: 1.5
+                      stroke_dash: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const tn = Date.now();
+                        const a = Number((hass.states['sensor.ep_cube_grid_power'] || {state: 0}).state) / 1000 || 0;
+                        const head = [[tn, Math.min(a, 0)]];
+                        return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Number(r[k]), 0)]).filter(p => p[0] > tn));
+                    - entity: predbat.pv_power_best
+                      name: Solar (forecast)
+                      type: line
+                      curve: stepline
+                      yaxis_id: kw
+                      color: '#ffb300'
+                      stroke_width: 1.5
+                      stroke_dash: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const tn = Date.now();
+                        const a = Number((hass.states['sensor.ep_cube_solar_power'] || {state: 0}).state) / 1000 || 0;
+                        const head = [[tn, a]];
+                        return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k])]).filter(p => p[0] > tn));
+                    - entity: predbat.load_power_best
+                      name: Load (forecast)
+                      type: line
+                      curve: stepline
+                      yaxis_id: kw
+                      color: '#eceff1'
+                      stroke_width: 1.5
+                      stroke_dash: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const tn = Date.now();
+                        const a = Number((hass.states['sensor.ep_cube_load_power'] || {state: 0}).state) / 1000 || 0;
+                        const head = [[tn, a]];
+                        return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k])]).filter(p => p[0] > tn));
+                    - entity: sensor.ep_cube_battery_power
+                      name: Now
+                      type: line
+                      curve: straight
+                      yaxis_id: kw
+                      color: '#ffffff'
+                      stroke_width: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const t = Date.now();
+                        return [[t, -9], [t, 9]];
+              - attributes:
+                  label: Battery
+                card:
+                  type: custom:apexcharts-card
+                  grid_options:
+                    columns: full
+                  header:
+                    show: true
+                    title: "Battery · today"
+                    show_states: false
+                  card_mod:
+                    style: |
+                      #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                  now:
+                    show: false
+                    label: ''
+                  graph_span: 24h
+                  span:
+                    start: day
+                  apex_config:
+                    chart:
+                      height: 210
+                      toolbar:
+                        show: false
+                      dropShadow:
+                        enabled: true
+                        enabledOnSeries: [4]
+                        color: '#ffffff'
+                        blur: 6
+                        opacity: 0.9
+                        top: 0
+                        left: 0
+                      animations:
+                        enabled: false
+                      zoom:
+                        enabled: false
+                    fill:
+                      type: [solid, solid, gradient, solid]
+                      opacity: [0.14, 0.14, 1, 1]
+                      gradient:
+                        shade: dark
+                        type: vertical
+                        opacityFrom: 0.5
+                        opacityTo: 0.04
+                        stops: [0, 100]
+                    grid:
+                      borderColor: '#ffffff17'
+                    xaxis:
+                      labels:
+                        datetimeFormatter:
+                          day: 'HH:mm'
+                      axisBorder:
+                        show: false
+                      axisTicks:
+                        show: false
+                    legend:
+                      position: bottom
+                      fontSize: '13px'
+                      markers:
+                        width: 11
+                        height: 11
+                        radius: 11
+                      itemMargin:
+                        horizontal: 10
+                    tooltip:
+                      theme: dark
+                    dataLabels:
+                      enabled: false
+                  yaxis:
+                    - id: soc
+                      min: 0
+                      max: 100
+                      decimals: 0
+                      apex_config:
+                        tickAmount: 4
+                        title:
+                          text: "%"
+                    - id: win
+                      show: false
+                      min: 0
+                      max: 1
+                  series:
+                    - entity: predbat.best_charge_limit
+                      name: Charge window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#43a047'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) > 0 ? 1 : 0]);
+                    - entity: predbat.best_export_limit
+                      name: Export window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#fb8c00'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) < 100 ? 1 : 0]);
+                    - entity: sensor.ep_cube_battery_soc
+                      name: Battery
+                      type: area
+                      curve: smooth
+                      yaxis_id: soc
+                      color: '#4db6ac'
+                      stroke_width: 2
+                      extend_to: now
+                      group_by:
+                        func: last
+                        duration: 5min
+                        fill: last
+                      show:
+                        legend_value: false
+                    - entity: predbat.soc_kw_best
+                      name: Plan
+                      type: line
+                      curve: smooth
+                      yaxis_id: soc
+                      color: '#eceff1'
+                      stroke_width: 1.5
+                      stroke_dash: 4
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const cap = Number(entity.attributes.soc_max) || 20;
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), r[k] / cap * 100]);
+                    - entity: sensor.ep_cube_battery_power
+                      name: Now
+                      type: line
+                      curve: straight
+                      yaxis_id: soc
+                      color: '#ffffff'
+                      stroke_width: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const t = Date.now();
+                        return [[t, -5], [t, 105]];
+              - attributes:
+                  label: Prices
+                card:
+                  type: custom:apexcharts-card
+                  grid_options:
+                    columns: full
+                  header:
+                    show: true
+                    title: "Prices · today"
+                    show_states: false
+                  card_mod:
+                    style: |
+                      #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                  now:
+                    show: false
+                    label: ''
+                  graph_span: 24h
+                  span:
+                    start: day
+                  apex_config:
+                    chart:
+                      height: 250
+                      toolbar:
+                        show: false
+                      dropShadow:
+                        enabled: true
+                        enabledOnSeries: [4]
+                        color: '#ffffff'
+                        blur: 6
+                        opacity: 0.9
+                        top: 0
+                        left: 0
+                      animations:
+                        enabled: false
+                      zoom:
+                        enabled: false
+                    fill:
+                      type: [gradient, gradient, solid, solid]
+                      opacity: [1, 1, 1, 1]
+                      gradient:
+                        shade: light
+                        type: vertical
+                        opacityFrom: 0.55
+                        opacityTo: 0.12
+                        stops: [0, 100]
+                    grid:
+                      borderColor: '#ffffff17'
+                    xaxis:
+                      labels:
+                        datetimeFormatter:
+                          day: 'HH:mm'
+                      axisBorder:
+                        show: false
+                      axisTicks:
+                        show: false
+                    legend:
+                      position: bottom
+                      fontSize: '13px'
+                      markers:
+                        width: 11
+                        height: 11
+                        radius: 11
+                      itemMargin:
+                        horizontal: 10
+                    tooltip:
+                      theme: dark
+                    dataLabels:
+                      enabled: false
+                  yaxis:
+                    - id: price
+                      min: 0
+                      max: 40
+                      decimals: 0
+                      apex_config:
+                        tickAmount: 4
+                        title:
+                          text: p/kWh
+                  series:
+                    - entity: sensor.ep_cube_grid_power
+                      name: Bought
+                      type: area
+                      curve: stepline
+                      yaxis_id: price
+                      color: '#42a5f5'
+                      stroke_width: 0
+                      extend_to: now
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const h0 = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate'], include_start_time_state: true, minimal_response: true, no_attributes: true});
+                        const rates = (h0['sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate'] || []).map(r => [(r.lu ? r.lu * 1000 : new Date(start).getTime()), parseFloat(r.s) * 100]).filter(p => !isNaN(p[1]));
+                        const lastT = rates.length ? rates[rates.length - 1][0] : 0;
+                        const pub = ((hass.states['event.octopus_energy_electricity_19l3564787_2200019819270_current_day_rates'] || {attributes: {}}).attributes.rates || []).concat((hass.states['event.octopus_energy_electricity_19l3564787_2200019819270_next_day_rates'] || {attributes: {}}).attributes.rates || []);
+                        pub.forEach(r => { const t = new Date(r.start).getTime(); if (t > lastT) rates.push([t, r.value_inc_vat * 100]); });
+                        rates.sort((x, y) => x[0] - y[0]);
+                        const priceAt = t => { let v = rates.length ? rates[0][1] : 0; for (const r of rates) { if (r[0] <= t) v = r[1]; else break; } return v; };
+                        const h = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.ep_cube_grid_power'], minimal_response: true, no_attributes: true});
+                        const rows = h['sensor.ep_cube_grid_power'] || [];
+                        return rows.map(r => { const t = r.lu ? r.lu * 1000 : new Date(start).getTime(); const g = parseFloat(r.s); return [t, g > 200 ? priceAt(t) : 0]; }).filter(p => !isNaN(p[1]));
+                    - entity: sensor.ep_cube_grid_power
+                      name: Sold
+                      type: area
+                      curve: stepline
+                      yaxis_id: price
+                      color: '#ab47bc'
+                      stroke_width: 0
+                      extend_to: now
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const h0 = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate'], include_start_time_state: true, minimal_response: true, no_attributes: true});
+                        const rates = (h0['sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate'] || []).map(r => [(r.lu ? r.lu * 1000 : new Date(start).getTime()), parseFloat(r.s) * 100]).filter(p => !isNaN(p[1]));
+                        const lastT = rates.length ? rates[rates.length - 1][0] : 0;
+                        const pub = ((hass.states['event.octopus_energy_electricity_19l3564787_2200044183701_export_current_day_rates'] || {attributes: {}}).attributes.rates || []).concat((hass.states['event.octopus_energy_electricity_19l3564787_2200044183701_export_next_day_rates'] || {attributes: {}}).attributes.rates || []);
+                        pub.forEach(r => { const t = new Date(r.start).getTime(); if (t > lastT) rates.push([t, r.value_inc_vat * 100]); });
+                        rates.sort((x, y) => x[0] - y[0]);
+                        const priceAt = t => { let v = rates.length ? rates[0][1] : 0; for (const r of rates) { if (r[0] <= t) v = r[1]; else break; } return v; };
+                        const h = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.ep_cube_grid_power'], minimal_response: true, no_attributes: true});
+                        const rows = h['sensor.ep_cube_grid_power'] || [];
+                        return rows.map(r => { const t = r.lu ? r.lu * 1000 : new Date(start).getTime(); const g = parseFloat(r.s); return [t, g < -200 ? priceAt(t) : 0]; }).filter(p => !isNaN(p[1]));
+                    - entity: event.octopus_energy_electricity_19l3564787_2200019819270_current_day_rates
+                      name: Import price
+                      type: line
+                      curve: stepline
+                      yaxis_id: price
+                      color: '#42a5f5'
+                      stroke_width: 1.5
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const h0 = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate'], include_start_time_state: true, minimal_response: true, no_attributes: true});
+                        const rates = (h0['sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate'] || []).map(r => [(r.lu ? r.lu * 1000 : new Date(start).getTime()), parseFloat(r.s) * 100]).filter(p => !isNaN(p[1]));
+                        const lastT = rates.length ? rates[rates.length - 1][0] : 0;
+                        const pub = ((hass.states['event.octopus_energy_electricity_19l3564787_2200019819270_current_day_rates'] || {attributes: {}}).attributes.rates || []).concat((hass.states['event.octopus_energy_electricity_19l3564787_2200019819270_next_day_rates'] || {attributes: {}}).attributes.rates || []);
+                        pub.forEach(r => { const t = new Date(r.start).getTime(); if (t > lastT) rates.push([t, r.value_inc_vat * 100]); });
+                        rates.sort((x, y) => x[0] - y[0]);
+                        return rates;
+                    - entity: event.octopus_energy_electricity_19l3564787_2200044183701_export_current_day_rates
+                      name: Export price
+                      type: line
+                      curve: stepline
+                      yaxis_id: price
+                      color: '#ab47bc'
+                      stroke_width: 1.5
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const h0 = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate'], include_start_time_state: true, minimal_response: true, no_attributes: true});
+                        const rates = (h0['sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate'] || []).map(r => [(r.lu ? r.lu * 1000 : new Date(start).getTime()), parseFloat(r.s) * 100]).filter(p => !isNaN(p[1]));
+                        const lastT = rates.length ? rates[rates.length - 1][0] : 0;
+                        const pub = ((hass.states['event.octopus_energy_electricity_19l3564787_2200044183701_export_current_day_rates'] || {attributes: {}}).attributes.rates || []).concat((hass.states['event.octopus_energy_electricity_19l3564787_2200044183701_export_next_day_rates'] || {attributes: {}}).attributes.rates || []);
+                        pub.forEach(r => { const t = new Date(r.start).getTime(); if (t > lastT) rates.push([t, r.value_inc_vat * 100]); });
+                        rates.sort((x, y) => x[0] - y[0]);
+                        return rates;
+                    - entity: sensor.ep_cube_battery_power
+                      name: Now
+                      type: line
+                      curve: straight
+                      yaxis_id: price
+                      color: '#ffffff'
+                      stroke_width: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const t = Date.now();
+                        return [[t, -5], [t, 45]];
+      - type: grid
+        column_span: 3
         cards:
-          - type: gauge
-            entity: sensor.ep_cube_grid_net_yesterday
-            name: Grid
-            min: -15
-            max: 15
-            unit: kWh
-            needle: true
-            segments:
-              - from: -15
-                color: '#8353d1'
-              - from: 0
-                color: '#488fc2'
-          - type: gauge
-            entity: sensor.ep_cube_self_consumption_yesterday
-            name: Self-consumption
-            min: 0
-            max: 100
-            unit: "%"
-            needle: true
-            segments:
-              - from: 0
-                color: '#43a047'
-          - type: gauge
-            entity: sensor.ep_cube_self_sufficiency_yesterday
-            name: Self-sufficiency
-            min: 0
-            max: 100
-            unit: "%"
-            needle: true
-            segments:
-              - from: 0
-                color: '#43a047'
+          - type: horizontal-stack
+            grid_options:
+              columns: full
+            cards:
+              - type: custom:html-template-card
+                ignore_line_breaks: true
+                content: |
+                  {% macro tile(label, value, unit, color) -%}
+                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+                  {%- endmacro %}
+                  {% macro ring(label, pct, color) -%}
+                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+                  {%- endmacro %}
+                  {% set p_today = (states('predbat.cost_today_import')|float(0) - states('predbat.cost_today_export')|float(0)) / 100 %}{% set p_yest = states('predbat.cost_yesterday')|float(0) / 100 %}{% set p_sav = states('predbat.savings_yesterday_predbat')|float(0) / 100 %}
+                  {% set a_imp = states('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost')|float(0) %}{% set a_exp = states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost')|float(0) %}{% set a_net = a_imp - a_exp %}{% set a_reset = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'last_reset') %}
+                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost</div>
+                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px 20px">{{ tile('Today so far (plan)', '£%.2f'|format(p_today|abs), 'earned' if p_today < 0 else '', '#42a5f5' if p_today >= 0 else '#66bb6a') }}{{ tile('Yesterday (plan)', '£%.2f'|format(p_yest|abs), 'earned' if p_yest < 0 else '', '#4db6ac' if p_yest >= 0 else '#66bb6a') }}{{ tile((as_timestamp(a_reset)|timestamp_custom('%d %b', true) ~ ' ' if a_reset else '') ~ '(actual billed)', '£%.2f'|format(a_net|abs), 'earned' if a_net < 0 else '', '#66bb6a') }}</div></div>
+              - type: custom:html-template-card
+                ignore_line_breaks: true
+                content: |
+                  {% macro tile(label, value, unit, color) -%}
+                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+                  {%- endmacro %}
+                  {% macro ring(label, pct, color) -%}
+                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+                  {%- endmacro %}
+                  {% set s = states('sensor.ep_cube_solar_today')|float(0) %}{% set i = states('sensor.ep_cube_grid_import_today')|float(0) %}{% set e = states('sensor.ep_cube_grid_export_today')|float(0) %}{% set l = states('sensor.ep_cube_backup_loads_today')|float(0) %}{% set sc = states('sensor.ep_cube_self_consumption_today')|float(0) %}{% set ss = states('sensor.ep_cube_self_sufficiency_today')|float(0) %}
+                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy today</div>
+                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Self-consumption', sc, '#4db6ac') }}{{ ring('Self-sufficiency', ss, '#66bb6a') }}</div></div>
 
-      - type: entities
-        title: Energy yesterday
-        show_header_toggle: false
-        entities:
-          - entity: sensor.ep_cube_solar_yesterday
-            name: Solar
-          - entity: sensor.ep_cube_grid_import_yesterday
-            name: Grid import
-          - entity: sensor.ep_cube_grid_export_yesterday
-            name: Grid export
-          - entity: sensor.ep_cube_backup_loads_yesterday
-            name: Backed loads
-          - entity: sensor.ep_cube_self_consumption_yesterday
-            name: Self-consumption
-          - entity: sensor.ep_cube_self_sufficiency_yesterday
-            name: Self-sufficiency
+  - title: Yesterday
+    path: yesterday
+    icon: mdi:calendar-arrow-left
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:tabbed-card
+            grid_options:
+              columns: full
+            tabs:
+              - attributes:
+                  label: Power
+                card:
+                  type: custom:apexcharts-card
+                  grid_options:
+                    columns: full
+                  header:
+                    show: true
+                    title: "Power · yesterday"
+                    show_states: false
+                  card_mod:
+                    style: |
+                      #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                  now:
+                    show: true
+                    label: ''
+                  graph_span: 24h
+                  span:
+                    start: day
+                    offset: -1d
+                  apex_config:
+                    chart:
+                      height: 300
+                      toolbar:
+                        show: false
+                      animations:
+                        enabled: false
+                      zoom:
+                        enabled: false
+                    fill:
+                      type: [solid, solid, gradient, gradient, gradient, solid]
+                      opacity: [0.14, 0.14, 1, 1, 1, 1]
+                      gradient:
+                        shade: dark
+                        type: vertical
+                        opacityFrom: 0.5
+                        opacityTo: 0.04
+                        stops: [0, 100]
+                    grid:
+                      borderColor: '#ffffff17'
+                    xaxis:
+                      labels:
+                        datetimeFormatter:
+                          day: 'HH:mm'
+                      axisBorder:
+                        show: false
+                      axisTicks:
+                        show: false
+                    legend:
+                      position: bottom
+                      fontSize: '13px'
+                      markers:
+                        width: 11
+                        height: 11
+                        radius: 11
+                      itemMargin:
+                        horizontal: 10
+                    tooltip:
+                      theme: dark
+                    dataLabels:
+                      enabled: false
+                  yaxis:
+                    - id: kw
+                      min: -8
+                      max: 8
+                      decimals: 0
+                      apex_config:
+                        tickAmount: 4
+                        title:
+                          text: kW
+                    - id: win
+                      show: false
+                      min: 0
+                      max: 1
+                  series:
+                    - entity: predbat.best_charge_limit
+                      name: Charge window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#43a047'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) > 0 ? 1 : 0]);
+                    - entity: predbat.best_export_limit
+                      name: Export window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#fb8c00'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) < 100 ? 1 : 0]);
+                    - entity: sensor.ep_cube_grid_power
+                      name: Bought
+                      type: area
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#42a5f5'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x > 0 ? x / 1000 : 0;"
+                      show:
+                        legend_value: false
+                    - entity: sensor.ep_cube_grid_power
+                      name: Sold
+                      type: area
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#ab47bc'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x < 0 ? x / 1000 : 0;"
+                      show:
+                        legend_value: false
+                    - entity: sensor.ep_cube_solar_power
+                      name: Solar
+                      type: area
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#ffb300'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x / 1000;"
+                      show:
+                        legend_value: false
+                    - entity: sensor.ep_cube_load_power
+                      name: Load
+                      type: line
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#eceff1'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x / 1000;"
+                      show:
+                        legend_value: false
+              - attributes:
+                  label: Battery
+                card:
+                  type: custom:apexcharts-card
+                  grid_options:
+                    columns: full
+                  header:
+                    show: true
+                    title: "Battery · yesterday"
+                    show_states: false
+                  card_mod:
+                    style: |
+                      #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                  now:
+                    show: true
+                    label: ''
+                  graph_span: 24h
+                  span:
+                    start: day
+                    offset: -1d
+                  apex_config:
+                    chart:
+                      height: 210
+                      toolbar:
+                        show: false
+                      animations:
+                        enabled: false
+                      zoom:
+                        enabled: false
+                    fill:
+                      type: [solid, solid, gradient, solid]
+                      opacity: [0.14, 0.14, 1, 1]
+                      gradient:
+                        shade: dark
+                        type: vertical
+                        opacityFrom: 0.5
+                        opacityTo: 0.04
+                        stops: [0, 100]
+                    grid:
+                      borderColor: '#ffffff17'
+                    xaxis:
+                      labels:
+                        datetimeFormatter:
+                          day: 'HH:mm'
+                      axisBorder:
+                        show: false
+                      axisTicks:
+                        show: false
+                    legend:
+                      position: bottom
+                      fontSize: '13px'
+                      markers:
+                        width: 11
+                        height: 11
+                        radius: 11
+                      itemMargin:
+                        horizontal: 10
+                    tooltip:
+                      theme: dark
+                    dataLabels:
+                      enabled: false
+                  yaxis:
+                    - id: soc
+                      min: 0
+                      max: 100
+                      decimals: 0
+                      apex_config:
+                        tickAmount: 4
+                        title:
+                          text: "%"
+                    - id: win
+                      show: false
+                      min: 0
+                      max: 1
+                  series:
+                    - entity: predbat.best_charge_limit
+                      name: Charge window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#43a047'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) > 0 ? 1 : 0]);
+                    - entity: predbat.best_export_limit
+                      name: Export window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#fb8c00'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) < 100 ? 1 : 0]);
+                    - entity: sensor.ep_cube_battery_soc
+                      name: Battery
+                      type: area
+                      curve: smooth
+                      yaxis_id: soc
+                      color: '#4db6ac'
+                      stroke_width: 2
+                      extend_to: now
+                      group_by:
+                        func: last
+                        duration: 5min
+                        fill: last
+                      show:
+                        legend_value: false
+                    - entity: predbat.soc_kw_best
+                      name: Plan
+                      type: line
+                      curve: smooth
+                      yaxis_id: soc
+                      color: '#eceff1'
+                      stroke_width: 1.5
+                      stroke_dash: 4
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const cap = Number(entity.attributes.soc_max) || 20;
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), r[k] / cap * 100]);
+              - attributes:
+                  label: Prices
+                card:
+                  type: custom:apexcharts-card
+                  grid_options:
+                    columns: full
+                  header:
+                    show: true
+                    title: "Prices · yesterday"
+                    show_states: false
+                  card_mod:
+                    style: |
+                      #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                  now:
+                    show: true
+                    label: ''
+                  graph_span: 24h
+                  span:
+                    start: day
+                    offset: -1d
+                  apex_config:
+                    chart:
+                      height: 250
+                      toolbar:
+                        show: false
+                      animations:
+                        enabled: false
+                      zoom:
+                        enabled: false
+                    fill:
+                      type: [gradient, gradient, solid, solid]
+                      opacity: [1, 1, 1, 1]
+                      gradient:
+                        shade: light
+                        type: vertical
+                        opacityFrom: 0.55
+                        opacityTo: 0.12
+                        stops: [0, 100]
+                    grid:
+                      borderColor: '#ffffff17'
+                    xaxis:
+                      labels:
+                        datetimeFormatter:
+                          day: 'HH:mm'
+                      axisBorder:
+                        show: false
+                      axisTicks:
+                        show: false
+                    legend:
+                      position: bottom
+                      fontSize: '13px'
+                      markers:
+                        width: 11
+                        height: 11
+                        radius: 11
+                      itemMargin:
+                        horizontal: 10
+                    tooltip:
+                      theme: dark
+                    dataLabels:
+                      enabled: false
+                  yaxis:
+                    - id: price
+                      min: 0
+                      max: 40
+                      decimals: 0
+                      apex_config:
+                        tickAmount: 4
+                        title:
+                          text: p/kWh
+                  series:
+                    - entity: sensor.ep_cube_grid_power
+                      name: Bought
+                      type: area
+                      curve: stepline
+                      yaxis_id: price
+                      color: '#42a5f5'
+                      stroke_width: 0
+                      extend_to: now
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const h0 = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate'], include_start_time_state: true, minimal_response: true, no_attributes: true});
+                        const rates = (h0['sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate'] || []).map(r => [(r.lu ? r.lu * 1000 : new Date(start).getTime()), parseFloat(r.s) * 100]).filter(p => !isNaN(p[1]));
+                        const lastT = rates.length ? rates[rates.length - 1][0] : 0;
+                        const pub = ((hass.states['event.octopus_energy_electricity_19l3564787_2200019819270_current_day_rates'] || {attributes: {}}).attributes.rates || []).concat((hass.states['event.octopus_energy_electricity_19l3564787_2200019819270_next_day_rates'] || {attributes: {}}).attributes.rates || []);
+                        pub.forEach(r => { const t = new Date(r.start).getTime(); if (t > lastT) rates.push([t, r.value_inc_vat * 100]); });
+                        rates.sort((x, y) => x[0] - y[0]);
+                        const priceAt = t => { let v = rates.length ? rates[0][1] : 0; for (const r of rates) { if (r[0] <= t) v = r[1]; else break; } return v; };
+                        const h = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.ep_cube_grid_power'], minimal_response: true, no_attributes: true});
+                        const rows = h['sensor.ep_cube_grid_power'] || [];
+                        return rows.map(r => { const t = r.lu ? r.lu * 1000 : new Date(start).getTime(); const g = parseFloat(r.s); return [t, g > 200 ? priceAt(t) : 0]; }).filter(p => !isNaN(p[1]));
+                    - entity: sensor.ep_cube_grid_power
+                      name: Sold
+                      type: area
+                      curve: stepline
+                      yaxis_id: price
+                      color: '#ab47bc'
+                      stroke_width: 0
+                      extend_to: now
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const h0 = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate'], include_start_time_state: true, minimal_response: true, no_attributes: true});
+                        const rates = (h0['sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate'] || []).map(r => [(r.lu ? r.lu * 1000 : new Date(start).getTime()), parseFloat(r.s) * 100]).filter(p => !isNaN(p[1]));
+                        const lastT = rates.length ? rates[rates.length - 1][0] : 0;
+                        const pub = ((hass.states['event.octopus_energy_electricity_19l3564787_2200044183701_export_current_day_rates'] || {attributes: {}}).attributes.rates || []).concat((hass.states['event.octopus_energy_electricity_19l3564787_2200044183701_export_next_day_rates'] || {attributes: {}}).attributes.rates || []);
+                        pub.forEach(r => { const t = new Date(r.start).getTime(); if (t > lastT) rates.push([t, r.value_inc_vat * 100]); });
+                        rates.sort((x, y) => x[0] - y[0]);
+                        const priceAt = t => { let v = rates.length ? rates[0][1] : 0; for (const r of rates) { if (r[0] <= t) v = r[1]; else break; } return v; };
+                        const h = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.ep_cube_grid_power'], minimal_response: true, no_attributes: true});
+                        const rows = h['sensor.ep_cube_grid_power'] || [];
+                        return rows.map(r => { const t = r.lu ? r.lu * 1000 : new Date(start).getTime(); const g = parseFloat(r.s); return [t, g < -200 ? priceAt(t) : 0]; }).filter(p => !isNaN(p[1]));
+                    - entity: event.octopus_energy_electricity_19l3564787_2200019819270_current_day_rates
+                      name: Import price
+                      type: line
+                      curve: stepline
+                      yaxis_id: price
+                      color: '#42a5f5'
+                      stroke_width: 1.5
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const h0 = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate'], include_start_time_state: true, minimal_response: true, no_attributes: true});
+                        const rates = (h0['sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate'] || []).map(r => [(r.lu ? r.lu * 1000 : new Date(start).getTime()), parseFloat(r.s) * 100]).filter(p => !isNaN(p[1]));
+                        const lastT = rates.length ? rates[rates.length - 1][0] : 0;
+                        const pub = ((hass.states['event.octopus_energy_electricity_19l3564787_2200019819270_current_day_rates'] || {attributes: {}}).attributes.rates || []).concat((hass.states['event.octopus_energy_electricity_19l3564787_2200019819270_next_day_rates'] || {attributes: {}}).attributes.rates || []);
+                        pub.forEach(r => { const t = new Date(r.start).getTime(); if (t > lastT) rates.push([t, r.value_inc_vat * 100]); });
+                        rates.sort((x, y) => x[0] - y[0]);
+                        return rates;
+                    - entity: event.octopus_energy_electricity_19l3564787_2200044183701_export_current_day_rates
+                      name: Export price
+                      type: line
+                      curve: stepline
+                      yaxis_id: price
+                      color: '#ab47bc'
+                      stroke_width: 1.5
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const h0 = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate'], include_start_time_state: true, minimal_response: true, no_attributes: true});
+                        const rates = (h0['sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate'] || []).map(r => [(r.lu ? r.lu * 1000 : new Date(start).getTime()), parseFloat(r.s) * 100]).filter(p => !isNaN(p[1]));
+                        const lastT = rates.length ? rates[rates.length - 1][0] : 0;
+                        const pub = ((hass.states['event.octopus_energy_electricity_19l3564787_2200044183701_export_current_day_rates'] || {attributes: {}}).attributes.rates || []).concat((hass.states['event.octopus_energy_electricity_19l3564787_2200044183701_export_next_day_rates'] || {attributes: {}}).attributes.rates || []);
+                        pub.forEach(r => { const t = new Date(r.start).getTime(); if (t > lastT) rates.push([t, r.value_inc_vat * 100]); });
+                        rates.sort((x, y) => x[0] - y[0]);
+                        return rates;
+
+      - type: grid
+        column_span: 3
+        cards:
+          - type: horizontal-stack
+            grid_options:
+              columns: full
+            cards:
+              - type: custom:html-template-card
+                ignore_line_breaks: true
+                content: |
+                  {% macro tile(label, value, unit, color) -%}
+                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+                  {%- endmacro %}
+                  {% macro ring(label, pct, color) -%}
+                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+                  {%- endmacro %}
+                  {% set p_yest = states('predbat.cost_yesterday')|float(0) / 100 %}{% set p_sav = states('predbat.savings_yesterday_predbat')|float(0) / 100 %}
+                  {% set a_imp = states('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost')|float(0) %}{% set a_exp = states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost')|float(0) %}{% set a_net = a_imp - a_exp %}{% set a_reset = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'last_reset') %}
+                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost yesterday</div>
+                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px 20px">{{ tile('Yesterday (plan)', '£%.2f'|format(p_yest|abs), 'earned' if p_yest < 0 else '', '#4db6ac' if p_yest >= 0 else '#66bb6a') }}{{ tile((as_timestamp(a_reset)|timestamp_custom('%d %b', true) ~ ' ' if a_reset else '') ~ '(actual billed)', '£%.2f'|format(a_net|abs), 'earned' if a_net < 0 else '', '#66bb6a') }}{{ tile('Battery saving (plan)', ('-' if p_sav < 0 else '') ~ '£%.2f'|format(p_sav|abs), '', '#66bb6a' if p_sav >= 0 else '#ef5350') }}</div></div>
+              - type: custom:html-template-card
+                ignore_line_breaks: true
+                content: |
+                  {% macro tile(label, value, unit, color) -%}
+                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+                  {%- endmacro %}
+                  {% macro ring(label, pct, color) -%}
+                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+                  {%- endmacro %}
+                  {% set s = states('sensor.ep_cube_solar_yesterday')|float(0) %}{% set i = states('sensor.ep_cube_grid_import_yesterday')|float(0) %}{% set e = states('sensor.ep_cube_grid_export_yesterday')|float(0) %}{% set l = states('sensor.ep_cube_backup_loads_yesterday')|float(0) %}{% set sc = states('sensor.ep_cube_self_consumption_yesterday')|float(0) %}{% set ss = states('sensor.ep_cube_self_sufficiency_yesterday')|float(0) %}
+                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy yesterday</div>
+                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Self-consumption', sc, '#4db6ac') }}{{ ring('Self-sufficiency', ss, '#66bb6a') }}</div></div>
+
+  - title: Week
+    path: week
+    icon: mdi:calendar-week
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:tabbed-card
+            grid_options:
+              columns: full
+            tabs:
+              - attributes:
+                  label: Power
+                card:
+                  type: custom:apexcharts-card
+                  grid_options:
+                    columns: full
+                  header:
+                    show: true
+                    title: "Power · last 7 days"
+                    show_states: false
+                  card_mod:
+                    style: |
+                      #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                  now:
+                    show: false
+                    label: ''
+                  graph_span: 7d
+                  span:
+                    start: day
+                    offset: -6d
+                  apex_config:
+                    chart:
+                      height: 300
+                      toolbar:
+                        show: false
+                      dropShadow:
+                        enabled: true
+                        enabledOnSeries: [10]
+                        color: '#ffffff'
+                        blur: 6
+                        opacity: 0.9
+                        top: 0
+                        left: 0
+                      animations:
+                        enabled: false
+                      zoom:
+                        enabled: false
+                    fill:
+                      type: [solid, solid, gradient, gradient, gradient, solid, solid, solid, solid, solid]
+                      opacity: [0.14, 0.14, 1, 1, 1, 1, 1, 1, 1, 1]
+                      gradient:
+                        shade: dark
+                        type: vertical
+                        opacityFrom: 0.5
+                        opacityTo: 0.04
+                        stops: [0, 100]
+                    grid:
+                      borderColor: '#ffffff17'
+                    xaxis:
+                      axisBorder:
+                        show: false
+                      axisTicks:
+                        show: false
+                    legend:
+                      position: bottom
+                      fontSize: '13px'
+                      markers:
+                        width: 11
+                        height: 11
+                        radius: 11
+                      itemMargin:
+                        horizontal: 10
+                    tooltip:
+                      theme: dark
+                    dataLabels:
+                      enabled: false
+                  yaxis:
+                    - id: kw
+                      min: -8
+                      max: 8
+                      decimals: 0
+                      apex_config:
+                        tickAmount: 4
+                        title:
+                          text: kW
+                    - id: win
+                      show: false
+                      min: 0
+                      max: 1
+                  series:
+                    - entity: predbat.best_charge_limit
+                      name: Charge window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#43a047'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) > 0 ? 1 : 0]);
+                    - entity: predbat.best_export_limit
+                      name: Export window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#fb8c00'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) < 100 ? 1 : 0]);
+                    - entity: sensor.ep_cube_grid_power
+                      name: Bought
+                      type: area
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#42a5f5'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x > 0 ? x / 1000 : 0;"
+                      show:
+                        legend_value: false
+                    - entity: sensor.ep_cube_grid_power
+                      name: Sold
+                      type: area
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#ab47bc'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x < 0 ? x / 1000 : 0;"
+                      show:
+                        legend_value: false
+                    - entity: sensor.ep_cube_solar_power
+                      name: Solar
+                      type: area
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#ffb300'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x / 1000;"
+                      show:
+                        legend_value: false
+                    - entity: sensor.ep_cube_load_power
+                      name: Load
+                      type: line
+                      curve: smooth
+                      yaxis_id: kw
+                      color: '#eceff1'
+                      stroke_width: 1.5
+                      extend_to: now
+                      transform: "return x / 1000;"
+                      show:
+                        legend_value: false
+                    - entity: predbat.grid_power_best
+                      name: Bought (forecast)
+                      type: line
+                      curve: stepline
+                      yaxis_id: kw
+                      color: '#42a5f5'
+                      stroke_width: 1.5
+                      stroke_dash: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const tn = Date.now();
+                        const a = Number((hass.states['sensor.ep_cube_grid_power'] || {state: 0}).state) / 1000 || 0;
+                        const head = [[tn, Math.min(Math.max(a, 0), 7.27)]];
+                        return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Math.max(Number(r[k]), 0), 7.27)]).filter(p => p[0] > tn));
+                    - entity: predbat.grid_power_best
+                      name: Sold (forecast)
+                      type: line
+                      curve: stepline
+                      yaxis_id: kw
+                      color: '#ab47bc'
+                      stroke_width: 1.5
+                      stroke_dash: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const tn = Date.now();
+                        const a = Number((hass.states['sensor.ep_cube_grid_power'] || {state: 0}).state) / 1000 || 0;
+                        const head = [[tn, Math.min(a, 0)]];
+                        return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Number(r[k]), 0)]).filter(p => p[0] > tn));
+                    - entity: predbat.pv_power_best
+                      name: Solar (forecast)
+                      type: line
+                      curve: stepline
+                      yaxis_id: kw
+                      color: '#ffb300'
+                      stroke_width: 1.5
+                      stroke_dash: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const tn = Date.now();
+                        const a = Number((hass.states['sensor.ep_cube_solar_power'] || {state: 0}).state) / 1000 || 0;
+                        const head = [[tn, a]];
+                        return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k])]).filter(p => p[0] > tn));
+                    - entity: predbat.load_power_best
+                      name: Load (forecast)
+                      type: line
+                      curve: stepline
+                      yaxis_id: kw
+                      color: '#eceff1'
+                      stroke_width: 1.5
+                      stroke_dash: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const tn = Date.now();
+                        const a = Number((hass.states['sensor.ep_cube_load_power'] || {state: 0}).state) / 1000 || 0;
+                        const head = [[tn, a]];
+                        return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k])]).filter(p => p[0] > tn));
+                    - entity: sensor.ep_cube_battery_power
+                      name: Now
+                      type: line
+                      curve: straight
+                      yaxis_id: kw
+                      color: '#ffffff'
+                      stroke_width: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const t = Date.now();
+                        return [[t, -9], [t, 9]];
+              - attributes:
+                  label: Battery
+                card:
+                  type: custom:apexcharts-card
+                  grid_options:
+                    columns: full
+                  header:
+                    show: true
+                    title: "Battery · last 7 days"
+                    show_states: false
+                  card_mod:
+                    style: |
+                      #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                  now:
+                    show: false
+                    label: ''
+                  graph_span: 7d
+                  span:
+                    start: day
+                    offset: -6d
+                  apex_config:
+                    chart:
+                      height: 210
+                      toolbar:
+                        show: false
+                      dropShadow:
+                        enabled: true
+                        enabledOnSeries: [4]
+                        color: '#ffffff'
+                        blur: 6
+                        opacity: 0.9
+                        top: 0
+                        left: 0
+                      animations:
+                        enabled: false
+                      zoom:
+                        enabled: false
+                    fill:
+                      type: [solid, solid, gradient, solid]
+                      opacity: [0.14, 0.14, 1, 1]
+                      gradient:
+                        shade: dark
+                        type: vertical
+                        opacityFrom: 0.5
+                        opacityTo: 0.04
+                        stops: [0, 100]
+                    grid:
+                      borderColor: '#ffffff17'
+                    xaxis:
+                      axisBorder:
+                        show: false
+                      axisTicks:
+                        show: false
+                    legend:
+                      position: bottom
+                      fontSize: '13px'
+                      markers:
+                        width: 11
+                        height: 11
+                        radius: 11
+                      itemMargin:
+                        horizontal: 10
+                    tooltip:
+                      theme: dark
+                    dataLabels:
+                      enabled: false
+                  yaxis:
+                    - id: soc
+                      min: 0
+                      max: 100
+                      decimals: 0
+                      apex_config:
+                        tickAmount: 4
+                        title:
+                          text: "%"
+                    - id: win
+                      show: false
+                      min: 0
+                      max: 1
+                  series:
+                    - entity: predbat.best_charge_limit
+                      name: Charge window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#43a047'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) > 0 ? 1 : 0]);
+                    - entity: predbat.best_export_limit
+                      name: Export window
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#fb8c00'
+                      stroke_width: 0
+                      opacity: 0.14
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k]) < 100 ? 1 : 0]);
+                    - entity: sensor.ep_cube_battery_soc
+                      name: Battery
+                      type: area
+                      curve: smooth
+                      yaxis_id: soc
+                      color: '#4db6ac'
+                      stroke_width: 2
+                      extend_to: now
+                      group_by:
+                        func: last
+                        duration: 5min
+                        fill: last
+                      show:
+                        legend_value: false
+                    - entity: predbat.soc_kw_best
+                      name: Plan
+                      type: line
+                      curve: smooth
+                      yaxis_id: soc
+                      color: '#eceff1'
+                      stroke_width: 1.5
+                      stroke_dash: 4
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const r = entity.attributes.results || {};
+                        const cap = Number(entity.attributes.soc_max) || 20;
+                        return Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), r[k] / cap * 100]);
+                    - entity: sensor.ep_cube_battery_power
+                      name: Now
+                      type: line
+                      curve: straight
+                      yaxis_id: soc
+                      color: '#ffffff'
+                      stroke_width: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const t = Date.now();
+                        return [[t, -5], [t, 105]];
+              - attributes:
+                  label: Prices
+                card:
+                  type: custom:apexcharts-card
+                  grid_options:
+                    columns: full
+                  header:
+                    show: true
+                    title: "Prices · last 7 days"
+                    show_states: false
+                  card_mod:
+                    style: |
+                      #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                  now:
+                    show: false
+                    label: ''
+                  graph_span: 7d
+                  span:
+                    start: day
+                    offset: -6d
+                  apex_config:
+                    chart:
+                      height: 250
+                      toolbar:
+                        show: false
+                      dropShadow:
+                        enabled: true
+                        enabledOnSeries: [4]
+                        color: '#ffffff'
+                        blur: 6
+                        opacity: 0.9
+                        top: 0
+                        left: 0
+                      animations:
+                        enabled: false
+                      zoom:
+                        enabled: false
+                    fill:
+                      type: [solid, solid, solid, solid]
+                      opacity: [0.13, 0.13, 1, 1]
+                      gradient:
+                        shade: dark
+                        type: vertical
+                        opacityFrom: 0.5
+                        opacityTo: 0.04
+                        stops: [0, 100]
+                    grid:
+                      borderColor: '#ffffff17'
+                    xaxis:
+                      axisBorder:
+                        show: false
+                      axisTicks:
+                        show: false
+                    legend:
+                      position: bottom
+                      fontSize: '13px'
+                      markers:
+                        width: 11
+                        height: 11
+                        radius: 11
+                      itemMargin:
+                        horizontal: 10
+                    tooltip:
+                      theme: dark
+                    dataLabels:
+                      enabled: false
+                  yaxis:
+                    - id: price
+                      min: 0
+                      max: 40
+                      decimals: 0
+                      apex_config:
+                        tickAmount: 4
+                        title:
+                          text: p/kWh
+                    - id: win
+                      show: false
+                      min: 0
+                      max: 1
+                  series:
+                    - entity: sensor.ep_cube_grid_power
+                      name: Bought
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#42a5f5'
+                      stroke_width: 0
+                      opacity: 0.14
+                      extend_to: now
+                      group_by:
+                        func: max
+                        duration: 30min
+                      transform: "return x > 200 ? 1 : 0;"
+                      show:
+                        legend_value: false
+                    - entity: sensor.ep_cube_grid_power
+                      name: Sold
+                      type: area
+                      curve: stepline
+                      yaxis_id: win
+                      color: '#ab47bc'
+                      stroke_width: 0
+                      opacity: 0.14
+                      extend_to: now
+                      group_by:
+                        func: max
+                        duration: 30min
+                      transform: "return x < -200 ? 1 : 0;"
+                      show:
+                        legend_value: false
+                    - entity: event.octopus_energy_electricity_19l3564787_2200019819270_current_day_rates
+                      name: Import price
+                      type: line
+                      curve: stepline
+                      yaxis_id: price
+                      color: '#42a5f5'
+                      stroke_width: 1.5
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const h0 = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate'], include_start_time_state: true, minimal_response: true, no_attributes: true});
+                        const rates = (h0['sensor.octopus_energy_electricity_19l3564787_2200019819270_current_rate'] || []).map(r => [(r.lu ? r.lu * 1000 : new Date(start).getTime()), parseFloat(r.s) * 100]).filter(p => !isNaN(p[1]));
+                        const lastT = rates.length ? rates[rates.length - 1][0] : 0;
+                        const pub = ((hass.states['event.octopus_energy_electricity_19l3564787_2200019819270_current_day_rates'] || {attributes: {}}).attributes.rates || []).concat((hass.states['event.octopus_energy_electricity_19l3564787_2200019819270_next_day_rates'] || {attributes: {}}).attributes.rates || []);
+                        pub.forEach(r => { const t = new Date(r.start).getTime(); if (t > lastT) rates.push([t, r.value_inc_vat * 100]); });
+                        rates.sort((x, y) => x[0] - y[0]);
+                        return rates;
+                    - entity: event.octopus_energy_electricity_19l3564787_2200044183701_export_current_day_rates
+                      name: Export price
+                      type: line
+                      curve: stepline
+                      yaxis_id: price
+                      color: '#ab47bc'
+                      stroke_width: 1.5
+                      show:
+                        legend_value: false
+                      data_generator: |
+                        const h0 = await hass.callWS({type: 'history/history_during_period', start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: ['sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate'], include_start_time_state: true, minimal_response: true, no_attributes: true});
+                        const rates = (h0['sensor.octopus_energy_electricity_19l3564787_2200044183701_export_current_rate'] || []).map(r => [(r.lu ? r.lu * 1000 : new Date(start).getTime()), parseFloat(r.s) * 100]).filter(p => !isNaN(p[1]));
+                        const lastT = rates.length ? rates[rates.length - 1][0] : 0;
+                        const pub = ((hass.states['event.octopus_energy_electricity_19l3564787_2200044183701_export_current_day_rates'] || {attributes: {}}).attributes.rates || []).concat((hass.states['event.octopus_energy_electricity_19l3564787_2200044183701_export_next_day_rates'] || {attributes: {}}).attributes.rates || []);
+                        pub.forEach(r => { const t = new Date(r.start).getTime(); if (t > lastT) rates.push([t, r.value_inc_vat * 100]); });
+                        rates.sort((x, y) => x[0] - y[0]);
+                        return rates;
+                    - entity: sensor.ep_cube_battery_power
+                      name: Now
+                      type: line
+                      curve: straight
+                      yaxis_id: price
+                      color: '#ffffff'
+                      stroke_width: 2
+                      show:
+                        legend_value: false
+                        in_legend: false
+                      data_generator: |
+                        const t = Date.now();
+                        return [[t, -5], [t, 45]];
+
+      - type: grid
+        column_span: 3
+        cards:
+          - type: horizontal-stack
+            grid_options:
+              columns: full
+            cards:
+              - type: custom:html-template-card
+                ignore_line_breaks: true
+                content: |
+                  {% macro tile(label, value, unit, color) -%}
+                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+                  {%- endmacro %}
+                  {% macro ring(label, pct, color) -%}
+                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+                  {%- endmacro %}
+                  {% set c_in = states('sensor.ep_cube_week_billed_import')|float(0) %}{% set c_ex = states('sensor.ep_cube_week_billed_export')|float(0) %}{% set net = c_in - c_ex %}
+                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost week to date (billed)</div>
+                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px 20px">{{ tile('Bought', '£%.2f'|format(c_in), '', '#42a5f5') }}{{ tile('Sold', '£%.2f'|format(c_ex), 'earned', '#ab47bc') }}{{ tile('Net', '£%.2f'|format(net|abs), 'earned' if net < 0 else '', '#66bb6a') }}</div></div>
+              - type: custom:html-template-card
+                ignore_line_breaks: true
+                content: |
+                  {% macro tile(label, value, unit, color) -%}
+                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+                  {%- endmacro %}
+                  {% macro ring(label, pct, color) -%}
+                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+                  {%- endmacro %}
+                  {% set s = states('sensor.ep_cube_week_solar')|float(0) %}{% set i = states('sensor.ep_cube_week_import')|float(0) %}{% set e = states('sensor.ep_cube_week_export')|float(0) %}{% set l = states('sensor.ep_cube_week_consumed')|float(0) %}{% set sc = ((s - e) / s * 100) if s > 0 else 0 %}{% set ss = ((l - i) / l * 100) if l > 0 else 0 %}
+                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy week to date</div>
+                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Self-consumption', sc, '#4db6ac') }}{{ ring('Self-sufficiency', ss, '#66bb6a') }}</div></div>
 
   - title: Control
     path: control
