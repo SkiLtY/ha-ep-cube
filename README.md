@@ -167,13 +167,30 @@ The integration installs cleanly on a default HA setup. Two optional extras live
 
 ## 📊 Dashboard
 
-[`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) is a drop-in Lovelace dashboard mirroring the EP Cube mobile app: animated power flow, battery status, operating-mode picker, and mode-specific control cards that swap automatically when you change mode.
+[`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) is a drop-in Lovelace dashboard mirroring the EP Cube mobile app, with these views:
+
+| View | What it shows |
+|------|---------------|
+| **Now** | A "right now" headline (what the cube is doing, battery full by, next charge / export, live price), a plan strip for the day, the animated power flow, and a ±2 h power chart with Predbat's forecast dotted |
+| **Today** | Power / Battery / Prices charts (tabs) plus energy-cost and energy cards |
+| **Yesterday** | The same charts and cards for the previous day |
+| **Week** | The last 7 days, plus week-to-date energy and cost cards (needs the weekly package below) |
+| **Control** | Operating-mode picker and mode-specific control cards that swap automatically when you change mode |
 
 **Install steps:**
 
-1. **Power Flow Card Plus** — HACS → Frontend → search "Power Flow Card Plus" by [flixlix](https://github.com/flixlix/power-flow-card-plus) → Install → restart HA.
+1. **Install these HACS frontend cards**, then reload your browser:
+   - **Power Flow Card Plus** by [flixlix](https://github.com/flixlix/power-flow-card-plus)
+   - **ApexCharts Card** by [RomRider](https://github.com/RomRider/apexcharts-card)
+   - **Tabbed Card**
+   - **Lovelace Card-mod** by [thomasloven](https://github.com/thomasloven/lovelace-card-mod)
+   - **HTML Jinja2 Template card**
 2. **New dashboard** — Settings → Dashboards → Add Dashboard → "New dashboard from scratch" (title: *EP Cube*, icon: `mdi:home-battery`).
 3. **Paste YAML** — open dashboard → Edit → ⋮ → *Raw configuration editor* → replace contents with [`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) → Save.
+4. **Week-to-date cards (optional)** — copy [`examples/ha_config/packages/ep_cube_weekly.yaml`](examples/ha_config/packages/ep_cube_weekly.yaml) into your `/config/packages/` folder next to `ep_cube.yaml` and restart HA. The cards read zero until the weekly meters have data.
+
+> [!NOTE]
+> The charts and cost tiles also assume the **Octopus Energy** integration (rate and billed-cost sensors) and **Predbat** (plan entities such as `predbat.soc_kw_best`). Entity IDs for your own Octopus meters are written into the YAML — search for `octopus_energy_electricity_` and replace them with yours. Without Predbat the forecast lines and plan strip stay empty.
 
 > [!TIP]
 > Entity IDs assume the default device name `EP Cube`. If you renamed the device, or have multiple cubes, edit the YAML accordingly — HA appends `_2`, `_3`, etc. to disambiguate.
