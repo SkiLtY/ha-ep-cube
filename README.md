@@ -23,7 +23,7 @@
 
 <div align="center">
 
-![EP Cube power-flow dashboard — animated, mirrors the EP Cube mobile app](docs/dashboard.gif)
+![EP Cube dashboard — the Now tab: live headline, day plan, animated power flow and forecast chart](docs/dashboard.gif)
 
 *A live drop-in Lovelace dashboard that mirrors the EP Cube mobile app — animated power flow, mode-aware controls, ships with the integration.*
 
