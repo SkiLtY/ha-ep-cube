@@ -58,6 +58,14 @@ def dyn_shim(hass, fake_client) -> PredbatShim:
     instance.cancel_revert_timer()
 
 
+def _tier_key(tier: str) -> str:
+    """The baseline list a TOU override lands in: the weekend lists on a Saturday
+    or Sunday (local time), the weekday lists otherwise. Tests that read the
+    payload back must not assume a weekday: CI ran on a Saturday and failed."""
+    weekend = dt_util.as_local(dt_util.utcnow()).weekday() >= 5
+    return f"{tier}TimeListNonWorkDay" if weekend else f"{tier}TimeList"
+
+
 def _future(minutes: int):
     return dt_util.utcnow() + timedelta(minutes=minutes)
 
@@ -90,7 +98,7 @@ class TestForceExportModeDefault:
         await shim.discharge_start(end_time=_future(30), target_soc_pct=50.0)
         payload = _write(fake_client, 0)
         assert payload["touType"] == 0
-        assert any(s.endswith(f"_{SHIM_PRICE_PEAK:.2f}") for s in payload["peakTimeList"])
+        assert any(s.endswith(f"_{SHIM_PRICE_PEAK:.2f}") for s in payload[_tier_key("peak")])
         assert "dynamicDischargePrice" not in payload
 
 
@@ -868,7 +876,7 @@ class TestFreezeChargeReserveHold:
         await plain.charge_freeze(end_time=_future(60))
         payload = _write(fake_client, 0)
         assert payload["workStatus"] == "2"
-        assert payload.get("midPeakTimeList"), "the legacy mid-peak slot should be written"
+        assert payload.get(_tier_key("midPeak")), "the legacy mid-peak slot should be written"
         plain.cancel_revert_timer()
 
     async def test_a_tou_baseline_falls_back_to_the_tou_slot(
