@@ -13,7 +13,7 @@ assert the call patterns directly.
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.util import dt as dt_util
@@ -409,6 +409,8 @@ def _export_slots(prices):
 def priced_shim(hass, fake_client):
     coordinator = MagicMock()
     coordinator.data = {"import": [], "export": []}
+    coordinator.async_refresh = AsyncMock()
+    coordinator.last_update_success = True
     instance = PredbatShim(
         hass=hass, entry_id="test-entry", client=fake_client,
         force_export_mode=FORCE_EXPORT_MODE_DYNAMIC, price_coordinator=coordinator,
@@ -565,6 +567,8 @@ def charge_shim(hass, fake_client):
 
     prices = MagicMock()
     prices.data = _price_data()
+    prices.async_refresh = AsyncMock()
+    prices.last_update_success = True
     status = MagicMock()
     status.data = MagicMock(soc_pct=60.0, grid_power_w=0.0, battery_power_w=0.0)
     instance = PredbatShim(
@@ -576,6 +580,53 @@ def charge_shim(hass, fake_client):
     instance.prices, instance.status = prices, status
     yield instance
     instance.cancel_revert_timer()
+
+
+class TestNoPriceCheck:
+    """The "no price data" warning judges fresh data, not whatever was fetched
+    at start-up (the price coordinator only polls while a price sensor is on)."""
+
+    _create = "custom_components.ep_cube.services.persistent_notification.async_create"
+    _dismiss = "custom_components.ep_cube.services.persistent_notification.async_dismiss"
+
+    async def test_stale_data_is_refreshed_before_judging(self, charge_shim):
+        charge_shim.prices.data = _price_data(imp=False)
+
+        async def refresh():
+            charge_shim.prices.data = _price_data()
+
+        charge_shim.prices.async_refresh = AsyncMock(side_effect=refresh)
+        with patch(self._create) as create:
+            await charge_shim.charge_start(end_time=_future(60), target_soc_pct=72.0)
+        charge_shim.prices.async_refresh.assert_awaited()
+        create.assert_not_called()
+
+    async def test_still_no_price_after_the_refresh_warns(self, charge_shim):
+        charge_shim.prices.data = _price_data(imp=False)
+        with patch(self._create) as create:
+            await charge_shim.charge_start(end_time=_future(60), target_soc_pct=72.0)
+        create.assert_called_once()
+        assert create.call_args.kwargs["title"] == "EP Cube: no price data"
+
+    async def test_a_failed_refresh_judges_nothing(self, charge_shim):
+        charge_shim.prices.data = _price_data(imp=False)
+        charge_shim.prices.last_update_success = False
+        with patch(self._create) as create:
+            await charge_shim.charge_start(end_time=_future(60), target_soc_pct=72.0)
+        create.assert_not_called()
+
+    async def test_a_refresh_that_raises_never_blocks_the_write(self, charge_shim, fake_client):
+        charge_shim.prices.async_refresh = AsyncMock(side_effect=RuntimeError("boom"))
+        with patch(self._create) as create:
+            await charge_shim.charge_start(end_time=_future(60), target_soc_pct=72.0)
+        create.assert_not_called()
+        assert fake_client.switch_mode.await_count >= 1
+
+    async def test_a_price_clears_an_earlier_warning(self, charge_shim):
+        with patch(self._dismiss) as dismiss:
+            await charge_shim.charge_start(end_time=_future(60), target_soc_pct=72.0)
+        dismiss.assert_called_once()
+        assert dismiss.call_args.args[1] == "ep_cube_test-entry_no_price"
 
 
 class TestDynamicChargeOption:

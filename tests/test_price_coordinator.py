@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -49,8 +49,19 @@ class TestCoordinator:
         with patch("custom_components.ep_cube.coordinator.dt_util.now",
                    return_value=datetime(2026, 10, 15, 10, 0, tzinfo=timezone.utc)):
             data = await _coordinator(hass, client)._async_update_data()
-        client.get_dynamic_prices.assert_awaited_once_with()
+        client.get_dynamic_prices.assert_awaited_once_with("2026-10-15")
         assert data["import"][0]["price"] == 20.0 and data["export"][0]["price"] == 10.0
+
+    async def test_just_after_local_midnight_asks_for_the_local_date(self, hass):
+        # 00:30 on 17 Oct in summer time is still 16 Oct in UTC: the cloud's own
+        # "today" (no date) would answer for the 16th, so the date is always sent.
+        client = MagicMock()
+        client.get_dynamic_prices = AsyncMock(return_value=_day("2026-10-17", 20.0))
+        bst = timezone(timedelta(hours=1))
+        with patch("custom_components.ep_cube.coordinator.dt_util.now",
+                   return_value=datetime(2026, 10, 17, 0, 30, tzinfo=bst)):
+            await _coordinator(hass, client)._async_update_data()
+        client.get_dynamic_prices.assert_awaited_once_with("2026-10-17")
 
     async def test_after_the_afternoon_tomorrow_is_added_and_sorted(self, hass):
         async def prices(date=None):
@@ -76,7 +87,7 @@ class TestCoordinator:
 
     async def test_missing_tomorrow_is_not_an_error(self, hass):
         async def prices(date=None):
-            if date:
+            if date == "2026-10-16":                  # tomorrow is not published yet
                 raise EPCubeError("not published")
             return _day("2026-10-15", 20.0)
 

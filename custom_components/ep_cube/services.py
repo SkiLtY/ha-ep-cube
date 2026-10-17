@@ -688,7 +688,7 @@ class PredbatShim:
         if self._matches_active(params):
             _LOGGER.debug("discharge_start (dynamic): idempotent no-op")
             return
-        self._warn_if_cube_has_no_price("export", "export")
+        await self._warn_if_cube_has_no_price("export", "export")
         sell_above = (
             sell_above_override
             if sell_above_override is not None
@@ -737,7 +737,7 @@ class PredbatShim:
         if self._matches_active(params):
             _LOGGER.debug("charge_start (dynamic): idempotent no-op")
             return
-        self._warn_if_cube_has_no_price("import", "charge")
+        await self._warn_if_cube_has_no_price("import", "charge")
         payload = payload_from_switch_mode_read(
             self.client.dev_id,
             self._baseline or {},
@@ -766,20 +766,33 @@ class PredbatShim:
     # ------------------------------------------------------------------
     # Dynamic charge safeguards
     # ------------------------------------------------------------------
-    def _warn_if_cube_has_no_price(self, side: str, what: str) -> None:
+    async def _warn_if_cube_has_no_price(self, side: str, what: str) -> None:
         """Before a Dynamic window: does the cube have a price for this half-hour?
 
         With no valid price data the cube runs in Self-Consumption (the app's own
         wording), so a Dynamic charge or export would silently not happen. The
-        price coordinator reads the same data the cube uses; if it has been
-        fetched and has nothing for the current slot, say so. The write is still
-        made (it does no harm); this only makes the miss visible."""
+        price coordinator reads the same data the cube uses; if it has nothing for
+        the current slot, say so. The write is still made (it does no harm); this
+        only makes the miss visible.
+
+        The coordinator only polls while a price sensor is enabled (they are off by
+        default), so its data can be hours old: refresh it first, and judge nothing
+        if the refresh fails."""
         coordinator = self.price_coordinator
+        if coordinator is None:
+            return          # no price source: nothing to judge by
+        try:
+            await coordinator.async_refresh()
+        except Exception as err:  # noqa: BLE001 - a failed look-up must never block the write
+            _LOGGER.debug("price refresh before a Dynamic %s failed: %s", what, err)
+            return
         data = getattr(coordinator, "data", None)
-        if coordinator is None or data is None:
-            return          # no price source, or not fetched yet: nothing to judge by
+        if data is None or not getattr(coordinator, "last_update_success", True):
+            return          # could not fetch: nothing to judge by
+        notification_id = f"ep_cube_{self.entry_id}_no_price"
         now = dt_util.utcnow()
         if any(s["start"] <= now < s["end"] for s in data.get(side, [])):
+            persistent_notification.async_dismiss(self.hass, notification_id)
             return
         message = (
             f"The cube has no {side} price for the current half-hour, so a Dynamic {what} "
@@ -789,7 +802,7 @@ class PredbatShim:
         _LOGGER.warning("dynamic %s: %s", what, message)
         persistent_notification.async_create(
             self.hass, message, title="EP Cube: no price data",
-            notification_id=f"ep_cube_{self.entry_id}_no_price",
+            notification_id=notification_id,
         )
 
     def _schedule_charge_check(self, end_time: datetime) -> None:

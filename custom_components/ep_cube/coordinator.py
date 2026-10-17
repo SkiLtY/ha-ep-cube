@@ -255,7 +255,10 @@ class EPCubePriceCoordinator(DataUpdateCoordinator[dict[str, list[dict[str, Any]
     async def _async_update_data(self) -> dict[str, list[dict[str, Any]]]:
         now = dt_util.now()
         try:
-            raw = await self.client.get_dynamic_prices()
+            # Always ask for the local date explicitly: with no date the cloud
+            # answers for its own "today", which is the UTC day, so just after
+            # local midnight in summer time it returns yesterday's prices.
+            raw = await self.client.get_dynamic_prices(now.strftime("%Y-%m-%d"))
         except EPCubeError as err:
             raise UpdateFailed(f"dynamic prices fetch failed: {err}") from err
 
