@@ -110,7 +110,7 @@ views:
               <div style="display:flex;align-items:baseline;gap:6px"><span style="font-size:46px;font-weight:700;color:{{ col }}">{{ '%.1f'|format(big / 1000) }}</span><span style="font-size:18px;opacity:.6">kW</span></div>
               <div style="display:flex;align-items:center;gap:14px"><div style="width:72px;height:72px;border-radius:50%;background:conic-gradient(#4db6ac {{ soc|round(0)|int }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:56px;height:56px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700">{{ soc|round(0)|int }}%</div></div><div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">Battery</div><div style="font-size:14px;margin-top:4px">{{ '%.1f'|format(states('sensor.ep_cube_battery_energy')|float(0)) }} of {{ '%.0f'|format(states('sensor.ep_cube_battery_capacity')|float(0)) }} kWh</div><div style="font-size:12px;opacity:.6">reserve {{ states('sensor.ep_cube_reserve_soc')|float(0)|round(0)|int }}%</div></div></div>
               </div>
-              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 24px;margin-top:22px;padding-top:18px;border-top:1px solid rgba(255,255,255,.08)">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px 24px;margin-top:22px;padding-top:18px;border-top:1px solid rgba(255,255,255,.08)">
               {{ tile('Battery full' if ns.full else 'Battery', ('about ' ~ ns.full.strftime('%H:%M')) if ns.full else ('Full' if soc >= 98 else 'not filling'), '', '#4db6ac') }}
               {% if cs and ce and as_datetime(cs) <= now() <= as_datetime(ce) %}{{ tile('Charging until', as_datetime(ce).strftime('%H:%M'), '', '#43a047') }}{% elif cs and ce and as_datetime(cs) > now() %}{{ tile('Next charge', as_datetime(cs).strftime('%H:%M') ~ '–' ~ as_datetime(ce).strftime('%H:%M'), '', '#43a047') }}{% else %}{{ tile('Next charge', 'none planned', '', '#43a047') }}{% endif %}
               {% set elim = state_attr('predbat.best_export_limit', 'results') or {} %}{% set ehold = (elim[es]|float(100) >= 90) if (es and es in elim) else false %}{% if es and ee and as_datetime(es) <= now() <= as_datetime(ee) %}{{ tile('Holding until' if hold else 'Exporting until', as_datetime(ee).strftime('%H:%M'), '', '#90a4ae' if hold else '#fb8c00') }}{% elif es and ee and as_datetime(es) > now() %}{{ tile('Next hold' if ehold else 'Next export', as_datetime(es).strftime('%H:%M') ~ '–' ~ as_datetime(ee).strftime('%H:%M'), '', '#90a4ae' if ehold else '#fb8c00') }}{% else %}{{ tile('Next export', 'none planned', '', '#fb8c00') }}{% endif %}
@@ -1064,36 +1064,36 @@ views:
       - type: grid
         column_span: 3
         cards:
-          - type: horizontal-stack
+          - type: custom:html-template-card
             grid_options:
-              columns: full
-            cards:
-              - type: custom:html-template-card
-                ignore_line_breaks: true
-                content: |
-                  {% macro tile(label, value, unit, color) -%}
-                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
-                  {%- endmacro %}
-                  {% macro ring(label, pct, color) -%}
-                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
-                  {%- endmacro %}
-                  {% set p_today = states('predbat.cost_today')|float(0) / 100 %}{% set p_yest = states('predbat.cost_yesterday')|float(0) / 100 %}{% set p_sav = states('predbat.savings_yesterday_predbat')|float(0) / 100 %}
-                  {% set a_imp = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'total_without_standing_charge')|float(states('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost')|float(0)) %}{% set a_exp = state_attr('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost', 'total_without_standing_charge')|float(states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost')|float(0)) %}{% set a_net = a_imp - a_exp %}{% set a_reset = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'last_reset') %}
-                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost</div>
-                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px 20px">{{ tile('Today so far (plan)', '£%.2f'|format(p_today|abs), 'earned' if p_today < 0 else '', '#42a5f5' if p_today >= 0 else '#66bb6a') }}{{ tile('Yesterday (plan)', '£%.2f'|format(p_yest|abs), 'earned' if p_yest < 0 else '', '#4db6ac' if p_yest >= 0 else '#66bb6a') }}{{ tile((as_timestamp(a_reset)|timestamp_custom('%d %b', true) ~ ' ' if a_reset else '') ~ '(billed energy)', '£%.2f'|format(a_net|abs), 'earned' if a_net < 0 else '', '#66bb6a') }}</div></div>
-              - type: custom:html-template-card
-                ignore_line_breaks: true
-                content: |
-                  {% macro tile(label, value, unit, color) -%}
-                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
-                  {%- endmacro %}
-                  {% macro ring(label, pct, color) -%}
-                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
-                  {%- endmacro %}
-                  {% set s = states('sensor.ep_cube_solar_today')|float(0) %}{% set i = states('sensor.ep_cube_grid_import_today')|float(0) %}{% set e = states('sensor.ep_cube_grid_export_today')|float(0) %}{% set l = states('sensor.ep_cube_backup_loads_today')|float(0) %}{% set sc = states('sensor.ep_cube_self_consumption_today')|float(0) %}{% set ss = states('sensor.ep_cube_self_sufficiency_today')|float(0) %}
-                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy today</div>
-                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
-                  <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Self-consumption', sc, '#4db6ac') }}{{ ring('Self-sufficiency', ss, '#66bb6a') }}</div></div>
+              columns: 18
+            ignore_line_breaks: true
+            content: |
+              {% macro tile(label, value, unit, color) -%}
+              <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+              {%- endmacro %}
+              {% macro ring(label, pct, color) -%}
+              <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+              {%- endmacro %}
+              {% set p_today = states('predbat.cost_today')|float(0) / 100 %}{% set p_yest = states('predbat.cost_yesterday')|float(0) / 100 %}{% set p_sav = states('predbat.savings_yesterday_predbat')|float(0) / 100 %}
+              {% set a_imp = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'total_without_standing_charge')|float(states('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost')|float(0)) %}{% set a_exp = state_attr('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost', 'total_without_standing_charge')|float(states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost')|float(0)) %}{% set a_net = a_imp - a_exp %}{% set a_reset = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'last_reset') %}
+              <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">{{ tile('Today so far (plan)', '£%.2f'|format(p_today|abs), 'earned' if p_today < 0 else '', '#42a5f5' if p_today >= 0 else '#66bb6a') }}{{ tile('Yesterday (plan)', '£%.2f'|format(p_yest|abs), 'earned' if p_yest < 0 else '', '#4db6ac' if p_yest >= 0 else '#66bb6a') }}{{ tile((as_timestamp(a_reset)|timestamp_custom('%d %b', true) ~ ' ' if a_reset else '') ~ '(billed energy)', '£%.2f'|format(a_net|abs), 'earned' if a_net < 0 else '', '#66bb6a') }}</div></div>
+          - type: custom:html-template-card
+            grid_options:
+              columns: 18
+            ignore_line_breaks: true
+            content: |
+              {% macro tile(label, value, unit, color) -%}
+              <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+              {%- endmacro %}
+              {% macro ring(label, pct, color) -%}
+              <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+              {%- endmacro %}
+              {% set s = states('sensor.ep_cube_solar_today')|float(0) %}{% set i = states('sensor.ep_cube_grid_import_today')|float(0) %}{% set e = states('sensor.ep_cube_grid_export_today')|float(0) %}{% set l = states('sensor.ep_cube_backup_loads_today')|float(0) %}{% set sc = states('sensor.ep_cube_self_consumption_today')|float(0) %}{% set ss = states('sensor.ep_cube_self_sufficiency_today')|float(0) %}
+              <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy today</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Self-consumption', sc, '#4db6ac') }}{{ ring('Self-sufficiency', ss, '#66bb6a') }}</div></div>
 
   - title: Yesterday
     path: yesterday
@@ -1533,36 +1533,36 @@ views:
       - type: grid
         column_span: 3
         cards:
-          - type: horizontal-stack
+          - type: custom:html-template-card
             grid_options:
-              columns: full
-            cards:
-              - type: custom:html-template-card
-                ignore_line_breaks: true
-                content: |
-                  {% macro tile(label, value, unit, color) -%}
-                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
-                  {%- endmacro %}
-                  {% macro ring(label, pct, color) -%}
-                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
-                  {%- endmacro %}
-                  {% set p_yest = states('predbat.cost_yesterday')|float(0) / 100 %}{% set p_sav = states('predbat.savings_yesterday_predbat')|float(0) / 100 %}
-                  {% set a_imp = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'total_without_standing_charge')|float(states('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost')|float(0)) %}{% set a_exp = state_attr('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost', 'total_without_standing_charge')|float(states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost')|float(0)) %}{% set a_net = a_imp - a_exp %}{% set a_reset = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'last_reset') %}
-                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost yesterday</div>
-                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px 20px">{{ tile('Yesterday (plan)', '£%.2f'|format(p_yest|abs), 'earned' if p_yest < 0 else '', '#4db6ac' if p_yest >= 0 else '#66bb6a') }}{{ tile((as_timestamp(a_reset)|timestamp_custom('%d %b', true) ~ ' ' if a_reset else '') ~ '(billed energy)', '£%.2f'|format(a_net|abs), 'earned' if a_net < 0 else '', '#66bb6a') }}{{ tile('Battery saving (plan)', ('-' if p_sav < 0 else '') ~ '£%.2f'|format(p_sav|abs), '', '#66bb6a' if p_sav >= 0 else '#ef5350') }}</div></div>
-              - type: custom:html-template-card
-                ignore_line_breaks: true
-                content: |
-                  {% macro tile(label, value, unit, color) -%}
-                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
-                  {%- endmacro %}
-                  {% macro ring(label, pct, color) -%}
-                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
-                  {%- endmacro %}
-                  {% set s = states('sensor.ep_cube_solar_yesterday')|float(0) %}{% set i = states('sensor.ep_cube_grid_import_yesterday')|float(0) %}{% set e = states('sensor.ep_cube_grid_export_yesterday')|float(0) %}{% set l = states('sensor.ep_cube_backup_loads_yesterday')|float(0) %}{% set sc = states('sensor.ep_cube_self_consumption_yesterday')|float(0) %}{% set ss = states('sensor.ep_cube_self_sufficiency_yesterday')|float(0) %}
-                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy yesterday</div>
-                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
-                  <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Self-consumption', sc, '#4db6ac') }}{{ ring('Self-sufficiency', ss, '#66bb6a') }}</div></div>
+              columns: 18
+            ignore_line_breaks: true
+            content: |
+              {% macro tile(label, value, unit, color) -%}
+              <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+              {%- endmacro %}
+              {% macro ring(label, pct, color) -%}
+              <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+              {%- endmacro %}
+              {% set p_yest = states('predbat.cost_yesterday')|float(0) / 100 %}{% set p_sav = states('predbat.savings_yesterday_predbat')|float(0) / 100 %}
+              {% set a_imp = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'total_without_standing_charge')|float(states('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost')|float(0)) %}{% set a_exp = state_attr('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost', 'total_without_standing_charge')|float(states('sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost')|float(0)) %}{% set a_net = a_imp - a_exp %}{% set a_reset = state_attr('sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost', 'last_reset') %}
+              <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost yesterday</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">{{ tile('Yesterday (plan)', '£%.2f'|format(p_yest|abs), 'earned' if p_yest < 0 else '', '#4db6ac' if p_yest >= 0 else '#66bb6a') }}{{ tile((as_timestamp(a_reset)|timestamp_custom('%d %b', true) ~ ' ' if a_reset else '') ~ '(billed energy)', '£%.2f'|format(a_net|abs), 'earned' if a_net < 0 else '', '#66bb6a') }}{{ tile('Battery saving (plan)', ('-' if p_sav < 0 else '') ~ '£%.2f'|format(p_sav|abs), '', '#66bb6a' if p_sav >= 0 else '#ef5350') }}</div></div>
+          - type: custom:html-template-card
+            grid_options:
+              columns: 18
+            ignore_line_breaks: true
+            content: |
+              {% macro tile(label, value, unit, color) -%}
+              <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+              {%- endmacro %}
+              {% macro ring(label, pct, color) -%}
+              <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+              {%- endmacro %}
+              {% set s = states('sensor.ep_cube_solar_yesterday')|float(0) %}{% set i = states('sensor.ep_cube_grid_import_yesterday')|float(0) %}{% set e = states('sensor.ep_cube_grid_export_yesterday')|float(0) %}{% set l = states('sensor.ep_cube_backup_loads_yesterday')|float(0) %}{% set sc = states('sensor.ep_cube_self_consumption_yesterday')|float(0) %}{% set ss = states('sensor.ep_cube_self_sufficiency_yesterday')|float(0) %}
+              <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy yesterday</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Self-consumption', sc, '#4db6ac') }}{{ ring('Self-sufficiency', ss, '#66bb6a') }}</div></div>
 
   - title: Week
     path: week
@@ -2116,35 +2116,35 @@ views:
       - type: grid
         column_span: 3
         cards:
-          - type: horizontal-stack
+          - type: custom:html-template-card
             grid_options:
-              columns: full
-            cards:
-              - type: custom:html-template-card
-                ignore_line_breaks: true
-                content: |
-                  {% macro tile(label, value, unit, color) -%}
-                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
-                  {%- endmacro %}
-                  {% macro ring(label, pct, color) -%}
-                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
-                  {%- endmacro %}
-                  {% set c_in = states('sensor.ep_cube_week_billed_import')|float(0) %}{% set c_ex = states('sensor.ep_cube_week_billed_export')|float(0) %}{% set net = c_in - c_ex %}
-                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost week to date (billed, incl. standing charge)</div>
-                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px 20px">{{ tile('Bought', '£%.2f'|format(c_in), '', '#42a5f5') }}{{ tile('Sold', '£%.2f'|format(c_ex), 'earned', '#ab47bc') }}{{ tile('Net', '£%.2f'|format(net|abs), 'earned' if net < 0 else '', '#66bb6a') }}</div></div>
-              - type: custom:html-template-card
-                ignore_line_breaks: true
-                content: |
-                  {% macro tile(label, value, unit, color) -%}
-                  <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
-                  {%- endmacro %}
-                  {% macro ring(label, pct, color) -%}
-                  <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
-                  {%- endmacro %}
-                  {% set s = states('sensor.ep_cube_week_solar')|float(0) %}{% set i = states('sensor.ep_cube_week_import')|float(0) %}{% set e = states('sensor.ep_cube_week_export')|float(0) %}{% set l = states('sensor.ep_cube_week_consumed')|float(0) %}{% set sc = ((s - e) / s * 100) if s > 0 else 0 %}{% set ss = ((l - i) / l * 100) if l > 0 else 0 %}
-                  <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy week to date</div>
-                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
-                  <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Self-consumption', sc, '#4db6ac') }}{{ ring('Self-sufficiency', ss, '#66bb6a') }}</div></div>
+              columns: 18
+            ignore_line_breaks: true
+            content: |
+              {% macro tile(label, value, unit, color) -%}
+              <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+              {%- endmacro %}
+              {% macro ring(label, pct, color) -%}
+              <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+              {%- endmacro %}
+              {% set c_in = states('sensor.ep_cube_week_billed_import')|float(0) %}{% set c_ex = states('sensor.ep_cube_week_billed_export')|float(0) %}{% set net = c_in - c_ex %}
+              <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost week to date (billed, incl. standing charge)</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">{{ tile('Bought', '£%.2f'|format(c_in), '', '#42a5f5') }}{{ tile('Sold', '£%.2f'|format(c_ex), 'earned', '#ab47bc') }}{{ tile('Net', '£%.2f'|format(net|abs), 'earned' if net < 0 else '', '#66bb6a') }}</div></div>
+          - type: custom:html-template-card
+            grid_options:
+              columns: 18
+            ignore_line_breaks: true
+            content: |
+              {% macro tile(label, value, unit, color) -%}
+              <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+              {%- endmacro %}
+              {% macro ring(label, pct, color) -%}
+              <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+              {%- endmacro %}
+              {% set s = states('sensor.ep_cube_week_solar')|float(0) %}{% set i = states('sensor.ep_cube_week_import')|float(0) %}{% set e = states('sensor.ep_cube_week_export')|float(0) %}{% set l = states('sensor.ep_cube_week_consumed')|float(0) %}{% set sc = ((s - e) / s * 100) if s > 0 else 0 %}{% set ss = ((l - i) / l * 100) if l > 0 else 0 %}
+              <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy week to date</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Self-consumption', sc, '#4db6ac') }}{{ ring('Self-sufficiency', ss, '#66bb6a') }}</div></div>
 
   - title: Control
     path: control
