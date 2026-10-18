@@ -858,7 +858,8 @@ class EPCubeSensor(CoordinatorEntity[EPCubeCoordinator], RestoreSensor):
     def available(self) -> bool:
         if not super().available:
             return False
-        check = self.entity_description.available_fn
+        # The PV-string and user-reserve subclasses use their own description types.
+        check = getattr(self.entity_description, "available_fn", None)
         if check is None or self.coordinator.data is None:
             return True
         return check(self.coordinator.data)
