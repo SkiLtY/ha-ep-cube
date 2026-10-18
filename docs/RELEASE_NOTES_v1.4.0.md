@@ -60,11 +60,12 @@ New services for testing: `debug_probe` (read-only cloud routes, with name/Wi-Fi
 
 - **The HTTP 500 on `switchMode` is fixed.** The slot-based TOU override copied `touType: 1` from the live read-back when the cube was in Dynamic mode, which the cloud rejects. TOU writes now force `touType: 0`.
 - A manual mode change from `select.ep_cube_operating_mode` now also updates the shim's held baseline, so a later revert doesn't undo it.
+- **The "no price data" check no longer raises false alarms.** Before a Dynamic charge or export the integration now refreshes the price data and asks the cloud for the local date (it used to default to the UTC day), so stale prices just after midnight no longer trigger a spurious notification.
 - The weekly helper package integrates power with `method: left` (the default *trapezoidal* method invents energy across long flat stretches on a sensor that only updates on change; it produced a phantom ~20 kWh on the first 5-minute step of a grid charge). **If you copied the helper package earlier, switch your Riemann helpers to *Left*.**
 
 ### 🧪 Tests
 
-392 passing, 1 skipped, including new end-to-end tests that drive the Dynamic shim through the real client against the mock server, options-flow tests, and tests for the coordinator's transient-error handling. The mock server now models Dynamic mode and its TOU-write quirk, `getSolarPvPower` and the `dynamicPrice` routes.
+398 passing, 1 skipped, including new end-to-end tests that drive the Dynamic shim through the real client against the mock server, options-flow tests, and tests for the coordinator's transient-error handling. The mock server now models Dynamic mode and its TOU-write quirk, `getSolarPvPower` and the `dynamicPrice` routes.
 
 ### 📦 Upgrading
 
