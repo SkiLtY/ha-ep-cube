@@ -216,6 +216,8 @@ The integration ships cube-native daily kWh sensors that wire straight into HA's
 <details>
 <summary><h2>🛠️ For contributors</h2></summary>
 
+Pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) for how, and for the licence contributions come under (MIT).
+
 ### 💡 Why This Exists
 
 The EP Cube has **no documented local API** — no Modbus, no MQTT. All control goes through Canadian Solar's cloud via mobile-app endpoints.
