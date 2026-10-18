@@ -1152,6 +1152,22 @@ class PredbatShim:
             live = dict(live)
             live["backupPowerReserveSoc"] = str(DEFAULT_CHARGING_LIMIT_PCT)
         self._baseline, stripped = _strip_shim_slots(live)
+        if (
+            stripped
+            and _is_empty_tou(self._baseline)
+            and not _is_user_dynamic_baseline(self._baseline)
+        ):
+            # The cube is in ToU and the only slots were the shim's own: a freeze (or
+            # other slot override) whose revert never ran, e.g. HA restarted mid-window
+            # (seen 2026-10-18). A user's own ToU mode has slots of its own, so what is
+            # left is a side effect of the override, not a mode the user chose. Adopting
+            # it made every later revert put the cube back in ToU.
+            _LOGGER.warning(
+                "baseline snapshot found only shim slots in ToU mode (an override "
+                "left behind, e.g. by an HA restart); treating the baseline as "
+                "Self-Consumption"
+            )
+            self._baseline = {**self._baseline, "workStatus": WORK_STATUS_SELF_CONSUMPTION}
         if stripped:
             _LOGGER.info(
                 "baseline snapshotted: workStatus=%s self_reserve=%s backup_reserve=%s "

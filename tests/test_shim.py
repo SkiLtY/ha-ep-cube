@@ -180,6 +180,66 @@ class TestBaselineSnapshot:
         assert shim._baseline["peakTimeList"] == []
         assert shim._baseline["offPeakTimeList"] == ["00:30_04:30_0.05"]
 
+    def _tou_read(self, **lists):
+        base = {
+            "devId": "5613", "workStatus": "2",
+            "selfConsumptioinReserveSoc": "20", "backupPowerReserveSoc": "100",
+            "allowChargingXiaGrid": "0",
+            "peakTimeList": [], "midPeakTimeList": [], "offPeakTimeList": [],
+            "peakTimeListNonWorkDay": [], "midPeakTimeListNonWorkDay": [],
+            "offPeakTimeListNonWorkDay": [],
+            "activeWeek": [1, 2, 3, 4, 5], "activeWeekNonWorkDay": [6, 7],
+            "dayLightSavingTime": False,
+            "dayLightPeakTimeList": [], "dayLightMidPeakTimeList": [],
+            "dayLightOffPeakTimeList": [],
+            "dayLightPeakTimeListNonWorkDay": [], "dayLightMidPeakTimeListNonWorkDay": [],
+            "dayLightOffPeakTimeListNonWorkDay": [],
+            "dayLightActiveWeek": [1, 2, 3, 4, 5],
+            "dayLightActiveWeekNonWorkDay": [6, 7],
+            "touType": 0,
+        }
+        base.update(lists)
+        return base
+
+    async def test_tou_with_only_a_leftover_shim_slot_is_not_adopted(self, hass, fake_client):
+        # HA restarted mid-freeze: the cube is in ToU only because of the freeze's
+        # mid-peak slot. The user's mode (Self-Consumption) must be the baseline.
+        fake_client.get_switch_mode.return_value = self._tou_read(
+            midPeakTimeList=[f"11:00_11:30_{SHIM_PRICE_MID_PEAK:.2f}"],
+            midPeakTimeListNonWorkDay=[f"11:00_11:30_{SHIM_PRICE_MID_PEAK:.2f}"],
+        )
+        shim = PredbatShim(hass=hass, entry_id="x", client=fake_client)
+        await shim._snapshot_baseline()
+        assert shim._baseline["workStatus"] == "1"
+        assert shim._baseline["midPeakTimeList"] == []
+
+    async def test_users_own_tou_mode_with_slots_is_kept(self, hass, fake_client):
+        # Real user ToU slots alongside a leftover shim slot: ToU is the user's mode.
+        fake_client.get_switch_mode.return_value = self._tou_read(
+            offPeakTimeList=["00:30_05:30_0.05"],
+            midPeakTimeList=[f"11:00_11:30_{SHIM_PRICE_MID_PEAK:.2f}"],
+        )
+        shim = PredbatShim(hass=hass, entry_id="x", client=fake_client)
+        await shim._snapshot_baseline()
+        assert shim._baseline["workStatus"] == "2"
+        assert shim._baseline["offPeakTimeList"] == ["00:30_05:30_0.05"]
+
+    async def test_users_empty_tou_mode_without_shim_slots_is_kept(self, hass, fake_client):
+        # Nothing of ours on the cube, so nothing to explain it: leave the user's mode.
+        fake_client.get_switch_mode.return_value = self._tou_read()
+        shim = PredbatShim(hass=hass, entry_id="x", client=fake_client)
+        await shim._snapshot_baseline()
+        assert shim._baseline["workStatus"] == "2"
+
+    async def test_users_dynamic_tariff_mode_is_kept(self, hass, fake_client):
+        live = self._tou_read(midPeakTimeList=[f"11:00_11:30_{SHIM_PRICE_MID_PEAK:.2f}"])
+        live.update(touType=1, dynamicChargePrice="12.00", dynamicDischargePrice="30.00")
+        fake_client.get_switch_mode.return_value = live
+        shim = PredbatShim(hass=hass, entry_id="x", client=fake_client)
+        await shim._snapshot_baseline()
+        assert shim._baseline["workStatus"] == "2"
+        assert int(shim._baseline["touType"]) == 1
+
     async def test_patch_baseline_updates_field(self, shim):
         await shim.charge_freeze(end_time=_future(30))
         shim.patch_baseline("selfConsumptioinReserveSoc", "30")
