@@ -675,6 +675,20 @@ class TestEvFields:
         assert status.ev_power_w == 0.0
         assert status.ev_today_kwh == 0.0
 
+    async def test_eu_hasevse_flag_also_counts(
+        self, aioclient_mock, client_factory, home_device_info, get_switch_mode
+    ):
+        # The EU payload has `hasEvse` rather than `hasEv`.
+        info = {**home_device_info, "hasEvse": True, "evPower": 72.0, "evElectricity": 6.4}
+        info.pop("hasEv", None)
+        aioclient_mock.get(_url_re("/api/device/homeDeviceInfo"), json=_envelope(info))
+        aioclient_mock.get(_url_re("/api/device/getSwitchMode"), json=_envelope(get_switch_mode))
+
+        status = await client_factory().get_status()
+
+        assert status.has_ev is True
+        assert status.ev_power_w == 720.0
+
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [(True, True), (False, False), ("1", True), ("0", False),

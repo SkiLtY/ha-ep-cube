@@ -656,7 +656,9 @@ class EPCubeClient:
             off_grid_seconds=int(info.get("offGridPowerSupplyTime", 0) or 0),
             battery_charge_today_kwh=self._battery_charge_today_kwh,
             battery_discharge_today_kwh=self._battery_discharge_today_kwh,
-            has_ev=_truthy(info.get("hasEv")),
+            # US cubes report `hasEv`; the EU payload seen so far carries `hasEvse`
+            # (False here, no `hasEv` key), so either one counts.
+            has_ev=_truthy(info.get("hasEv")) or _truthy(info.get("hasEvse")),
             ev_power_w=ev_w,
             ev_today_kwh=_kwh_str_to_float(info.get("evElectricity")),
         )
