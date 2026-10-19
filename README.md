@@ -187,7 +187,7 @@ The integration installs cleanly on a default HA setup. Two optional extras live
    - **HTML Jinja2 Template card**
 2. **New dashboard** — Settings → Dashboards → Add Dashboard → "New dashboard from scratch" (title: *EP Cube*, icon: `mdi:home-battery`).
 3. **Paste YAML** — open dashboard → Edit → ⋮ → *Raw configuration editor* → replace contents with [`dashboards/ep_cube.yaml`](dashboards/ep_cube.yaml) → Save.
-4. **Week-to-date cards (optional)** — copy [`examples/ha_config/packages/ep_cube_weekly.yaml`](examples/ha_config/packages/ep_cube_weekly.yaml) into your `/config/packages/` folder next to `ep_cube.yaml` and restart HA. The cards read zero until the weekly meters have data.
+4. **Week-to-date cards (optional)** — copy [`examples/ha_config/packages/ep_cube_weekly.yaml`](examples/ha_config/packages/ep_cube_weekly.yaml) into your `/config/packages/` folder next to `ep_cube.yaml` and restart HA. The cards read zero until the weekly meters have data. The two billed-cost automations in that file mention your Octopus meter serial and MPAN, so replace the `<...>` parts with the ones in your own entity names first. If you copied an earlier version of this file (before v1.4.2), replace it with the new one: the old billed meters could only add increases, so they under-counted the week.
 
 > [!NOTE]
 > The charts and cost tiles also assume the **Octopus Energy** integration (rate and billed-cost sensors) and **Predbat** (plan entities such as `predbat.soc_kw_best`). Entity IDs for your own Octopus meters are written into the YAML — search for `octopus_energy_electricity_` and replace them with yours. Without Predbat the forecast lines and plan strip stay empty.

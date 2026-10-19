@@ -1,9 +1,14 @@
-# Week-to-date energy totals for the EP Cube dashboard's Week tab.
+# Week-to-date totals for the EP Cube dashboard's Week tab.
 #
-# The integration only exposes "today" and "yesterday" figures. These weekly
-# utility meters sit on top of the *_today sensors (same pattern as the
+# The integration only exposes "today" and "yesterday" figures. The energy
+# meters below sit on top of the *_today sensors (same pattern as the
 # monthly/yearly battery meters in ep_cube.yaml) and reset on Monday.
 # Drop this file next to ep_cube.yaml in /config/packages/ and restart.
+#
+# BEFORE YOU USE IT: the two billed-cost sources in the automations near the
+# bottom contain your Octopus meter serial and MPAN. Replace the <...> parts
+# with the ones in your own entity names (Developer tools > States, search
+# "previous_accumulative_cost").
 utility_meter:
   ep_cube_week_solar:
     source: sensor.ep_cube_solar_today
@@ -17,12 +22,141 @@ utility_meter:
   ep_cube_week_consumed:
     source: sensor.ep_cube_backup_loads_today
     cycle: weekly
-  # Money: Octopus's billed cost for the previous day (the Octopus Energy
-  # integration's *_previous_accumulative_cost, which carries a last_reset), summed
-  # per week. Real billed figures, so they lag by a day.
-  ep_cube_week_billed_import:
-    source: sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost
-    cycle: weekly
-  ep_cube_week_billed_export:
-    source: sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost
-    cycle: weekly
+
+# Money: Octopus's billed cost for each day, summed per week.
+#
+# The Octopus Energy integration's *_previous_accumulative_cost sensors hold ONE
+# day's total at a time and replace it once a day (around 19:50, for the day
+# before). A utility_meter can't sum that: it only adds increases, so a day
+# cheaper than the one before it is silently dropped. Instead an automation adds
+# each day's figure to a running total. The sensor's last_reset (the start of the
+# day it covers) says which day a figure belongs to, and a figure that is revised
+# later (Octopus sometimes publishes a partial day first) only adds the
+# difference, so nothing is counted twice, restarts included. Only days in the
+# current Monday-Sunday week are counted, so the total lags by a day or two; that
+# is Octopus's publishing delay. The import figure includes the standing charge.
+input_number:
+  ep_cube_week_billed_import_total:
+    name: EP Cube week billed import (running total)
+    min: 0
+    max: 100000
+    step: 0.01
+    mode: box
+    unit_of_measurement: GBP
+  ep_cube_week_billed_export_total:
+    name: EP Cube week billed export (running total)
+    min: 0
+    max: 100000
+    step: 0.01
+    mode: box
+    unit_of_measurement: GBP
+
+# The most recent day already added, as "<last_reset>|<amount>", per direction.
+input_text:
+  ep_cube_week_billed_import_last:
+    name: EP Cube week billed import (last day counted)
+    max: 100
+  ep_cube_week_billed_export_last:
+    name: EP Cube week billed export (last day counted)
+    max: 100
+
+template:
+  # The dashboard reads these two sensors.
+  - sensor:
+      - name: "ep_cube_week_billed_import"
+        unique_id: ep_cube_week_billed_import
+        unit_of_measurement: GBP
+        device_class: monetary
+        state: "{{ states('input_number.ep_cube_week_billed_import_total') | float(0) | round(2) }}"
+      - name: "ep_cube_week_billed_export"
+        unique_id: ep_cube_week_billed_export
+        unit_of_measurement: GBP
+        device_class: monetary
+        state: "{{ states('input_number.ep_cube_week_billed_export_total') | float(0) | round(2) }}"
+
+automation:
+  - id: ep_cube_week_billed_import_add
+    alias: "EP Cube: add Octopus billed import to the week"
+    mode: queued
+    triggers:
+      # Replace with your own import sensor (serial and import MPAN).
+      - trigger: state
+        entity_id: sensor.octopus_energy_electricity_<SERIAL>_<IMPORT_MPAN>_previous_accumulative_cost
+    conditions:
+      - condition: template
+        value_template: >
+          {% set s = trigger.to_state %}
+          {{ s is not none and (s.state | is_number) and s.attributes.last_reset is not none
+             and (as_datetime(s.attributes.last_reset) | as_local).date()
+                 >= (now() - timedelta(days=now().weekday())).date() }}
+    actions:
+      - variables:
+          lr: "{{ trigger.to_state.attributes.last_reset | string }}"
+          amount: "{{ trigger.to_state.state | float(0) }}"
+          prev: "{{ states('input_text.ep_cube_week_billed_import_last').split('|') }}"
+          prev_amount: "{{ prev[1] | float(0) if prev | length > 1 and prev[0] == lr else 0 }}"
+          delta: "{{ (amount - prev_amount) | round(2) }}"
+      - condition: template
+        value_template: "{{ delta != 0 }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.ep_cube_week_billed_import_total
+        data:
+          value: "{{ ([states('input_number.ep_cube_week_billed_import_total') | float(0) + delta, 0] | max) | round(2) }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.ep_cube_week_billed_import_last
+        data:
+          value: "{{ lr }}|{{ amount }}"
+
+  - id: ep_cube_week_billed_export_add
+    alias: "EP Cube: add Octopus billed export to the week"
+    mode: queued
+    triggers:
+      # Replace with your own export sensor (serial and export MPAN).
+      - trigger: state
+        entity_id: sensor.octopus_energy_electricity_<SERIAL>_<EXPORT_MPAN>_export_previous_accumulative_cost
+    conditions:
+      - condition: template
+        value_template: >
+          {% set s = trigger.to_state %}
+          {{ s is not none and (s.state | is_number) and s.attributes.last_reset is not none
+             and (as_datetime(s.attributes.last_reset) | as_local).date()
+                 >= (now() - timedelta(days=now().weekday())).date() }}
+    actions:
+      - variables:
+          lr: "{{ trigger.to_state.attributes.last_reset | string }}"
+          amount: "{{ trigger.to_state.state | float(0) }}"
+          prev: "{{ states('input_text.ep_cube_week_billed_export_last').split('|') }}"
+          prev_amount: "{{ prev[1] | float(0) if prev | length > 1 and prev[0] == lr else 0 }}"
+          delta: "{{ (amount - prev_amount) | round(2) }}"
+      - condition: template
+        value_template: "{{ delta != 0 }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.ep_cube_week_billed_export_total
+        data:
+          value: "{{ ([states('input_number.ep_cube_week_billed_export_total') | float(0) + delta, 0] | max) | round(2) }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.ep_cube_week_billed_export_last
+        data:
+          value: "{{ lr }}|{{ amount }}"
+
+  - id: ep_cube_week_billed_reset
+    alias: "EP Cube: reset the weekly billed totals on Monday"
+    triggers:
+      - trigger: time
+        at: "00:00:00"
+    conditions:
+      - condition: time
+        weekday:
+          - mon
+    actions:
+      - action: input_number.set_value
+        target:
+          entity_id:
+            - input_number.ep_cube_week_billed_import_total
+            - input_number.ep_cube_week_billed_export_total
+        data:
+          value: 0
