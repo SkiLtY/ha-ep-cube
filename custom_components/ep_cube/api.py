@@ -150,6 +150,12 @@ class DeviceStatus:
     has_ev: bool = False
     ev_power_w: float = 0.0
     ev_today_kwh: float = 0.0
+    # The Dynamic tariff's buy-below / sell-above prices (pence per kWh), from
+    # getSwitchMode. They mean something only while the cube is in Dynamic mode
+    # (touType 1); otherwise the cloud leaves placeholder values (0 and 999.99)
+    # that would read as real prices, so they are None then.
+    dynamic_buy_below: float | None = None
+    dynamic_sell_above: float | None = None
 
 
 # ----------------------------------------------------------------------
@@ -672,6 +678,7 @@ class EPCubeClient:
         backup_reserve = float(mode.get("backupPowerReserveSoc", 0) or 0)
         allow_grid_charge = str(mode.get("allowChargingXiaGrid", "1")) == "1"
         dst_active = bool(mode.get("dayLightSavingTime", False))
+        dynamic_mode = str(mode.get("touType", 0)) == "1"
 
         return DeviceStatus(
             soc_pct=float(info.get("batterySoc", 0)),
@@ -703,6 +710,12 @@ class EPCubeClient:
             has_ev=_truthy(info.get("hasEv")) or _truthy(info.get("hasEvse")),
             ev_power_w=ev_w,
             ev_today_kwh=_kwh_str_to_float(info.get("evElectricity")),
+            dynamic_buy_below=(
+                _float_or_none(mode.get("dynamicChargePrice")) if dynamic_mode else None
+            ),
+            dynamic_sell_above=(
+                _float_or_none(mode.get("dynamicDischargePrice")) if dynamic_mode else None
+            ),
         )
 
     async def get_switch_mode(self) -> dict[str, Any]:

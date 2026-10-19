@@ -106,6 +106,8 @@ class TestSetupEntry:
             "solar_month", "backup_month",
             "grid_import_year", "grid_export_year",
             "solar_year", "backup_year",
+            "coal_today", "coal_year", "trees_today", "trees_year",
+            "dynamic_buy_below", "dynamic_sell_above",
             # v1.2 instant-KPI tiles (derived from homeDeviceInfo power channels)
             "instant_self_consumption_pct",
             "instant_self_sufficiency_pct",

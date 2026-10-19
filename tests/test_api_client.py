@@ -720,3 +720,31 @@ class TestEvFields:
         from custom_components.ep_cube.api import _truthy
 
         assert _truthy(raw) is expected
+
+
+# ----------------------------------------------------------------------
+# Dynamic tariff thresholds are only reported while the cube is in Dynamic mode.
+# ----------------------------------------------------------------------
+class TestDynamicThresholds:
+    async def _status(self, aioclient_mock, client_factory, home_device_info, mode):
+        aioclient_mock.get(_url_re("/api/device/homeDeviceInfo"), json=_envelope(home_device_info))
+        aioclient_mock.get(_url_re("/api/device/getSwitchMode"), json=_envelope(mode))
+        return await client_factory().get_status()
+
+    async def test_reported_in_dynamic_mode(
+        self, aioclient_mock, client_factory, home_device_info, get_switch_mode
+    ):
+        mode = {**get_switch_mode, "touType": 1,
+                "dynamicChargePrice": 4.5, "dynamicDischargePrice": 12.25}
+        status = await self._status(aioclient_mock, client_factory, home_device_info, mode)
+        assert status.dynamic_buy_below == 4.5
+        assert status.dynamic_sell_above == 12.25
+
+    async def test_placeholders_hidden_outside_dynamic_mode(
+        self, aioclient_mock, client_factory, home_device_info, get_switch_mode
+    ):
+        mode = {**get_switch_mode, "touType": 0,
+                "dynamicChargePrice": 0.0, "dynamicDischargePrice": 999.99}
+        status = await self._status(aioclient_mock, client_factory, home_device_info, mode)
+        assert status.dynamic_buy_below is None
+        assert status.dynamic_sell_above is None

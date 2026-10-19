@@ -300,6 +300,29 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda s: s.reserve_soc_pct,
     ),
+    # The Dynamic tariff's thresholds, as set on the cube (by the app or by the
+    # shim during a Dynamic export or charge). Unavailable outside Dynamic mode,
+    # where the cloud keeps meaningless placeholders.
+    EPCubeSensorDescription(
+        key="dynamic_buy_below",
+        translation_key="dynamic_buy_below",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="p/kWh",
+        suggested_display_precision=2,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.dynamic_buy_below,
+        available_fn=lambda s: s.dynamic_buy_below is not None,
+    ),
+    EPCubeSensorDescription(
+        key="dynamic_sell_above",
+        translation_key="dynamic_sell_above",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="p/kWh",
+        suggested_display_precision=2,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.dynamic_sell_above,
+        available_fn=lambda s: s.dynamic_sell_above is not None,
+    ),
     # ------------------------------------------------------------------
     # Daily kWh counters from homeDeviceInfo (Phase 3.4 (i)).
     # Cube's onboard accounting — matches the EP Cube mobile app's daily
@@ -698,6 +721,45 @@ STATS_SENSORS: tuple[EPCubeStatsSensorDescription, ...] = (
     # at the month / year boundary — HA's statistics engine handles the
     # snap-back as a normal delta rather than a spurious counter reset.
     # ------------------------------------------------------------------
+    # The app's eco figures. Both are fixed multiples of the home's consumption
+    # (coal = 0.4 per kWh, trees = 0.055 per kWh, checked against a live
+    # payload), so they are the app's estimates rather than measurements. The
+    # unit of coal is not stated by the cloud; kg is the standard coal-equivalent
+    # figure. There is no device class, so Home Assistant never converts them.
+    EPCubeStatsSensorDescription(
+        key="coal_today",
+        translation_key="coal_today",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement="kg",
+        suggested_display_precision=1,
+        icon="mdi:molecule-co2",
+        value_fn=_bucket_field("today", "coal"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="coal_year",
+        translation_key="coal_year",
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement="kg",
+        suggested_display_precision=1,
+        icon="mdi:molecule-co2",
+        value_fn=_bucket_field("year", "coal"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="trees_today",
+        translation_key="trees_today",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+        icon="mdi:tree",
+        value_fn=_bucket_field("today", "treenum"),
+    ),
+    EPCubeStatsSensorDescription(
+        key="trees_year",
+        translation_key="trees_year",
+        state_class=SensorStateClass.TOTAL,
+        suggested_display_precision=2,
+        icon="mdi:tree",
+        value_fn=_bucket_field("year", "treenum"),
+    ),
     EPCubeStatsSensorDescription(
         key="grid_import_month",
         translation_key="grid_import_month",

@@ -93,7 +93,7 @@ Restart HA, then continue from step 2 above.
 
 ## 📡 Sensors
 
-41 sensors, all grouped under one device per EP Cube:
+47 sensors, all grouped under one device per EP Cube:
 
 | Group | Sensors |
 |-------|---------|
@@ -105,7 +105,8 @@ Restart HA, then continue from step 2 above.
 | **Monthly energy (kWh)** | `solar_month` · `backup_month` · `grid_import_month` · `grid_export_month` |
 | **Yearly energy (kWh)** | `solar_year` · `backup_year` · `grid_import_year` · `grid_export_year` |
 | **Efficiency (%)** | `self_sufficiency_pct` · `self_sufficiency_today` · `self_sufficiency_yesterday` · `self_consumption_today` · `self_consumption_yesterday` |
-| **Mode + reserve** | `operating_mode` · `reserve_soc` |
+| **Mode + reserve** | `operating_mode` · `reserve_soc` · `dynamic_buy_below` · `dynamic_sell_above` (only while the cube is in Dynamic mode) |
+| **Eco (the app's estimates)** | `coal_today` · `coal_year` · `trees_today` · `trees_year` |
 | **Lifetime / KPI** | `earning_yesterday` · `grid_outage_count` · `off_grid_seconds` · `winter_protect` |
 
 > [!TIP]
@@ -351,7 +352,10 @@ This stack uses **HA Container** (lightweight, no Supervisor). HA Container cann
 | 4+ | ⏸️ | [HomeAssistant-OctopusEnergy](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy) — half-hourly smart-meter consumption replaces Riemann `load_today`. Gated on Octopus Home Mini arrival. |
 | **v1.4** | ✅ | **Forced export and charge via Dynamic Tariff** — opt-in Dynamic-mode export and charge windows for Predbat (low sell-above, Reserve SoC from the plan, two-step revert, watchdog), the `switchMode` HTTP 500 fix, tariff selection from Home Assistant, per-string PV sensors, the *Reserve (your setting)* sensor, resilience to brief cloud errors, and the redesigned Now / Today / Yesterday / Week dashboard. See [release notes](docs/RELEASE_NOTES_v1.4.0.md). |
 | **v1.5** | ✅ | **EV charger sensors + a dashboard that reconciles with your bill** — EV charger power and EV charger today (only when the cube reports a charger) and a house load that includes the car, contributed by [Eric Fisher](https://github.com/eafisher11); a Month tab with a daily billed-cost chart that matches Octopus's own page; estimates until each day is billed; solar-used-at-home rings everywhere; and a weekly package that adds up finished days instead of a utility meter that over-counted. See [release notes](docs/RELEASE_NOTES_v1.5.0.md). |
-| v1.6 | 📋 | **Lifetime totals + eco metrics** — RestoreSensor + coordinator-startup state-seeding for lifetime kWh counters; `coal` / `treeNum` eco metrics from `queryDataElectricityV2`. Also: Dynamic thresholds as entities and stable services for forced export / charge without Predbat. Originally pencilled for v1.3; the Dynamic-tariff work filled the v1.4 slot first. |
+| v1.6 | 🚧 | Battery charged / discharged today counters survive a restart ([#3](https://github.com/SkiLtY/ha-ep-cube/issues/3)), plus eco metrics ([#10](https://github.com/SkiLtY/ha-ep-cube/issues/10)) and read-only Dynamic tariff threshold sensors ([#11](https://github.com/SkiLtY/ha-ep-cube/issues/11)). |
+| v1.7 | 📋 | **Lifetime totals** that survive restarts ([#9](https://github.com/SkiLtY/ha-ep-cube/issues/9)) and **control without Predbat** — Dynamic threshold number entities ([#12](https://github.com/SkiLtY/ha-ep-cube/issues/12)), supported force-export and force-charge services ([#13](https://github.com/SkiLtY/ha-ep-cube/issues/13), [#14](https://github.com/SkiLtY/ha-ep-cube/issues/14)) and a fixed-hours export example ([#15](https://github.com/SkiLtY/ha-ep-cube/issues/15)). |
+
+The full backlog, including the dashboard and Predbat-history ideas, is in the [issues](https://github.com/SkiLtY/ha-ep-cube/issues).
 
 ---
 
