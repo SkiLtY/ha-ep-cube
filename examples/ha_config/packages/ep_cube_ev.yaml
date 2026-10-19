@@ -1,0 +1,20 @@
+# Optional: the EV charger power in kW, for the dashboard's Energy Flow card.
+#
+# Only useful if your cube reports an EV charger (v1.5+ then adds the sensor
+# `sensor.ep_cube_ev_charger_power`, in watts). The Energy Flow card's extra
+# "individual" bubble does not convert units, so it would read "7,200 W" beside
+# bubbles that read "7.2 kW"; this sensor gives it the same unit as the others.
+#
+# To show the EV as its own bubble beside Home:
+#   1. Copy this file into /config/packages/ next to ep_cube.yaml and restart.
+#   2. In dashboards/ep_cube.yaml, find the Energy Flow card (power-flow-card-plus)
+#      and uncomment `subtract_individual` under `home` and the `individual:` block.
+#      Home then shows the house on its own, with the car in its own bubble.
+template:
+  - sensor:
+      - name: "EP Cube EV charger power (kW)"
+        unique_id: ep_cube_ev_charger_power_kw
+        unit_of_measurement: kW
+        device_class: power
+        state_class: measurement
+        state: "{{ (states('sensor.ep_cube_ev_charger_power') | float(0) / 1000) | round(2) }}"

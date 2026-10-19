@@ -173,6 +173,8 @@ views:
                   .circle-container.battery .circle { box-shadow: 0 0 8px rgba(77,182,172,.16); }
                   .circle-container.home .circle { box-shadow: 0 0 8px rgba(239,83,80,.16); }
                   .circle span { font-weight: 600; }
+                  .circle-container.individual-top .circle, .circle-container.individual-bottom .circle { border-width: 4px !important; box-shadow: 0 0 8px rgba(255,112,67,.16); }
+                  .circle-container.individual-top ha-icon, .circle-container.individual-bottom ha-icon { color: #ff7043 !important; }
                   .circle span ha-icon.small { display: none; }
                   .lines path.solar, .lines path.return, .lines path.battery-solar { stroke: #ffb300 !important; }
                   .lines circle.solar, .lines circle.return, .lines circle.battery-solar { fill: #ffb300 !important; stroke: #ffb300 !important; }
@@ -248,6 +250,19 @@ views:
                 name: Home
                 icon: mdi:home
                 color_icon: true
+                # Optional EV bubble, for cubes that report a charger (v1.5+). Add
+                # examples/ha_config/packages/ep_cube_ev.yaml and restart, then uncomment
+                # the next line and the `individual:` block below. Home then shows the
+                # house on its own, with the car in a bubble of its own beside it.
+                # subtract_individual: true
+              # individual:
+              #   - entity: sensor.ep_cube_ev_charger_power_kw
+              #     name: EV
+              #     icon: mdi:car-electric
+              #     color: '#ff7043'
+              #     color_icon: true
+              #     color_value: true
+              #     display_zero: true
       - type: grid
         column_span: 2
         cards:
