@@ -32,6 +32,25 @@ Known gotchas hit during bring-up and dev. Grouped by area.
 | Predbat: `Error: You have not set load_today or load_forecast in apps.yaml` | Predbat hard-requires a daily-cumulative-kWh load sensor; our integration only exposes instantaneous `load_power` (W) | Create two HA helpers (UI → Settings → Helpers): a Riemann-sum integral of `sensor.ep_cube_<dev>_load_power` (`k` prefix, hours, **Integration method: Left** — the default Trapezoidal invents energy across long flat stretches, because a sensor that only updates on change leaves gaps), then a Utility Meter with daily reset on top. Point `load_today:` at the Utility Meter entity. |
 | Predbat plans the overnight charge as costing noticeably more than the meter says, or its overnight load forecast is about double your real draw | The cube's own `sensor.ep_cube_backup_loads_today` counter reads 2-4 kWh high on grid-charge nights (it seems to include the charging energy), so a 14-day load history built from it inflates every forecast. Compare it with the Riemann-based `sensor.ep_cube_load_today` over the 01:00-04:00 hours: they agree on nights without a charge and diverge on charge nights | Point `load_today:` at the Riemann-based daily utility meter `sensor.ep_cube_load_today` (the one in `examples/ha_config/packages/ep_cube.yaml`) instead of `sensor.ep_cube_backup_loads_today`, then restart Predbat. Found on a real install on 2026-10-16: the forecast fell from about 2 kW to about 0.95 kW overnight. |
 | An integration-based energy sensor jumps by many kWh in one step (for example `sensor.ep_cube_grid_import_energy` gaining ~20 kWh when the overnight charge starts) | The Riemann integral uses the Trapezoidal method. The source power sensor held a constant value (for example 0 W for hours) and so wrote no new states; the first new reading made the trapezoid ramp from the last flat sample to it, adding phantom energy | Set the integration helper's method to **Left** (`method: left` in YAML). Existing history keeps the bad steps; treat data before the change as unreliable, or use the cube's own totals / your meter for comparison. |
+| The log shows `State attributes for predbat.… exceed maximum size of 16384 bytes` every few minutes (for `pv_energy`, `metric`, `load_energy`, `plan_html`, `load_power_best` and others) | Predbat keeps its whole forecast in those entities' attributes. The recorder refuses to store attributes over 16 KB (the warning ends "Attributes will not be stored"), so the database does not actually grow with them. It is log noise, plus a little wasted work each time. | Exclude the heaviest entities from the recorder (snippet below). The dashboard reads the forecast from the live state, not from history, so nothing it shows changes. |
+
+To silence the warnings, add this to `configuration.yaml` (merge it into your existing `recorder:` block if you have one) and restart Home Assistant. These entities only lose their history; Predbat and the EP Cube dashboard are unaffected:
+
+```yaml
+recorder:
+  exclude:
+    entities:
+      - predbat.base10_import_energy
+      - predbat.base10_metric
+      - predbat.best_load_energy
+      - predbat.load_energy
+      - predbat.load_power_best
+      - predbat.metric
+      - predbat.plan_html
+      - predbat.pv_energy
+```
+
+`predbat.cost_yesterday` and `predbat.savings_yesterday_predbat` may warn occasionally too. Leave those alone if you want their history.
 
 ## EP Cube cloud API (mobile-app surface, post Phase 3.2)
 
