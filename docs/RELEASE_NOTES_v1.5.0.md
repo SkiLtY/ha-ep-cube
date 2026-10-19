@@ -1,6 +1,8 @@
 ## ⚡ EP Cube Integration v1.5.0 — EV charger sensors, and a dashboard that reconciles with your bill
 
-> **TL;DR** — EV charger sensors (and a house load that includes the car), contributed by [Eric Fisher (@eafisher11)](https://github.com/eafisher11/ha-ep-cube), who built and tested them on a US cube. The dashboard gains a **Month** tab with a daily billed-cost chart that matches Octopus's own page, the Week tab stops showing wrong self-sufficiency figures, and the example weekly package now adds up finished days instead of using a utility meter that over-counted. Thank you, Eric.
+> **TL;DR** — The dashboard gains a Month tab with a daily billed-cost chart that matches Octopus's own page, the Week tab stops showing wrong self-sufficiency figures, and the example weekly package now adds up finished days instead of using a utility meter that over-counted.
+>
+> EV charger sensors (and a house load that includes the car), contributed by [Eric Fisher (@eafisher11)](https://github.com/eafisher11/ha-ep-cube), who built and tested them on a US cube. Thank you, Eric!
 
 ### ✨ What's new
 
