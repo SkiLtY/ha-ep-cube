@@ -72,6 +72,21 @@ def fake_client(get_switch_mode, device_list):
     client.capacity_kwh = 20.0
     client.bearer_token = "fake-token"
 
+    # The coordinator saves/restores the battery totals through these; they must
+    # return real data so a delayed save never tries to serialise a MagicMock.
+    # battery_flow_state is a plain function: HA's storage test helper rejects
+    # a Mock object even when it is only the data callback.
+    def _battery_flow_state():
+        return {
+            "date": "2026-01-01",
+            "charged_kwh": 1.5,
+            "discharged_kwh": 0.5,
+            "last_kwh": 10.0,
+        }
+
+    client.battery_flow_state = _battery_flow_state
+    client.restore_battery_flow = MagicMock(return_value=False)
+
     client.authenticate = AsyncMock(return_value=None)
     client.get_device_list = AsyncMock(return_value=device_list)
     client.get_switch_mode = AsyncMock(return_value=dict(get_switch_mode))

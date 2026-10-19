@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date
@@ -547,6 +548,47 @@ class EPCubeClient:
             self._battery_flow_last_kwh = battery_now_kwh
         # else: jitter — leave anchor unchanged so a slow drift accumulates
         # toward the threshold across polls
+
+    def battery_flow_state(self) -> dict[str, Any]:
+        """The tracker's state as plain data, for saving across restarts."""
+        return {
+            "date": self._battery_flow_last_reset.isoformat(),
+            "charged_kwh": round(self._battery_charge_today_kwh, 4),
+            "discharged_kwh": round(self._battery_discharge_today_kwh, 4),
+            "last_kwh": self._battery_flow_last_kwh,
+        }
+
+    def restore_battery_flow(self, state: Any) -> bool:
+        """Restore a state saved by `battery_flow_state`; True if it was used.
+
+        Without this the daily totals start from zero after every Home Assistant
+        restart. Only today's saved state is accepted (the totals reset at local
+        midnight anyway), only before the tracker has seen a reading, and
+        anything malformed is ignored. The saved anchor is restored too, so the
+        first poll after a restart counts the net change in stored energy since
+        the last saved reading, including anything that happened while Home
+        Assistant was off."""
+        if self._battery_flow_last_kwh is not None or not isinstance(state, dict):
+            return False
+        try:
+            saved_on = date.fromisoformat(str(state["date"]))
+            charged = float(state["charged_kwh"])
+            discharged = float(state["discharged_kwh"])
+            last = state.get("last_kwh")
+            last_kwh = None if last is None else float(last)
+        except (KeyError, TypeError, ValueError):
+            return False
+        if saved_on != _local_today():
+            return False
+        if not (math.isfinite(charged) and math.isfinite(discharged)) or charged < 0 or discharged < 0:
+            return False
+        if last_kwh is not None and not (math.isfinite(last_kwh) and last_kwh > 0):
+            return False
+        self._battery_charge_today_kwh = charged
+        self._battery_discharge_today_kwh = discharged
+        self._battery_flow_last_kwh = last_kwh
+        self._battery_flow_last_reset = saved_on
+        return True
 
     # ------------------------------------------------------------------
     # Reads

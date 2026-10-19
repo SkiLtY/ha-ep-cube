@@ -34,6 +34,7 @@ from .coordinator import (
     EPCubeCoordinator,
     EPCubePriceCoordinator,
     EPCubeStatsCoordinator,
+    battery_flow_store,
 )
 from .services import (
     PredbatShim,
@@ -106,6 +107,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ))
 
     coordinator = EPCubeCoordinator(hass, entry, client)
+    # Put back today's battery charged/discharged totals before the first poll,
+    # so a restart does not start them again from zero.
+    await coordinator.async_restore_battery_flow()
     await coordinator.async_config_entry_first_refresh()
 
     # Stats coordinator (Phase 4.2). Polls queryDataElectricityV2 on a
@@ -226,6 +230,11 @@ def _purge_stale_entities(
     for entity_id in to_remove:
         _LOGGER.info("purging stale entity %s (deleted in a prior release)", entity_id)
         registry.async_remove(entity_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the saved battery totals when the integration is removed."""
+    await battery_flow_store(hass, entry.entry_id).async_remove()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

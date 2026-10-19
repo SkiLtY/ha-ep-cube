@@ -9,6 +9,7 @@ from typing import Any
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -34,6 +35,16 @@ _TRANSIENT_ERRORS = (ServerError, RateLimitError, aiohttp.ClientError, asyncio.T
 # last good data is kept before the entities go unavailable.
 MAX_TRANSIENT_FAILURES = 3
 
+# The battery charged/discharged-today totals are kept by the client in memory, so
+# they are saved here to survive a restart. Saves are throttled; Home Assistant
+# also writes any pending save when it stops.
+BATTERY_FLOW_STORE_VERSION = 1
+BATTERY_FLOW_SAVE_DELAY_SECONDS = 60
+
+
+def battery_flow_store(hass: HomeAssistant, entry_id: str) -> Store:
+    return Store(hass, BATTERY_FLOW_STORE_VERSION, f"{DOMAIN}.battery_flow.{entry_id}")
+
 
 class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: EPCubeClient) -> None:
@@ -57,6 +68,16 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
         self._pv_strings: dict[int, dict[str, float]] = {}
         # Consecutive transient poll failures (reset on any success).
         self._transient_failures = 0
+        self._battery_flow_store = battery_flow_store(hass, entry.entry_id)
+
+    def _battery_flow_data(self) -> dict:
+        return self.client.battery_flow_state()
+
+    async def async_restore_battery_flow(self) -> None:
+        """Load the saved charged/discharged totals before the first poll."""
+        saved = await self._battery_flow_store.async_load()
+        if saved and self.client.restore_battery_flow(saved):
+            _LOGGER.debug("restored the battery charged/discharged totals for today")
 
     @property
     def pv_strings(self) -> dict[int, dict[str, float]]:
@@ -88,6 +109,9 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
         except EPCubeError as err:
             raise UpdateFailed(str(err)) from err
         self._transient_failures = 0
+        self._battery_flow_store.async_delay_save(
+            self._battery_flow_data, BATTERY_FLOW_SAVE_DELAY_SECONDS
+        )
 
         # Schedule fetch is non-critical — log + keep previous cache on failure.
         try:

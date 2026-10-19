@@ -47,7 +47,10 @@ def _make(hass, outcomes):
     client.get_pv_strings = AsyncMock(return_value={})
     entry = MagicMock()
     entry.entry_id = "test_entry"
-    return EPCubeCoordinator(hass, entry, client), client
+    coord = EPCubeCoordinator(hass, entry, client)
+    # These tests poll directly; a real delayed save would leave a timer behind.
+    coord._battery_flow_store = MagicMock()
+    return coord, client
 
 
 GOOD = object()  # stands in for a DeviceStatus
