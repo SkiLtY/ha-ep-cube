@@ -1,9 +1,10 @@
-# Week-to-date totals for the EP Cube dashboard's Week tab.
+# Week-to-date and month-to-date totals for the EP Cube dashboard's Week and Month tabs.
 #
 # The integration only exposes "today" and "yesterday" figures. The energy
 # meters below sit on top of the *_today sensors (same pattern as the
-# monthly/yearly battery meters in ep_cube.yaml) and reset on Monday.
-# Drop this file next to ep_cube.yaml in /config/packages/ and restart.
+# monthly/yearly battery meters in ep_cube.yaml); weekly ones reset on Monday,
+# monthly ones on the 1st. Drop this file next to ep_cube.yaml in
+# /config/packages/ and restart.
 #
 # BEFORE YOU USE IT: the two billed-cost sources in the automations near the
 # bottom contain your Octopus meter serial and MPAN. Replace the <...> parts
@@ -22,22 +23,45 @@ utility_meter:
   ep_cube_week_consumed:
     source: sensor.ep_cube_backup_loads_today
     cycle: weekly
+  ep_cube_month_solar:
+    source: sensor.ep_cube_solar_today
+    cycle: monthly
+  ep_cube_month_import:
+    source: sensor.ep_cube_grid_import_today
+    cycle: monthly
+  ep_cube_month_export:
+    source: sensor.ep_cube_grid_export_today
+    cycle: monthly
+  ep_cube_month_consumed:
+    source: sensor.ep_cube_backup_loads_today
+    cycle: monthly
 
-# Money: Octopus's billed cost for each day, summed per week.
+# Money: Octopus's billed cost for each day, summed per week and per month.
 #
 # The Octopus Energy integration's *_previous_accumulative_cost sensors hold ONE
 # day's total at a time and replace it once a day (around 19:50, for the day
 # before). A utility_meter can't sum that: it only adds increases, so a day
 # cheaper than the one before it is silently dropped. Instead an automation adds
-# each day's figure to a running total. The sensor's last_reset (the start of the
+# each day's figure to running totals. The sensor's last_reset (the start of the
 # day it covers) says which day a figure belongs to, and a figure that is revised
 # later (Octopus sometimes publishes a partial day first) only adds the
 # difference, so nothing is counted twice, restarts included. Only days in the
-# current Monday-Sunday week are counted, so the total lags by a day or two; that
-# is Octopus's publishing delay. The import figure includes the standing charge.
+# current Monday-Sunday week (or the current month) are counted, so the totals lag
+# by a day or two; that is Octopus's publishing delay.
+#
+# Import is kept twice: with the standing charge (what you are billed) and
+# without it (the energy only, from the sensor's total_without_standing_charge
+# attribute). Export has no standing charge.
 input_number:
   ep_cube_week_billed_import_total:
-    name: EP Cube week billed import (running total)
+    name: EP Cube week billed import incl. standing charge (running total)
+    min: 0
+    max: 100000
+    step: 0.01
+    mode: box
+    unit_of_measurement: GBP
+  ep_cube_week_billed_import_energy_total:
+    name: EP Cube week billed import energy only (running total)
     min: 0
     max: 100000
     step: 0.01
@@ -50,33 +74,74 @@ input_number:
     step: 0.01
     mode: box
     unit_of_measurement: GBP
+  ep_cube_month_billed_import_total:
+    name: EP Cube month billed import incl. standing charge (running total)
+    min: 0
+    max: 100000
+    step: 0.01
+    mode: box
+    unit_of_measurement: GBP
+  ep_cube_month_billed_import_energy_total:
+    name: EP Cube month billed import energy only (running total)
+    min: 0
+    max: 100000
+    step: 0.01
+    mode: box
+    unit_of_measurement: GBP
+  ep_cube_month_billed_export_total:
+    name: EP Cube month billed export (running total)
+    min: 0
+    max: 100000
+    step: 0.01
+    mode: box
+    unit_of_measurement: GBP
 
-# The most recent day already added, as "<last_reset>|<amount>", per direction.
+# The most recent day already added, as "<last_reset>|<amount>|<energy only>", per direction.
 input_text:
-  ep_cube_week_billed_import_last:
-    name: EP Cube week billed import (last day counted)
-    max: 100
-  ep_cube_week_billed_export_last:
-    name: EP Cube week billed export (last day counted)
-    max: 100
+  ep_cube_billed_import_last:
+    name: EP Cube billed import (last day counted)
+    max: 120
+  ep_cube_billed_export_last:
+    name: EP Cube billed export (last day counted)
+    max: 120
 
 template:
-  # The dashboard reads these two sensors.
+  # The dashboard reads these sensors.
   - sensor:
       - name: "ep_cube_week_billed_import"
         unique_id: ep_cube_week_billed_import
         unit_of_measurement: GBP
         device_class: monetary
         state: "{{ states('input_number.ep_cube_week_billed_import_total') | float(0) | round(2) }}"
+      - name: "ep_cube_week_billed_import_energy"
+        unique_id: ep_cube_week_billed_import_energy
+        unit_of_measurement: GBP
+        device_class: monetary
+        state: "{{ states('input_number.ep_cube_week_billed_import_energy_total') | float(0) | round(2) }}"
       - name: "ep_cube_week_billed_export"
         unique_id: ep_cube_week_billed_export
         unit_of_measurement: GBP
         device_class: monetary
         state: "{{ states('input_number.ep_cube_week_billed_export_total') | float(0) | round(2) }}"
+      - name: "ep_cube_month_billed_import"
+        unique_id: ep_cube_month_billed_import
+        unit_of_measurement: GBP
+        device_class: monetary
+        state: "{{ states('input_number.ep_cube_month_billed_import_total') | float(0) | round(2) }}"
+      - name: "ep_cube_month_billed_import_energy"
+        unique_id: ep_cube_month_billed_import_energy
+        unit_of_measurement: GBP
+        device_class: monetary
+        state: "{{ states('input_number.ep_cube_month_billed_import_energy_total') | float(0) | round(2) }}"
+      - name: "ep_cube_month_billed_export"
+        unique_id: ep_cube_month_billed_export
+        unit_of_measurement: GBP
+        device_class: monetary
+        state: "{{ states('input_number.ep_cube_month_billed_export_total') | float(0) | round(2) }}"
 
 automation:
-  - id: ep_cube_week_billed_import_add
-    alias: "EP Cube: add Octopus billed import to the week"
+  - id: ep_cube_billed_import_add
+    alias: "EP Cube: add Octopus billed import to the week and month"
     mode: queued
     triggers:
       # Replace with your own import sensor (serial and import MPAN).
@@ -87,30 +152,60 @@ automation:
         value_template: >
           {% set s = trigger.to_state %}
           {{ s is not none and (s.state | is_number) and s.attributes.last_reset is not none
-             and (as_datetime(s.attributes.last_reset) | as_local).date()
-                 >= (now() - timedelta(days=now().weekday())).date() }}
+             and (as_datetime(s.attributes.last_reset) | as_local).strftime('%Y-%m-%d')
+                 >= now().strftime('%Y-%m-01') }}
     actions:
       - variables:
           lr: "{{ trigger.to_state.attributes.last_reset | string }}"
           amount: "{{ trigger.to_state.state | float(0) }}"
-          prev: "{{ states('input_text.ep_cube_week_billed_import_last').split('|') }}"
-          prev_amount: "{{ prev[1] | float(0) if prev | length > 1 and prev[0] == lr else 0 }}"
-          delta: "{{ (amount - prev_amount) | round(2) }}"
+          energy: "{{ trigger.to_state.attributes.get('total_without_standing_charge', trigger.to_state.state) | float(0) }}"
+          prev: "{{ states('input_text.ep_cube_billed_import_last').split('|') }}"
+          same_day: "{{ prev | length > 1 and prev[0] == lr }}"
+          prev_amount: "{{ prev[1] | float(0) if same_day else 0 }}"
+          prev_energy: "{{ (prev[2] if prev | length > 2 else prev[1]) | float(0) if same_day else 0 }}"
+          d_amount: "{{ (amount - prev_amount) | round(2) }}"
+          d_energy: "{{ (energy - prev_energy) | round(2) }}"
+          day: "{{ (as_datetime(lr) | as_local).strftime('%Y-%m-%d') }}"
+          in_week: "{{ day >= (now() - timedelta(days=now().weekday())).strftime('%Y-%m-%d') }}"
+          in_month: "{{ day >= now().strftime('%Y-%m-01') }}"
       - condition: template
-        value_template: "{{ delta != 0 }}"
-      - action: input_number.set_value
-        target:
-          entity_id: input_number.ep_cube_week_billed_import_total
-        data:
-          value: "{{ ([states('input_number.ep_cube_week_billed_import_total') | float(0) + delta, 0] | max) | round(2) }}"
+        value_template: "{{ d_amount != 0 or d_energy != 0 }}"
+      - if:
+          - condition: template
+            value_template: "{{ in_week }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_week_billed_import_total
+            data:
+              value: "{{ ([states('input_number.ep_cube_week_billed_import_total') | float(0) + d_amount, 0] | max) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_week_billed_import_energy_total
+            data:
+              value: "{{ ([states('input_number.ep_cube_week_billed_import_energy_total') | float(0) + d_energy, 0] | max) | round(2) }}"
+      - if:
+          - condition: template
+            value_template: "{{ in_month }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_month_billed_import_total
+            data:
+              value: "{{ ([states('input_number.ep_cube_month_billed_import_total') | float(0) + d_amount, 0] | max) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_month_billed_import_energy_total
+            data:
+              value: "{{ ([states('input_number.ep_cube_month_billed_import_energy_total') | float(0) + d_energy, 0] | max) | round(2) }}"
       - action: input_text.set_value
         target:
-          entity_id: input_text.ep_cube_week_billed_import_last
+          entity_id: input_text.ep_cube_billed_import_last
         data:
-          value: "{{ lr }}|{{ amount }}"
+          value: "{{ lr }}|{{ amount }}|{{ energy }}"
 
-  - id: ep_cube_week_billed_export_add
-    alias: "EP Cube: add Octopus billed export to the week"
+  - id: ep_cube_billed_export_add
+    alias: "EP Cube: add Octopus billed export to the week and month"
     mode: queued
     triggers:
       # Replace with your own export sensor (serial and export MPAN).
@@ -121,29 +216,46 @@ automation:
         value_template: >
           {% set s = trigger.to_state %}
           {{ s is not none and (s.state | is_number) and s.attributes.last_reset is not none
-             and (as_datetime(s.attributes.last_reset) | as_local).date()
-                 >= (now() - timedelta(days=now().weekday())).date() }}
+             and (as_datetime(s.attributes.last_reset) | as_local).strftime('%Y-%m-%d')
+                 >= now().strftime('%Y-%m-01') }}
     actions:
       - variables:
           lr: "{{ trigger.to_state.attributes.last_reset | string }}"
           amount: "{{ trigger.to_state.state | float(0) }}"
-          prev: "{{ states('input_text.ep_cube_week_billed_export_last').split('|') }}"
-          prev_amount: "{{ prev[1] | float(0) if prev | length > 1 and prev[0] == lr else 0 }}"
-          delta: "{{ (amount - prev_amount) | round(2) }}"
+          prev: "{{ states('input_text.ep_cube_billed_export_last').split('|') }}"
+          same_day: "{{ prev | length > 1 and prev[0] == lr }}"
+          prev_amount: "{{ prev[1] | float(0) if same_day else 0 }}"
+          d_amount: "{{ (amount - prev_amount) | round(2) }}"
+          day: "{{ (as_datetime(lr) | as_local).strftime('%Y-%m-%d') }}"
+          in_week: "{{ day >= (now() - timedelta(days=now().weekday())).strftime('%Y-%m-%d') }}"
+          in_month: "{{ day >= now().strftime('%Y-%m-01') }}"
       - condition: template
-        value_template: "{{ delta != 0 }}"
-      - action: input_number.set_value
-        target:
-          entity_id: input_number.ep_cube_week_billed_export_total
-        data:
-          value: "{{ ([states('input_number.ep_cube_week_billed_export_total') | float(0) + delta, 0] | max) | round(2) }}"
+        value_template: "{{ d_amount != 0 }}"
+      - if:
+          - condition: template
+            value_template: "{{ in_week }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_week_billed_export_total
+            data:
+              value: "{{ ([states('input_number.ep_cube_week_billed_export_total') | float(0) + d_amount, 0] | max) | round(2) }}"
+      - if:
+          - condition: template
+            value_template: "{{ in_month }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_month_billed_export_total
+            data:
+              value: "{{ ([states('input_number.ep_cube_month_billed_export_total') | float(0) + d_amount, 0] | max) | round(2) }}"
       - action: input_text.set_value
         target:
-          entity_id: input_text.ep_cube_week_billed_export_last
+          entity_id: input_text.ep_cube_billed_export_last
         data:
           value: "{{ lr }}|{{ amount }}"
 
-  - id: ep_cube_week_billed_reset
+  - id: ep_cube_billed_week_reset
     alias: "EP Cube: reset the weekly billed totals on Monday"
     triggers:
       - trigger: time
@@ -157,6 +269,25 @@ automation:
         target:
           entity_id:
             - input_number.ep_cube_week_billed_import_total
+            - input_number.ep_cube_week_billed_import_energy_total
             - input_number.ep_cube_week_billed_export_total
+        data:
+          value: 0
+
+  - id: ep_cube_billed_month_reset
+    alias: "EP Cube: reset the monthly billed totals on the 1st"
+    triggers:
+      - trigger: time
+        at: "00:00:00"
+    conditions:
+      - condition: template
+        value_template: "{{ now().day == 1 }}"
+    actions:
+      - action: input_number.set_value
+        target:
+          entity_id:
+            - input_number.ep_cube_month_billed_import_total
+            - input_number.ep_cube_month_billed_import_energy_total
+            - input_number.ep_cube_month_billed_export_total
         data:
           value: 0
