@@ -675,6 +675,28 @@ class TestEvFields:
         assert status.ev_power_w == 0.0
         assert status.ev_today_kwh == 0.0
 
+    async def test_a_real_us_payload_with_a_charging_car(
+        self, aioclient_mock, client_factory, home_device_info, get_switch_mode
+    ):
+        # The EV-relevant fields of a real US cube's homeDeviceInfo (shared by @eafisher11 on
+        # issue #2, devId redacted). The EV is its own channel: backUpPower 77 + evPower 162
+        # equals smartHomePower 239, so the house load is backup + non-backup + EV.
+        info = {
+            **home_device_info,
+            "hasEv": True, "evPower": 162.0, "evElectricity": 0.1, "evFlowPower": 162.0, "evLight": "0",
+            "backUpPower": 77.0, "nonBackUpPower": 0.0, "smartHomePower": 239.0,
+            "solarPower": 41.0, "gridPower": 0.0,
+        }
+        aioclient_mock.get(_url_re("/api/device/homeDeviceInfo"), json=_envelope(info))
+        aioclient_mock.get(_url_re("/api/device/getSwitchMode"), json=_envelope(get_switch_mode))
+
+        status = await client_factory().get_status()
+
+        assert status.has_ev is True
+        assert status.ev_power_w == pytest.approx(1620.0)
+        assert status.load_power_w == pytest.approx(2390.0)          # = smartHomePower x 10
+        assert status.load_power_w == pytest.approx(info["smartHomePower"] * 10)
+
     async def test_eu_hasevse_flag_also_counts(
         self, aioclient_mock, client_factory, home_device_info, get_switch_mode
     ):
