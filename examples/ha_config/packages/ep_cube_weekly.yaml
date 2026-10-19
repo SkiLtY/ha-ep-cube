@@ -1,41 +1,17 @@
 # Week-to-date and month-to-date totals for the EP Cube dashboard's Week and Month tabs.
 #
-# The integration only exposes "today" and "yesterday" figures. The energy
-# meters below sit on top of the *_today sensors (same pattern as the
-# monthly/yearly battery meters in ep_cube.yaml); weekly ones reset on Monday,
-# monthly ones on the 1st. Drop this file next to ep_cube.yaml in
-# /config/packages/ and restart.
+# The integration only exposes "today" and "yesterday" figures. The totals below
+# add up finished days: once a day an automation adds yesterday's final figure to
+# a running total, and the week/month sensors show that total plus today's live
+# figure. (A utility_meter on the *_today sensors was tried first; it counts every
+# dip in a cloud counter as a reset and so over-counted, 'consumed' by about 15%
+# in one month.) Weekly totals reset on Monday, monthly ones on the 1st. Drop this
+# file next to ep_cube.yaml in /config/packages/ and restart.
 #
 # BEFORE YOU USE IT: the two billed-cost sources in the automations near the
 # bottom contain your Octopus meter serial and MPAN. Replace the <...> parts
 # with the ones in your own entity names (Developer tools > States, search
 # "previous_accumulative_cost").
-utility_meter:
-  ep_cube_week_solar:
-    source: sensor.ep_cube_solar_today
-    cycle: weekly
-  ep_cube_week_import:
-    source: sensor.ep_cube_grid_import_today
-    cycle: weekly
-  ep_cube_week_export:
-    source: sensor.ep_cube_grid_export_today
-    cycle: weekly
-  ep_cube_week_consumed:
-    source: sensor.ep_cube_backup_loads_today
-    cycle: weekly
-  ep_cube_month_solar:
-    source: sensor.ep_cube_solar_today
-    cycle: monthly
-  ep_cube_month_import:
-    source: sensor.ep_cube_grid_import_today
-    cycle: monthly
-  ep_cube_month_export:
-    source: sensor.ep_cube_grid_export_today
-    cycle: monthly
-  ep_cube_month_consumed:
-    source: sensor.ep_cube_backup_loads_today
-    cycle: monthly
-
 # Money: Octopus's billed cost for each day, summed per week and per month.
 #
 # The Octopus Energy integration's *_previous_accumulative_cost sensors hold ONE
@@ -95,6 +71,76 @@ input_number:
     step: 0.01
     mode: box
     unit_of_measurement: GBP
+  ep_cube_week_solar_total:
+    name: EP Cube week solar (finished days, kWh)
+    min: 0
+    max: 1000000
+    step: 0.01
+    mode: box
+    unit_of_measurement: kWh
+  ep_cube_week_import_total:
+    name: EP Cube week grid import (finished days, kWh)
+    min: 0
+    max: 1000000
+    step: 0.01
+    mode: box
+    unit_of_measurement: kWh
+  ep_cube_week_export_total:
+    name: EP Cube week grid export (finished days, kWh)
+    min: 0
+    max: 1000000
+    step: 0.01
+    mode: box
+    unit_of_measurement: kWh
+  ep_cube_week_consumed_total:
+    name: EP Cube week consumed (finished days, kWh)
+    min: 0
+    max: 1000000
+    step: 0.01
+    mode: box
+    unit_of_measurement: kWh
+  ep_cube_month_solar_total:
+    name: EP Cube month solar (finished days, kWh)
+    min: 0
+    max: 1000000
+    step: 0.01
+    mode: box
+    unit_of_measurement: kWh
+  ep_cube_month_import_total:
+    name: EP Cube month grid import (finished days, kWh)
+    min: 0
+    max: 1000000
+    step: 0.01
+    mode: box
+    unit_of_measurement: kWh
+  ep_cube_month_export_total:
+    name: EP Cube month grid export (finished days, kWh)
+    min: 0
+    max: 1000000
+    step: 0.01
+    mode: box
+    unit_of_measurement: kWh
+  ep_cube_month_consumed_total:
+    name: EP Cube month consumed (finished days, kWh)
+    min: 0
+    max: 1000000
+    step: 0.01
+    mode: box
+    unit_of_measurement: kWh
+  ep_cube_standing_charge:
+    name: EP Cube standing charge per day (from Octopus)
+    min: 0
+    max: 10
+    step: 0.0001
+    mode: box
+    unit_of_measurement: GBP
+
+# The Month tab's "Show standing charge" checkbox: adds the standing charge to each
+# day's bought bar and to the net line.
+input_boolean:
+  ep_cube_show_standing_charge:
+    name: Show standing charge
+    icon: mdi:cash-plus
 
 # The most recent day already added, as "<last_reset>|<amount>|<energy only>", per direction.
 input_text:
@@ -104,6 +150,9 @@ input_text:
   ep_cube_billed_export_last:
     name: EP Cube billed export (last day counted)
     max: 120
+  ep_cube_energy_last_day:
+    name: EP Cube energy totals (last day added)
+    max: 20
 
 template:
   # The dashboard reads these sensors.
@@ -112,7 +161,14 @@ template:
         unique_id: ep_cube_week_billed_import
         unit_of_measurement: GBP
         device_class: monetary
-        state: "{{ states('input_number.ep_cube_week_billed_import_total') | float(0) | round(2) }}"
+        # Octopus counts a day's standing charge before that day's figure is published, so the
+        # days still to come are added at the current daily rate.
+        state: >
+          {% set last = as_datetime(states('input_text.ep_cube_billed_import_last').split('|')[0], none) %}
+          {% set before = (now() - timedelta(days=now().weekday())).date() - timedelta(days=1) %}
+          {% set counted = [(last | as_local).date(), before] | max if last is not none else before %}
+          {% set pending = [((now() - timedelta(days=1)).date() - counted).days, 0] | max %}
+          {{ (states('input_number.ep_cube_week_billed_import_total') | float(0) + states('input_number.ep_cube_standing_charge') | float(0) * pending) | round(2) }}
       - name: "ep_cube_week_billed_import_energy"
         unique_id: ep_cube_week_billed_import_energy
         unit_of_measurement: GBP
@@ -127,7 +183,14 @@ template:
         unique_id: ep_cube_month_billed_import
         unit_of_measurement: GBP
         device_class: monetary
-        state: "{{ states('input_number.ep_cube_month_billed_import_total') | float(0) | round(2) }}"
+        # Octopus counts a day's standing charge before that day's figure is published, so the
+        # days still to come are added at the current daily rate.
+        state: >
+          {% set last = as_datetime(states('input_text.ep_cube_billed_import_last').split('|')[0], none) %}
+          {% set before = now().replace(day=1).date() - timedelta(days=1) %}
+          {% set counted = [(last | as_local).date(), before] | max if last is not none else before %}
+          {% set pending = [((now() - timedelta(days=1)).date() - counted).days, 0] | max %}
+          {{ (states('input_number.ep_cube_month_billed_import_total') | float(0) + states('input_number.ep_cube_standing_charge') | float(0) * pending) | round(2) }}
       - name: "ep_cube_month_billed_import_energy"
         unique_id: ep_cube_month_billed_import_energy
         unit_of_measurement: GBP
@@ -138,6 +201,46 @@ template:
         unit_of_measurement: GBP
         device_class: monetary
         state: "{{ states('input_number.ep_cube_month_billed_export_total') | float(0) | round(2) }}"
+      - name: "ep_cube_week_solar"
+        unique_id: ep_cube_week_solar
+        unit_of_measurement: kWh
+        device_class: energy
+        state: "{{ (states('input_number.ep_cube_week_solar_total') | float(0) + states('sensor.ep_cube_solar_today') | float(0)) | round(2) }}"
+      - name: "ep_cube_week_import"
+        unique_id: ep_cube_week_import
+        unit_of_measurement: kWh
+        device_class: energy
+        state: "{{ (states('input_number.ep_cube_week_import_total') | float(0) + states('sensor.ep_cube_grid_import_today') | float(0)) | round(2) }}"
+      - name: "ep_cube_week_export"
+        unique_id: ep_cube_week_export
+        unit_of_measurement: kWh
+        device_class: energy
+        state: "{{ (states('input_number.ep_cube_week_export_total') | float(0) + states('sensor.ep_cube_grid_export_today') | float(0)) | round(2) }}"
+      - name: "ep_cube_week_consumed"
+        unique_id: ep_cube_week_consumed
+        unit_of_measurement: kWh
+        device_class: energy
+        state: "{{ (states('input_number.ep_cube_week_consumed_total') | float(0) + states('sensor.ep_cube_backup_loads_today') | float(0)) | round(2) }}"
+      - name: "ep_cube_month_solar"
+        unique_id: ep_cube_month_solar
+        unit_of_measurement: kWh
+        device_class: energy
+        state: "{{ (states('input_number.ep_cube_month_solar_total') | float(0) + states('sensor.ep_cube_solar_today') | float(0)) | round(2) }}"
+      - name: "ep_cube_month_import"
+        unique_id: ep_cube_month_import
+        unit_of_measurement: kWh
+        device_class: energy
+        state: "{{ (states('input_number.ep_cube_month_import_total') | float(0) + states('sensor.ep_cube_grid_import_today') | float(0)) | round(2) }}"
+      - name: "ep_cube_month_export"
+        unique_id: ep_cube_month_export
+        unit_of_measurement: kWh
+        device_class: energy
+        state: "{{ (states('input_number.ep_cube_month_export_total') | float(0) + states('sensor.ep_cube_grid_export_today') | float(0)) | round(2) }}"
+      - name: "ep_cube_month_consumed"
+        unique_id: ep_cube_month_consumed
+        unit_of_measurement: kWh
+        device_class: energy
+        state: "{{ (states('input_number.ep_cube_month_consumed_total') | float(0) + states('sensor.ep_cube_backup_loads_today') | float(0)) | round(2) }}"
 
 automation:
   - id: ep_cube_billed_import_add
@@ -198,6 +301,15 @@ automation:
               entity_id: input_number.ep_cube_month_billed_import_energy_total
             data:
               value: "{{ ([states('input_number.ep_cube_month_billed_import_energy_total') | float(0) + d_energy, 0] | max) | round(2) }}"
+      - if:
+          - condition: template
+            value_template: "{{ trigger.to_state.attributes.get('standing_charge') is number }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_standing_charge
+            data:
+              value: "{{ trigger.to_state.attributes.standing_charge }}"
       - action: input_text.set_value
         target:
           entity_id: input_text.ep_cube_billed_import_last
@@ -255,6 +367,82 @@ automation:
         data:
           value: "{{ lr }}|{{ amount }}"
 
+  # Once a day, add yesterday's final energy figures (the cube's own *_yesterday sensors) to
+  # the week and month totals. The hourly check also catches up after Home Assistant was off
+  # at 01:20, and the stored date means a day is never added twice.
+  - id: ep_cube_energy_rollup
+    alias: "EP Cube: add yesterday's energy to the week and month"
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "20"
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: template
+        value_template: >
+          {{ now().hour >= 1
+             and states('sensor.ep_cube_backup_loads_yesterday') | float(0) > 1
+             and (now() - timedelta(days=1)).strftime('%Y-%m-%d') != states('input_text.ep_cube_energy_last_day') }}
+    actions:
+      - variables:
+          day: "{{ (now() - timedelta(days=1)).strftime('%Y-%m-%d') }}"
+          in_week: "{{ day >= (now() - timedelta(days=now().weekday())).strftime('%Y-%m-%d') }}"
+          in_month: "{{ day >= now().strftime('%Y-%m-01') }}"
+      - if:
+          - condition: template
+            value_template: "{{ in_week }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_week_solar_total
+            data:
+              value: "{{ (states('input_number.ep_cube_week_solar_total') | float(0) + states('sensor.ep_cube_solar_yesterday') | float(0)) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_week_import_total
+            data:
+              value: "{{ (states('input_number.ep_cube_week_import_total') | float(0) + states('sensor.ep_cube_grid_import_yesterday') | float(0)) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_week_export_total
+            data:
+              value: "{{ (states('input_number.ep_cube_week_export_total') | float(0) + states('sensor.ep_cube_grid_export_yesterday') | float(0)) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_week_consumed_total
+            data:
+              value: "{{ (states('input_number.ep_cube_week_consumed_total') | float(0) + states('sensor.ep_cube_backup_loads_yesterday') | float(0)) | round(2) }}"
+      - if:
+          - condition: template
+            value_template: "{{ in_month }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_month_solar_total
+            data:
+              value: "{{ (states('input_number.ep_cube_month_solar_total') | float(0) + states('sensor.ep_cube_solar_yesterday') | float(0)) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_month_import_total
+            data:
+              value: "{{ (states('input_number.ep_cube_month_import_total') | float(0) + states('sensor.ep_cube_grid_import_yesterday') | float(0)) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_month_export_total
+            data:
+              value: "{{ (states('input_number.ep_cube_month_export_total') | float(0) + states('sensor.ep_cube_grid_export_yesterday') | float(0)) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ep_cube_month_consumed_total
+            data:
+              value: "{{ (states('input_number.ep_cube_month_consumed_total') | float(0) + states('sensor.ep_cube_backup_loads_yesterday') | float(0)) | round(2) }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.ep_cube_energy_last_day
+        data:
+          value: "{{ day }}"
+
   - id: ep_cube_billed_week_reset
     alias: "EP Cube: reset the weekly billed totals on Monday"
     triggers:
@@ -271,6 +459,10 @@ automation:
             - input_number.ep_cube_week_billed_import_total
             - input_number.ep_cube_week_billed_import_energy_total
             - input_number.ep_cube_week_billed_export_total
+            - input_number.ep_cube_week_solar_total
+            - input_number.ep_cube_week_import_total
+            - input_number.ep_cube_week_export_total
+            - input_number.ep_cube_week_consumed_total
         data:
           value: 0
 
@@ -289,5 +481,9 @@ automation:
             - input_number.ep_cube_month_billed_import_total
             - input_number.ep_cube_month_billed_import_energy_total
             - input_number.ep_cube_month_billed_export_total
+            - input_number.ep_cube_month_solar_total
+            - input_number.ep_cube_month_import_total
+            - input_number.ep_cube_month_export_total
+            - input_number.ep_cube_month_consumed_total
         data:
           value: 0
