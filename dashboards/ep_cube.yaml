@@ -303,6 +303,8 @@ views:
                   show: false
                 axisTicks:
                   show: false
+                tooltip:
+                  enabled: false
               legend:
                 position: bottom
                 fontSize: '13px'
@@ -365,6 +367,7 @@ views:
                 stroke_width: 1.5
                 extend_to: now
                 transform: "return x > 0 ? x / 1000 : 0;"
+                unit: kW
                 show:
                   legend_value: false
               - entity: sensor.ep_cube_grid_power
@@ -376,6 +379,7 @@ views:
                 stroke_width: 1.5
                 extend_to: now
                 transform: "return x < 0 ? x / 1000 : 0;"
+                unit: kW
                 show:
                   legend_value: false
               - entity: sensor.ep_cube_solar_power
@@ -387,6 +391,7 @@ views:
                 stroke_width: 1.5
                 extend_to: now
                 transform: "return x / 1000;"
+                unit: kW
                 show:
                   legend_value: false
               - entity: sensor.ep_cube_load_power
@@ -398,10 +403,12 @@ views:
                 stroke_width: 1.5
                 extend_to: now
                 transform: "return x / 1000;"
+                unit: kW
                 show:
                   legend_value: false
               - entity: predbat.grid_power_best
                 name: Bought (forecast)
+                unit: kW
                 type: line
                 curve: stepline
                 yaxis_id: kw
@@ -419,6 +426,7 @@ views:
                   return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Math.max(Number(r[k]), 0), 7.27)]).filter(p => p[0] > tn));
               - entity: predbat.grid_power_best
                 name: Sold (forecast)
+                unit: kW
                 type: line
                 curve: stepline
                 yaxis_id: kw
@@ -436,6 +444,7 @@ views:
                   return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Number(r[k]), 0)]).filter(p => p[0] > tn));
               - entity: predbat.pv_power_best
                 name: Solar (forecast)
+                unit: kW
                 type: line
                 curve: stepline
                 yaxis_id: kw
@@ -453,6 +462,7 @@ views:
                   return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k])]).filter(p => p[0] > tn));
               - entity: predbat.load_power_best
                 name: Load (forecast)
+                unit: kW
                 type: line
                 curve: stepline
                 yaxis_id: kw
@@ -570,6 +580,8 @@ views:
                         show: false
                       axisTicks:
                         show: false
+                      tooltip:
+                        enabled: false
                     legend:
                       position: bottom
                       fontSize: '13px'
@@ -632,6 +644,7 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x > 0 ? x / 1000 : 0;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: sensor.ep_cube_grid_power
@@ -643,6 +656,7 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x < 0 ? x / 1000 : 0;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: sensor.ep_cube_solar_power
@@ -654,6 +668,7 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x / 1000;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: sensor.ep_cube_load_power
@@ -665,10 +680,12 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x / 1000;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: predbat.grid_power_best
                       name: Bought (forecast)
+                      unit: kW
                       type: line
                       curve: stepline
                       yaxis_id: kw
@@ -686,6 +703,7 @@ views:
                         return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Math.max(Number(r[k]), 0), 7.27)]).filter(p => p[0] > tn));
                     - entity: predbat.grid_power_best
                       name: Sold (forecast)
+                      unit: kW
                       type: line
                       curve: stepline
                       yaxis_id: kw
@@ -703,6 +721,7 @@ views:
                         return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Number(r[k]), 0)]).filter(p => p[0] > tn));
                     - entity: predbat.pv_power_best
                       name: Solar (forecast)
+                      unit: kW
                       type: line
                       curve: stepline
                       yaxis_id: kw
@@ -720,6 +739,7 @@ views:
                         return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k])]).filter(p => p[0] > tn));
                     - entity: predbat.load_power_best
                       name: Load (forecast)
+                      unit: kW
                       type: line
                       curve: stepline
                       yaxis_id: kw
@@ -803,6 +823,8 @@ views:
                         show: false
                       axisTicks:
                         show: false
+                      tooltip:
+                        enabled: false
                     legend:
                       position: bottom
                       fontSize: '13px'
@@ -952,6 +974,8 @@ views:
                         show: false
                       axisTicks:
                         show: false
+                      tooltip:
+                        enabled: false
                     legend:
                       position: bottom
                       fontSize: '13px'
@@ -1159,6 +1183,8 @@ views:
                         show: false
                       axisTicks:
                         show: false
+                      tooltip:
+                        enabled: false
                     legend:
                       position: bottom
                       fontSize: '13px'
@@ -1221,6 +1247,7 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x > 0 ? x / 1000 : 0;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: sensor.ep_cube_grid_power
@@ -1232,6 +1259,7 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x < 0 ? x / 1000 : 0;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: sensor.ep_cube_solar_power
@@ -1243,6 +1271,7 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x / 1000;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: sensor.ep_cube_load_power
@@ -1254,6 +1283,7 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x / 1000;"
+                      unit: kW
                       show:
                         legend_value: false
               - attributes:
@@ -1304,6 +1334,8 @@ views:
                         show: false
                       axisTicks:
                         show: false
+                      tooltip:
+                        enabled: false
                     legend:
                       position: bottom
                       fontSize: '13px'
@@ -1433,6 +1465,8 @@ views:
                         show: false
                       axisTicks:
                         show: false
+                      tooltip:
+                        enabled: false
                     legend:
                       position: bottom
                       fontSize: '13px'
@@ -1633,6 +1667,8 @@ views:
                         show: false
                       axisTicks:
                         show: false
+                      tooltip:
+                        enabled: false
                     legend:
                       position: bottom
                       fontSize: '13px'
@@ -1695,6 +1731,7 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x > 0 ? x / 1000 : 0;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: sensor.ep_cube_grid_power
@@ -1706,6 +1743,7 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x < 0 ? x / 1000 : 0;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: sensor.ep_cube_solar_power
@@ -1717,6 +1755,7 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x / 1000;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: sensor.ep_cube_load_power
@@ -1728,10 +1767,12 @@ views:
                       stroke_width: 1.5
                       extend_to: now
                       transform: "return x / 1000;"
+                      unit: kW
                       show:
                         legend_value: false
                     - entity: predbat.grid_power_best
                       name: Bought (forecast)
+                      unit: kW
                       type: line
                       curve: stepline
                       yaxis_id: kw
@@ -1749,6 +1790,7 @@ views:
                         return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Math.max(Number(r[k]), 0), 7.27)]).filter(p => p[0] > tn));
                     - entity: predbat.grid_power_best
                       name: Sold (forecast)
+                      unit: kW
                       type: line
                       curve: stepline
                       yaxis_id: kw
@@ -1766,6 +1808,7 @@ views:
                         return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Math.min(Number(r[k]), 0)]).filter(p => p[0] > tn));
                     - entity: predbat.pv_power_best
                       name: Solar (forecast)
+                      unit: kW
                       type: line
                       curve: stepline
                       yaxis_id: kw
@@ -1783,6 +1826,7 @@ views:
                         return head.concat(Object.keys(r).sort().map(k => [new Date(k.replace(/([+-]\d\d)(\d\d)$/, '$1:$2')).getTime(), Number(r[k])]).filter(p => p[0] > tn));
                     - entity: predbat.load_power_best
                       name: Load (forecast)
+                      unit: kW
                       type: line
                       curve: stepline
                       yaxis_id: kw
@@ -1864,6 +1908,8 @@ views:
                         show: false
                       axisTicks:
                         show: false
+                      tooltip:
+                        enabled: false
                     legend:
                       position: bottom
                       fontSize: '13px'
@@ -2011,6 +2057,8 @@ views:
                         show: false
                       axisTicks:
                         show: false
+                      tooltip:
+                        enabled: false
                     legend:
                       position: bottom
                       fontSize: '13px'
