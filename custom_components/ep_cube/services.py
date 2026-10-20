@@ -19,8 +19,9 @@ windows. The shim maps:
   surplus above load may export if `sellingEnable` permits, but it is
   not commanded. See ARCHITECTURE.md → "Known limitation: force-export".
 - `hold` / `freeze` → mid-peak slot ("not charging from grid, not
-  supporting loads" — genuinely idle, including no solar → battery charging
-  during the window). Vendor-confirmed semantics (2026-05-20 TOU capture).
+  supporting loads": no grid charging and no discharge to the house). Solar
+  can still charge the battery (seen on a real cube, 2026-10-20), so it
+  cannot deliver Predbat's "freeze export".
 
 Synthetic prices are in `const.py` (`SHIM_PRICE_*`). They are spaced wide
 enough that the inverter never ambiguates the tier ordering.
@@ -1005,8 +1006,9 @@ class PredbatShim:
 
     async def _freeze_with_tou_slot(self, end_time: datetime) -> None:
         """The legacy freeze: a ToU mid-peak slot, which the vendor describes as
-        "not charging, not supporting loads". Never verified on a real cube; kept as
-        the fallback and for discharge_freeze."""
+        "not charging from grid, not supporting loads". Solar can still charge the
+        battery in this slot (observed on a real cube, 2026-10-20), so it does not
+        give a freeze export. Kept as the fallback and for discharge_freeze."""
         params = {"kind": KIND_FREEZE, "end_time": end_time}
         if self._matches_active(params):
             _LOGGER.debug("freeze (ToU slot): idempotent no-op")

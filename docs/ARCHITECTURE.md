@@ -75,7 +75,7 @@ All shim services accept only an optional `device_id`. The window/SoC parameters
 | `ep_cube.discharge_start` | `best_export_start`/`_end`, `best_export_limit` | TOU peak slot covering now → best_export_end. Vendor-confirmed peak = "drain to loads, refuse grid import" — **NOT** active export. Best-effort approximation of Predbat's force-export intent. See "Known limitation: force-export" below. | ⚠️ semantic gap documented |
 | `ep_cube.discharge_stop` | — | Same as charge_stop. | ✅ verified on mock |
 | `ep_cube.charge_freeze` | `best_charge_start`/`_end` | **Reserve-at-SoC hold**: the Self-Consumption reserve is raised to the current SoC (rounded down, never below the baseline reserve) until `best_charge_end`, so the battery cannot discharge (the grid covers the house) while surplus solar still charges it. Verified on the cube 2026-10-15. The reserve is fixed at the start (repeat calls do not ratchet it) and the revert restores the baseline reserve. Falls back to the legacy ToU mid-peak slot if the SoC is unknown or the baseline is not Self-Consumption. | ✅ verified on the cube |
-| `ep_cube.discharge_freeze` | `best_export_start`/`_end` | Still the legacy ToU mid-peak slot (never verified on a cube). Predbat's "freeze export" (the battery must not absorb surplus solar, which is exported instead) is a different behaviour from freeze charge, and a reserve hold does not do it; to be tested separately. | ⚠️ mock only |
+| `ep_cube.discharge_freeze` | `best_export_start`/`_end` | The ToU mid-peak slot. Tested on a real cube on 20 Oct 2026: it does **not** give Predbat's "freeze export" (solar surplus still charged the battery, nothing was exported; issue #5). No cube mode found does this, so turn off Predbat's "Set Export Freeze" switch. | ⚠️ does not export |
 | `ep_cube.idle` | — | Restore baseline. Equivalent to `*_stop` for any active override. | ✅ verified on mock |
 
 If `*_start` or `*_freeze` fires while Predbat reports no plan (empty-state / null timestamp on the relevant `best_*` entities), the handler logs a warning and no-ops. This guards against stale fires during shutdown / config errors.
@@ -120,7 +120,7 @@ Bound: target ≤ 12 cloud writes/day in normal operation. Validated against the
 Predbat's `discharge_start` conceptually means "push battery → grid at this rate". The EP Cube cloud API exposes no command for this. Its three operating modes (self-consumption / TOU / backup) and TOU's three tiers (off-peak / mid-peak / peak) all describe behaviour relative to *household loads*, not the grid meter:
 
 - **off-peak** — charge from grid, ignore loads
-- **mid-peak** — idle (no grid, no load support)
+- **mid-peak** — no grid charging, no load support (solar can still charge the battery, seen 2026-10-20)
 - **peak** — drain to loads, refuse grid import
 
 There is no "peak + export surplus to grid at commanded rate" mode. The shim maps `discharge_start → peak` as the closest available, on the basis that:
