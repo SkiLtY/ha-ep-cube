@@ -78,6 +78,10 @@ pred_bat:
     service: ep_cube.discharge_start
   discharge_stop_service:
     service: ep_cube.discharge_stop
+  # The EP Cube cannot do Predbat's "freeze export" (hold the battery and
+  # send surplus solar to the grid): surplus solar still charges the battery.
+  # Turn off switch.predbat_set_export_freeze in Home Assistant (see
+  # docs/TROUBLESHOOTING.md).
   discharge_freeze_service:
     service: ep_cube.discharge_freeze
 

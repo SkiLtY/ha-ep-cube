@@ -1027,8 +1027,17 @@ class PredbatShim:
     async def discharge_freeze(self, end_time: datetime) -> None:
         """Predbat's "freeze export" (the battery must not absorb surplus solar, which
         is exported instead) is a different behaviour from freeze charge, and a
-        reserve hold does not do it (solar would still charge the battery). Until that
-        is tested on the cube it keeps the legacy ToU mid-peak slot."""
+        reserve hold does not do it (solar would still charge the battery). Tested on
+        a real cube on 2026-10-20: the ToU mid-peak slot does not export either (issue
+        #5), so this stays as a no-grid-charge, no-discharge hold and warns once."""
+        if not getattr(self, "_freeze_export_warned", False):
+            self._freeze_export_warned = True
+            _LOGGER.warning(
+                "Predbat asked for a freeze export, which the EP Cube cannot do: surplus "
+                "solar will still charge the battery instead of going to the grid. Turn "
+                "off Predbat's 'Set Export Freeze' switch (switch.predbat_set_export_freeze); "
+                "see docs/TROUBLESHOOTING.md"
+            )
         await self._freeze_with_tou_slot(end_time)
 
     async def idle(self) -> None:
