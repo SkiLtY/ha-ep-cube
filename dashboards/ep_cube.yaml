@@ -2583,3 +2583,36 @@ views:
                   name: Allow charging from grid
                 - entity: switch.ep_cube_daylight_saving_time
                   name: Daylight saving time
+
+      # ───────────────────────────────────────────────────────────────
+      # Battery health: lifetime discharge and estimated cycles against
+      # the warranty allowance (80% capacity for the warranty period or
+      # 6,000 cycles). The warranty end date and the daily cycle budget
+      # come from the cloud's own warranty dates, so a 10-year and a
+      # 15-year warranty both read correctly. Estimates from state-of-charge
+      # changes, so they may differ slightly from the vendor's count.
+      # Needs integration v1.6.2 or later.
+      # ───────────────────────────────────────────────────────────────
+      - type: entities
+        title: Battery health
+        show_header_toggle: false
+        entities:
+          - entity: sensor.ep_cube_battery_discharged_lifetime
+            name: Discharged (lifetime)
+          - entity: sensor.ep_cube_battery_cycles_estimated
+            name: Cycles used (estimated)
+          - type: attribute
+            entity: sensor.ep_cube_battery_cycles_estimated
+            attribute: percent_of_cycle_allowance
+            name: Share of 6,000-cycle allowance
+            suffix: ' %'
+          - type: attribute
+            entity: sensor.ep_cube_battery_cycles_estimated
+            attribute: average_cycles_per_day
+            name: Average cycles a day
+          - type: attribute
+            entity: sensor.ep_cube_battery_cycles_estimated
+            attribute: cycle_budget_per_day
+            name: Cycle budget a day (allowance over warranty)
+          - entity: sensor.ep_cube_warranty_end_date
+            name: Warranty ends
