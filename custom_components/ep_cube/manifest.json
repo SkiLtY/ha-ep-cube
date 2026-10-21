@@ -1,6 +1,7 @@
 {
   "domain": "ep_cube",
   "name": "Canadian Solar EP Cube",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@SkiLtY"],
   "config_flow": true,
   "documentation": "https://github.com/SkiLtY/ha-ep-cube",
