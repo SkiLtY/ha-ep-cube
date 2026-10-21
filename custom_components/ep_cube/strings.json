@@ -32,7 +32,26 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "online": {"name": "Online"},
+      "fault": {"name": "Fault"},
+      "alert": {"name": "Alert"},
+      "firmware_auto_update": {"name": "Firmware auto-update"}
+    },
     "sensor": {
+      "fault_warning_type": {"name": "Fault warning code"},
+      "signal_level": {"name": "Signal level"},
+      "system_status": {"name": "System status"},
+      "charging_limit_soc": {"name": "Charge limit SoC"},
+      "winter_mode": {"name": "Winter mode"},
+      "lpp_time_duration": {"name": "LPP time duration"},
+      "lpc_time_duration": {"name": "LPC time duration"},
+      "backup_loads_mode": {"name": "Backup loads mode"},
+      "firmware_version": {"name": "Firmware version"},
+      "rtu_version": {"name": "Comms module version"},
+      "model": {"name": "Model"},
+      "serial_number": {"name": "Serial number"},
+      "rtu_serial_number": {"name": "Comms module serial number"},
       "battery_soc": {"name": "Battery SoC"},
       "battery_soc_kwh": {"name": "Battery energy"},
       "battery_capacity_kwh": {"name": "Battery capacity"},

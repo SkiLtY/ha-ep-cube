@@ -109,6 +109,10 @@ class TestSetupEntry:
             "coal_today", "coal_year", "trees_today", "trees_year",
             "dynamic_buy_below", "dynamic_sell_above",
             "battery_discharge_lifetime", "battery_cycles", "warranty_end",
+            # v1.6.3 status, firmware and identity diagnostics
+            "fault_warning_type", "signal_level", "system_status", "charging_limit_soc",
+            "winter_mode", "lpp_time_duration", "lpc_time_duration", "backup_loads_mode",
+            "firmware_version", "rtu_version", "model", "serial_number", "rtu_serial_number",
             # v1.2 instant-KPI tiles (derived from homeDeviceInfo power channels)
             "instant_self_consumption_pct",
             "instant_self_sufficiency_pct",

@@ -509,6 +509,101 @@ BATTERY_CYCLES_SENSOR = EPCubeSensorDescription(
         else None
     ),
 )
+# Status fields the cloud already returns, exposed as diagnostics. None sit on a
+# default card: they are there for the device page and for automations. The last
+# three are disabled by default because we don't yet know what they mean.
+STATUS_SENSORS: tuple[EPCubeSensorDescription, ...] = (
+    EPCubeSensorDescription(
+        key="fault_warning_type",
+        translation_key="fault_warning_type",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        # Hidden by default: we don't know what the codes mean. Users can unhide it
+        # and put it on a card (or use it in an automation) if they want it.
+        entity_registry_visible_default=False,
+        value_fn=lambda s: s.fault_warning_type,
+    ),
+    EPCubeSensorDescription(
+        key="signal_level",
+        translation_key="signal_level",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.signal_level,
+    ),
+    EPCubeSensorDescription(
+        key="system_status",
+        translation_key="system_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.system_status,
+    ),
+    EPCubeSensorDescription(
+        key="charging_limit_soc",
+        translation_key="charging_limit_soc",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.charging_limit_soc,
+    ),
+    EPCubeSensorDescription(
+        key="winter_mode",
+        translation_key="winter_mode",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.winter_mode,
+    ),
+    EPCubeSensorDescription(
+        key="lpp_time_duration",
+        translation_key="lpp_time_duration",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda s: s.lpp_time_duration,
+    ),
+    EPCubeSensorDescription(
+        key="lpc_time_duration",
+        translation_key="lpc_time_duration",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda s: s.lpc_time_duration,
+    ),
+    EPCubeSensorDescription(
+        key="backup_loads_mode",
+        translation_key="backup_loads_mode",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda s: s.backup_loads_mode,
+    ),
+)
+
+# Firmware versions come from their own cloud route, not the status poll.
+MODEL_SENSOR = EPCubeSensorDescription(
+    key="model",
+    translation_key="model",
+    entity_category=EntityCategory.DIAGNOSTIC,
+    value_fn=lambda s: None,
+)
+SERIAL_NUMBER_SENSOR = EPCubeSensorDescription(
+    key="serial_number",
+    translation_key="serial_number",
+    entity_category=EntityCategory.DIAGNOSTIC,
+    value_fn=lambda s: None,
+)
+RTU_SERIAL_NUMBER_SENSOR = EPCubeSensorDescription(
+    key="rtu_serial_number",
+    translation_key="rtu_serial_number",
+    entity_category=EntityCategory.DIAGNOSTIC,
+    entity_registry_enabled_default=False,
+    value_fn=lambda s: None,
+)
+FIRMWARE_VERSION_SENSOR = EPCubeSensorDescription(
+    key="firmware_version",
+    translation_key="firmware_version",
+    entity_category=EntityCategory.DIAGNOSTIC,
+    value_fn=lambda s: None,
+)
+RTU_VERSION_SENSOR = EPCubeSensorDescription(
+    key="rtu_version",
+    translation_key="rtu_version",
+    entity_category=EntityCategory.DIAGNOSTIC,
+    value_fn=lambda s: None,
+)
 WARRANTY_END_SENSOR = EPCubeSensorDescription(
     key="warranty_end",
     translation_key="warranty_end",
@@ -940,6 +1035,18 @@ async def async_setup_entry(
     entities.append(
         EPCubeUserReserveSensor(coordinator, entry.entry_id, USER_RESERVE_SENSOR, stored["shim"])
     )
+    entities.extend(EPCubeSensor(coordinator, entry.entry_id, desc) for desc in STATUS_SENSORS)
+    entities.append(
+        EPCubeFirmwareSensor(coordinator, entry.entry_id, FIRMWARE_VERSION_SENSOR, "firmware_version")
+    )
+    entities.append(EPCubeFirmwareSensor(coordinator, entry.entry_id, RTU_VERSION_SENSOR, "rtu_version"))
+    entities.append(EPCubeDetailsSensor(coordinator, entry.entry_id, MODEL_SENSOR, "model"))
+    entities.append(
+        EPCubeDetailsSensor(coordinator, entry.entry_id, SERIAL_NUMBER_SENSOR, "serial_number")
+    )
+    entities.append(
+        EPCubeDetailsSensor(coordinator, entry.entry_id, RTU_SERIAL_NUMBER_SENSOR, "rtu_serial_number")
+    )
     entities.append(EPCubeCyclesSensor(coordinator, entry.entry_id, BATTERY_CYCLES_SENSOR))
     entities.append(EPCubeWarrantySensor(coordinator, entry.entry_id, WARRANTY_END_SENSOR))
     async_add_entities(entities)
@@ -1043,6 +1150,40 @@ class EPCubeCyclesSensor(EPCubeSensor):
                 if elapsed > 0 and isinstance(cycles, (int, float)):
                     attrs["average_cycles_per_day"] = round(cycles / elapsed, 2)
         return attrs
+
+
+class EPCubeFirmwareSensor(EPCubeSensor):
+    """A version string from the cloud's queryFirmwareInfo (firmware or comms module)."""
+
+    def __init__(self, coordinator, entry_id, description, field: str) -> None:
+        super().__init__(coordinator, entry_id, description)
+        self._field = field
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.coordinator.firmware is not None
+
+    @property
+    def native_value(self) -> str | None:
+        firmware = self.coordinator.firmware
+        return getattr(firmware, self._field, None) if firmware is not None else None
+
+
+class EPCubeDetailsSensor(EPCubeSensor):
+    """Model or serial number from the cloud's userDeviceInfo."""
+
+    def __init__(self, coordinator, entry_id, description, field: str) -> None:
+        super().__init__(coordinator, entry_id, description)
+        self._field = field
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.coordinator.details is not None
+
+    @property
+    def native_value(self) -> str | None:
+        details = self.coordinator.details
+        return getattr(details, self._field, None) if details is not None else None
 
 
 class EPCubeWarrantySensor(EPCubeSensor):

@@ -65,7 +65,12 @@ def device_list() -> list[dict[str, Any]]:
 def fake_client(get_switch_mode, device_list):
     from datetime import date
 
-    from custom_components.ep_cube.api import DeviceStatus, WarrantyInfo
+    from custom_components.ep_cube.api import (
+        DeviceDetails,
+        DeviceStatus,
+        FirmwareInfo,
+        WarrantyInfo,
+    )
 
     client = MagicMock()
     client.dev_id = "5613"
@@ -91,6 +96,14 @@ def fake_client(get_switch_mode, device_list):
     # The lifetime total counts as already known, so the coordinator doesn't try to
     # seed it from a recorder these tests don't have.
     client.lifetime_known = True
+    client.get_firmware_info = AsyncMock(
+        return_value=FirmwareInfo(firmware_version="V1.3.1", rtu_version="V1.1.0.1", auto_update=True)
+    )
+    client.get_device_details = AsyncMock(
+        return_value=DeviceDetails(
+            model="EP Cube HES-EU2-S7-20G", serial_number="SN-TEST-1", rtu_serial_number="RTU-TEST-1"
+        )
+    )
     client.get_warranty = AsyncMock(
         return_value=WarrantyInfo(start=date(2026, 5, 20), end=date(2036, 5, 20))
     )

@@ -32,7 +32,26 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "online": {"name": "Online"},
+      "fault": {"name": "Störung"},
+      "alert": {"name": "Warnung"},
+      "firmware_auto_update": {"name": "Firmware-Autoupdate"}
+    },
     "sensor": {
+      "fault_warning_type": {"name": "Fehler-/Warncode"},
+      "signal_level": {"name": "Signalstärke"},
+      "system_status": {"name": "Systemstatus"},
+      "charging_limit_soc": {"name": "Ladegrenze SoC"},
+      "winter_mode": {"name": "Wintermodus"},
+      "lpp_time_duration": {"name": "LPP-Dauer"},
+      "lpc_time_duration": {"name": "LPC-Dauer"},
+      "backup_loads_mode": {"name": "Backup-Lastmodus"},
+      "firmware_version": {"name": "Firmware-Version"},
+      "rtu_version": {"name": "Kommunikationsmodul-Version"},
+      "model": {"name": "Modell"},
+      "serial_number": {"name": "Seriennummer"},
+      "rtu_serial_number": {"name": "Seriennummer Kommunikationsmodul"},
       "battery_soc": {"name": "Batterie-Ladezustand"},
       "battery_soc_kwh": {"name": "Batterieenergie"},
       "battery_capacity_kwh": {"name": "Batteriekapazität"},

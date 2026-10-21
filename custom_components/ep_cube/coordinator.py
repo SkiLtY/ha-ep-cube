@@ -9,6 +9,7 @@ from typing import Any
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -16,7 +17,9 @@ from homeassistant.util import dt as dt_util
 from .api import (
     DeviceStatus,
     EPCubeClient,
+    DeviceDetails,
     EPCubeError,
+    FirmwareInfo,
     RateLimitError,
     ServerError,
     WarrantyInfo,
@@ -86,6 +89,12 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
         # fetch keeps the previous value.
         self._warranty: WarrantyInfo | None = None
         self._warranty_fetched: datetime | None = None
+        # Firmware versions (queryFirmwareInfo), same cadence and rules.
+        self._firmware: FirmwareInfo | None = None
+        self._firmware_fetched: datetime | None = None
+        # Model and serial numbers (userDeviceInfo), same cadence and rules.
+        self._details: DeviceDetails | None = None
+        self._details_fetched: datetime | None = None
         self._lifetime_seed_attempts = 0
 
     def _battery_flow_data(self) -> dict:
@@ -101,6 +110,70 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
     def warranty(self) -> WarrantyInfo | None:
         """The cube's warranty dates, or None until the cloud has returned them."""
         return self._warranty
+
+    @property
+    def details(self) -> DeviceDetails | None:
+        """The cube's model and serial numbers, or None until the cloud returns them."""
+        return self._details
+
+    async def _async_refresh_details(self) -> None:
+        now = dt_util.utcnow()
+        if self._details_fetched is not None and now - self._details_fetched < WARRANTY_REFRESH:
+            return
+        self._details_fetched = now
+        try:
+            details = await self.client.get_device_details()
+        except EPCubeError as err:
+            _LOGGER.debug("get_device_details failed (keeping cached): %s", err)
+            return
+        if details is not None:
+            self._details = details
+
+    def _async_update_device_registry(self) -> None:
+        """Show the model, serial number and firmware on the device page."""
+        registry = dr.async_get(self.hass)
+        # Look the device up through our own config entry: HA deprecated finding a
+        # device by identifiers alone, since they are no longer unique across entries.
+        device = next(
+            (
+                d
+                for d in dr.async_entries_for_config_entry(registry, self._entry_id)
+                if (DOMAIN, self._entry_id) in d.identifiers
+            ),
+            None,
+        )
+        if device is None:
+            return
+        changes: dict[str, str] = {}
+        if self._details is not None:
+            if self._details.model and device.model != self._details.model:
+                changes["model"] = self._details.model
+            if self._details.serial_number and device.serial_number != self._details.serial_number:
+                changes["serial_number"] = self._details.serial_number
+        if self._firmware is not None:
+            version = self._firmware.firmware_version
+            if version and device.sw_version != version:
+                changes["sw_version"] = version
+        if changes:
+            registry.async_update_device(device.id, **changes)
+
+    @property
+    def firmware(self) -> FirmwareInfo | None:
+        """The cube's firmware versions, or None until the cloud has returned them."""
+        return self._firmware
+
+    async def _async_refresh_firmware(self) -> None:
+        now = dt_util.utcnow()
+        if self._firmware_fetched is not None and now - self._firmware_fetched < WARRANTY_REFRESH:
+            return
+        self._firmware_fetched = now
+        try:
+            firmware = await self.client.get_firmware_info()
+        except EPCubeError as err:
+            _LOGGER.debug("get_firmware_info failed (keeping cached): %s", err)
+            return
+        if firmware is not None:
+            self._firmware = firmware
 
     async def _async_refresh_warranty(self) -> None:
         now = dt_util.utcnow()
@@ -189,6 +262,9 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
             _LOGGER.debug("get_pv_strings failed (keeping cached): %s", err)
 
         await self._async_refresh_warranty()
+        await self._async_refresh_firmware()
+        await self._async_refresh_details()
+        self._async_update_device_registry()
         await self._async_seed_lifetime()
 
         # Raise / clear the Predbat-priority repair issue based on the

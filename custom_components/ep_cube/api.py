@@ -160,6 +160,41 @@ class DeviceStatus:
     # began tracking (or since it was seeded from the recorder). Built from the
     # same SoC deltas as battery_discharge_today_kwh, so it is an estimate.
     battery_discharge_lifetime_kwh: float = 0.0
+    # Status fields the cloud already returns, exposed as diagnostics. All None
+    # when the payload doesn't carry them (older firmware, other regions).
+    # `is_*` come from homeDeviceInfo ("1"/"0" strings); the others are as sent.
+    is_online: bool | None = None
+    is_fault: bool | None = None
+    is_alert: bool | None = None
+    fault_warning_type: str | None = None   # a code; "1" on a healthy cube, meaning not documented
+    signal_level: int | None = None         # 0-4
+    system_status: int | None = None        # 4 = normal
+    winter_mode: int | None = None
+    # getSwitchMode: the charge limit SoC the cube holds (the shim writes it).
+    charging_limit_soc: float | None = None
+    # Meaning not known yet; surfaced disabled by default.
+    lpp_time_duration: float | None = None
+    lpc_time_duration: float | None = None
+    backup_loads_mode: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FirmwareInfo:
+    """Firmware versions from the cloud's `queryFirmwareInfo` route."""
+
+    firmware_version: str | None
+    rtu_version: str | None
+    auto_update: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceDetails:
+    """Static identity of the cube from the cloud's `userDeviceInfo` route (the
+    address and owner fields in that response are deliberately not kept)."""
+
+    model: str | None
+    serial_number: str | None
+    rtu_serial_number: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,6 +425,18 @@ def payload_from_switch_mode_read(
     if overrides:
         payload.update(overrides)
     return payload
+
+
+def _flag_or_none(value: Any) -> bool | None:
+    """A cube "1"/"0" flag as bool, or None when the key is absent or blank."""
+    if value is None or value == "":
+        return None
+    return _truthy(value)
+
+
+def _int_or_none(value: Any) -> int | None:
+    number = _float_or_none(value)
+    return None if number is None else int(number)
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -771,6 +818,19 @@ class EPCubeClient:
             dynamic_sell_above=(
                 _float_or_none(mode.get("dynamicDischargePrice")) if dynamic_mode else None
             ),
+            is_online=_flag_or_none(info.get("isOnline")),
+            is_fault=_flag_or_none(info.get("isFault")),
+            is_alert=_flag_or_none(info.get("isAlert")),
+            fault_warning_type=(
+                None if info.get("faultWarningType") in (None, "") else str(info["faultWarningType"])
+            ),
+            signal_level=_int_or_none(info.get("signalLevel")),
+            system_status=_int_or_none(info.get("systemStatus")),
+            winter_mode=_int_or_none(info.get("winterMode")),
+            charging_limit_soc=_float_or_none(mode.get("chargingLimitSoc")),
+            lpp_time_duration=_float_or_none(info.get("lppTimeDuration")),
+            lpc_time_duration=_float_or_none(info.get("lpcTimeDuration")),
+            backup_loads_mode=_int_or_none(info.get("backupLoadsMode")),
         )
 
     async def get_switch_mode(self) -> dict[str, Any]:
@@ -830,6 +890,42 @@ class EPCubeClient:
             except (KeyError, TypeError, ValueError):
                 continue
         return out
+
+    async def get_firmware_info(self) -> FirmwareInfo | None:
+        """Firmware and comms-module versions plus the auto-update flag, from
+        `user/user/queryFirmwareInfo` (`firmwareVersion`, `rtuVersion`,
+        `aotuUpdateFirmware` - the cloud's own spelling). None if the route has
+        none of them."""
+        data = await self._get(f"{self._api_prefix}/user/user/queryFirmwareInfo?devId={self._dev_id}")
+        if not isinstance(data, dict):
+            return None
+
+        def _text(key: str) -> str | None:
+            value = data.get(key)
+            return None if value in (None, "") else str(value)
+
+        firmware, rtu = _text("firmwareVersion"), _text("rtuVersion")
+        auto = _flag_or_none(data.get("aotuUpdateFirmware"))
+        if firmware is None and rtu is None and auto is None:
+            return None
+        return FirmwareInfo(firmware_version=firmware, rtu_version=rtu, auto_update=auto)
+
+    async def get_device_details(self) -> DeviceDetails | None:
+        """Model type and serial numbers from userDeviceInfo (`modelType`, `sgSn`,
+        `rtuSn`). The same response carries the owner's name and address; only
+        these three fields are read. None if none of them is present."""
+        data = await self._get(f"{self._api_prefix}/device/userDeviceInfo?devId={self._dev_id}")
+        if not isinstance(data, dict):
+            return None
+
+        def _text(key: str) -> str | None:
+            value = data.get(key)
+            return None if value in (None, "") else str(value)
+
+        model, serial, rtu = _text("modelType"), _text("sgSn"), _text("rtuSn")
+        if model is None and serial is None and rtu is None:
+            return None
+        return DeviceDetails(model=model, serial_number=serial, rtu_serial_number=rtu)
 
     async def get_warranty(self) -> WarrantyInfo | None:
         """The warranty start and end dates from getWarranty (`activationDate` /

@@ -45,6 +45,7 @@ from .services import (
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
     Platform.SENSOR,
     Platform.SELECT,
     Platform.SWITCH,

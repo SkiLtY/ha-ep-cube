@@ -32,7 +32,26 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "online": {"name": "Online"},
+      "fault": {"name": "Storing"},
+      "alert": {"name": "Waarschuwing"},
+      "firmware_auto_update": {"name": "Automatische firmware-update"}
+    },
     "sensor": {
+      "fault_warning_type": {"name": "Storings-/waarschuwingscode"},
+      "signal_level": {"name": "Signaalsterkte"},
+      "system_status": {"name": "Systeemstatus"},
+      "charging_limit_soc": {"name": "Laadlimiet SoC"},
+      "winter_mode": {"name": "Wintermodus"},
+      "lpp_time_duration": {"name": "LPP-duur"},
+      "lpc_time_duration": {"name": "LPC-duur"},
+      "backup_loads_mode": {"name": "Back-up-belastingmodus"},
+      "firmware_version": {"name": "Firmwareversie"},
+      "rtu_version": {"name": "Versie communicatiemodule"},
+      "model": {"name": "Model"},
+      "serial_number": {"name": "Serienummer"},
+      "rtu_serial_number": {"name": "Serienummer communicatiemodule"},
       "battery_soc": {"name": "Batterij-laadtoestand"},
       "battery_soc_kwh": {"name": "Batterij-energie"},
       "battery_capacity_kwh": {"name": "Batterijcapaciteit"},
