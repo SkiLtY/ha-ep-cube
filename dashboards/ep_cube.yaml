@@ -2587,9 +2587,9 @@ views:
       # ───────────────────────────────────────────────────────────────
       # Battery health: lifetime discharge and estimated cycles against
       # the warranty allowance (80% capacity for the warranty period or
-      # 6,000 cycles). The warranty end date and the daily cycle budget
-      # come from the cloud's own warranty dates, so a 10-year and a
-      # 15-year warranty both read correctly. Estimates from state-of-charge
+      # 6,000 cycles). The daily cycle budget comes from the cloud's own
+      # warranty dates (the end date is on the Device status card), so a
+      # 10-year and a 15-year warranty both read correctly. Estimates from state-of-charge
       # changes, so they may differ slightly from the vendor's count.
       # Needs integration v1.6.2 or later.
       # ───────────────────────────────────────────────────────────────
@@ -2599,20 +2599,58 @@ views:
         entities:
           - entity: sensor.ep_cube_battery_discharged_lifetime
             name: Discharged (lifetime)
+            icon: mdi:battery-arrow-down-outline
           - entity: sensor.ep_cube_battery_cycles_estimated
-            name: Cycles used (estimated)
-          - type: attribute
-            entity: sensor.ep_cube_battery_cycles_estimated
-            attribute: percent_of_cycle_allowance
-            name: Share of 6,000-cycle allowance
-            suffix: ' %'
+            name: Cycles used (of 6,000)
+            icon: mdi:battery-sync-outline
           - type: attribute
             entity: sensor.ep_cube_battery_cycles_estimated
             attribute: average_cycles_per_day
-            name: Average cycles a day
+            name: Cycles per day (average)
+            icon: mdi:speedometer-medium
           - type: attribute
             entity: sensor.ep_cube_battery_cycles_estimated
             attribute: cycle_budget_per_day
-            name: Cycle budget a day (allowance over warranty)
-          - entity: sensor.ep_cube_warranty_end_date
-            name: Warranty ends
+            name: Cycles per day (warranty)
+            icon: mdi:shield-check-outline
+
+      # ───────────────────────────────────────────────────────────────
+      # Device status (live flags) and Device info (fixed facts), stacked so
+      # they stay together. The fault/warning code (hidden by default), signal
+      # level, system status, charge limit and the rest are diagnostic
+      # entities on the device page, not on a card.
+      # Needs integration v1.6.3 or later.
+      # ───────────────────────────────────────────────────────────────
+      - type: vertical-stack
+        cards:
+          # Traffic-light status: green = fine, amber = unknown or worth a look,
+          # red = a fault or the cube is offline. An alert is amber, a fault red.
+          - type: custom:html-template-card
+            ignore_line_breaks: true
+            content: |
+              {% macro row(label, text, color, icon) -%}
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0"><div style="display:flex;align-items:center;gap:16px"><ha-icon icon="{{ icon }}" style="color:{{ color }};--mdc-icon-size:24px;display:flex"></ha-icon><span>{{ label }}</span></div><span style="font-weight:500">{{ text }}</span></div>
+              {%- endmacro %}
+              {% set g = '#43a047' %}{% set a = '#ffb300' %}{% set r = '#e53935' %}
+              {% set on = states('binary_sensor.ep_cube_online') %}{% set f = states('binary_sensor.ep_cube_fault') %}{% set al = states('binary_sensor.ep_cube_alert') %}
+              <div style="padding:16px 16px 10px"><div style="font-size:24px;line-height:1.2;margin-bottom:8px">Device status</div>
+              {{ row('Online', 'Connected' if on == 'on' else ('Offline' if on == 'off' else 'Unknown'), g if on == 'on' else (r if on == 'off' else a), 'mdi:cloud-check-outline' if on == 'on' else ('mdi:cloud-off-outline' if on == 'off' else 'mdi:cloud-question-outline')) }}
+              {{ row('Fault', 'OK' if f == 'off' else ('Fault' if f == 'on' else 'Unknown'), g if f == 'off' else (r if f == 'on' else a), 'mdi:check-circle-outline' if f == 'off' else ('mdi:alert-octagon-outline' if f == 'on' else 'mdi:help-circle-outline')) }}
+              {{ row('Alert', 'OK' if al == 'off' else ('Alert' if al == 'on' else 'Unknown'), g if al == 'off' else a, 'mdi:check-circle-outline' if al == 'off' else ('mdi:bell-alert-outline' if al == 'on' else 'mdi:help-circle-outline')) }}
+              </div>
+          - type: entities
+            title: Device info
+            show_header_toggle: false
+            entities:
+              - entity: sensor.ep_cube_model
+                name: Model
+                icon: mdi:tag-text-outline
+              - entity: sensor.ep_cube_serial_number
+                name: Serial number
+                icon: mdi:barcode
+              - entity: sensor.ep_cube_firmware_version
+                name: Firmware
+                icon: mdi:chip
+              - entity: sensor.ep_cube_warranty_end_date
+                name: Warranty ends
+                icon: mdi:shield-check-outline
