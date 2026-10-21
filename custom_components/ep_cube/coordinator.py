@@ -227,6 +227,10 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
         return self._switch_mode
 
     async def _async_update_data(self) -> DeviceStatus:
+        # Seed the lifetime discharged total first, so the very first status
+        # already carries it (otherwise the lifetime and cycles sensors read 0
+        # until the second poll).
+        await self._async_seed_lifetime()
         try:
             status = await self.client.get_status()
         except _TRANSIENT_ERRORS as err:
@@ -265,7 +269,6 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
         await self._async_refresh_firmware()
         await self._async_refresh_details()
         self._async_update_device_registry()
-        await self._async_seed_lifetime()
 
         # Raise / clear the Predbat-priority repair issue based on the
         # latest snapshot. Idempotent — safe to call every tick.

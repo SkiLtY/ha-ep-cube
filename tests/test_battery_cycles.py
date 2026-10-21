@@ -182,6 +182,25 @@ class TestCoordinatorWarranty:
         assert coord.warranty == info
 
 
+class TestSeedOrder:
+    async def test_the_first_status_carries_the_seeded_total(self, hass):
+        """The seed must happen before the poll builds its status, or the sensors
+        read 0 for a minute after every restart."""
+        order: list[str] = []
+        client = MagicMock()
+        client.get_status = AsyncMock(side_effect=lambda: order.append("status") or object())
+        client.get_switch_mode = AsyncMock(return_value={})
+        client.get_pv_strings = AsyncMock(return_value={})
+        client.get_warranty = AsyncMock(return_value=None)
+        client.get_firmware_info = AsyncMock(return_value=None)
+        client.get_device_details = AsyncMock(return_value=None)
+        coord = _coordinator(hass, client)
+        coord._async_seed_lifetime = AsyncMock(side_effect=lambda: order.append("seed"))
+        with patch("custom_components.ep_cube.coordinator.evaluate_predbat_priority_issue"):
+            await coord._async_update_data()
+        assert order == ["seed", "status"]
+
+
 class TestCoordinatorSeed:
     def _register(self, hass, entry_id="test_entry"):
         return er.async_get(hass).async_get_or_create(
