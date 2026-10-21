@@ -19,10 +19,10 @@ import aiohttp
 import pytest
 from homeassistant.util import dt as dt_util
 
-pytest.importorskip("fastapi")
-pytest.importorskip("uvicorn")
-pytest.importorskip("PIL")
-
+# These are in requirements-test.txt. A missing one is an error, not a skip: a
+# silently skipped end-to-end file looks like a green run while testing nothing.
+import fastapi  # noqa: E402,F401
+import PIL  # noqa: E402,F401
 import uvicorn  # noqa: E402
 
 from custom_components.ep_cube.api import (  # noqa: E402
