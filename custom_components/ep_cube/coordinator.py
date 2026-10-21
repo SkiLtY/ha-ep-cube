@@ -13,7 +13,14 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .api import DeviceStatus, EPCubeClient, EPCubeError, RateLimitError, ServerError
+from .api import (
+    DeviceStatus,
+    EPCubeClient,
+    EPCubeError,
+    RateLimitError,
+    ServerError,
+    WarrantyInfo,
+)
 from .const import (
     DEFAULT_POLL_INTERVAL_SECONDS,
     DEFAULT_PRICE_POLL_INTERVAL_SECONDS,
@@ -40,6 +47,12 @@ MAX_TRANSIENT_FAILURES = 3
 # also writes any pending save when it stops.
 BATTERY_FLOW_STORE_VERSION = 1
 BATTERY_FLOW_SAVE_DELAY_SECONDS = 60
+
+# The warranty dates change at most once in a blue moon, so ask for them rarely.
+WARRANTY_REFRESH = timedelta(hours=24)
+# If the recorder isn't ready (or has no history for the discharged-today sensor),
+# try to seed the lifetime total this many times, one per poll, then give up.
+LIFETIME_SEED_ATTEMPTS = 10
 
 
 def battery_flow_store(hass: HomeAssistant, entry_id: str) -> Store:
@@ -69,6 +82,11 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
         # Consecutive transient poll failures (reset on any success).
         self._transient_failures = 0
         self._battery_flow_store = battery_flow_store(hass, entry.entry_id)
+        # Warranty dates (getWarranty), refreshed daily and best-effort: a failed
+        # fetch keeps the previous value.
+        self._warranty: WarrantyInfo | None = None
+        self._warranty_fetched: datetime | None = None
+        self._lifetime_seed_attempts = 0
 
     def _battery_flow_data(self) -> dict:
         return self.client.battery_flow_state()
@@ -78,6 +96,52 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
         saved = await self._battery_flow_store.async_load()
         if saved and self.client.restore_battery_flow(saved):
             _LOGGER.debug("restored the battery charged/discharged totals for today")
+
+    @property
+    def warranty(self) -> WarrantyInfo | None:
+        """The cube's warranty dates, or None until the cloud has returned them."""
+        return self._warranty
+
+    async def _async_refresh_warranty(self) -> None:
+        now = dt_util.utcnow()
+        if self._warranty_fetched is not None and now - self._warranty_fetched < WARRANTY_REFRESH:
+            return
+        self._warranty_fetched = now
+        try:
+            warranty = await self.client.get_warranty()
+        except EPCubeError as err:
+            _LOGGER.debug("get_warranty failed (keeping cached): %s", err)
+            return
+        if warranty is not None:
+            self._warranty = warranty
+
+    async def _async_seed_lifetime(self) -> None:
+        """Start the lifetime discharged total from the recorder's history of the
+        discharged-today sensor, once, when nothing was saved. Best-effort: the
+        recorder may not be ready yet, so a few polls may retry."""
+        if self.client.lifetime_known or self._lifetime_seed_attempts >= LIFETIME_SEED_ATTEMPTS:
+            return
+        self._lifetime_seed_attempts += 1
+        try:
+            from homeassistant.components.recorder import get_instance
+            from homeassistant.components.recorder.statistics import get_last_statistics
+            from homeassistant.helpers import entity_registry as er
+
+            entity_id = er.async_get(self.hass).async_get_entity_id(
+                "sensor", DOMAIN, f"{self._entry_id}_battery_discharge_today"
+            )
+            if entity_id is None:
+                return
+            stats = await get_instance(self.hass).async_add_executor_job(
+                get_last_statistics, self.hass, 1, entity_id, True, {"sum"}
+            )
+            rows = stats.get(entity_id) or []
+            total = rows[0].get("sum") if rows else None
+        except Exception as err:  # noqa: BLE001 - recorder state is outside our control
+            _LOGGER.debug("could not seed the lifetime discharged total (%s)", err)
+            return
+        if total is not None and self.client.seed_battery_discharge_lifetime(total):
+            _LOGGER.info("seeded the lifetime discharged total from history: %.0f kWh", total)
 
     @property
     def pv_strings(self) -> dict[int, dict[str, float]]:
@@ -123,6 +187,9 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
             self._pv_strings = await self.client.get_pv_strings()
         except EPCubeError as err:
             _LOGGER.debug("get_pv_strings failed (keeping cached): %s", err)
+
+        await self._async_refresh_warranty()
+        await self._async_seed_lifetime()
 
         # Raise / clear the Predbat-priority repair issue based on the
         # latest snapshot. Idempotent — safe to call every tick.

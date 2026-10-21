@@ -156,6 +156,18 @@ class DeviceStatus:
     # that would read as real prices, so they are None then.
     dynamic_buy_below: float | None = None
     dynamic_sell_above: float | None = None
+    # Running total of the battery's discharged energy since the integration
+    # began tracking (or since it was seeded from the recorder). Built from the
+    # same SoC deltas as battery_discharge_today_kwh, so it is an estimate.
+    battery_discharge_lifetime_kwh: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class WarrantyInfo:
+    """The cube's warranty dates from the cloud's `getWarranty` route."""
+
+    start: date | None
+    end: date | None
 
 
 # ----------------------------------------------------------------------
@@ -460,6 +472,12 @@ class EPCubeClient:
         self._battery_flow_last_kwh: float | None = None
         self._battery_charge_today_kwh: float = 0.0
         self._battery_discharge_today_kwh: float = 0.0
+        # Lifetime discharged energy (kWh): the same deltas, never reset. Saved
+        # with the daily totals; `lifetime_known` says whether a saved value (or a
+        # seed from the recorder) has been applied, so the coordinator knows if it
+        # still has to seed it.
+        self._battery_discharge_lifetime_kwh: float = 0.0
+        self._lifetime_known: bool = False
         self._battery_flow_last_reset: date = _local_today()
 
     # ------------------------------------------------------------------
@@ -551,6 +569,7 @@ class EPCubeClient:
             self._battery_flow_last_kwh = battery_now_kwh
         elif delta <= -self._BATTERY_FLOW_THRESHOLD_KWH:
             self._battery_discharge_today_kwh += abs(delta)
+            self._battery_discharge_lifetime_kwh += abs(delta)
             self._battery_flow_last_kwh = battery_now_kwh
         # else: jitter — leave anchor unchanged so a slow drift accumulates
         # toward the threshold across polls
@@ -562,7 +581,33 @@ class EPCubeClient:
             "charged_kwh": round(self._battery_charge_today_kwh, 4),
             "discharged_kwh": round(self._battery_discharge_today_kwh, 4),
             "last_kwh": self._battery_flow_last_kwh,
+            "lifetime_discharged_kwh": round(self._battery_discharge_lifetime_kwh, 4),
         }
+
+    @property
+    def battery_discharge_lifetime_kwh(self) -> float:
+        return self._battery_discharge_lifetime_kwh
+
+    @property
+    def lifetime_known(self) -> bool:
+        """True once the lifetime total came from a saved state or a seed."""
+        return self._lifetime_known
+
+    def seed_battery_discharge_lifetime(self, kwh: float) -> bool:
+        """Start the lifetime total from `kwh` (the recorder's history) if it has no
+        saved value yet. Anything below what has been counted since start-up is
+        ignored, and so is a value that is not a finite, positive number."""
+        if self._lifetime_known:
+            return False
+        try:
+            value = float(kwh)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(value) or value <= 0:
+            return False
+        self._battery_discharge_lifetime_kwh = max(value, self._battery_discharge_lifetime_kwh)
+        self._lifetime_known = True
+        return True
 
     def restore_battery_flow(self, state: Any) -> bool:
         """Restore a state saved by `battery_flow_state`; True if it was used.
@@ -576,6 +621,15 @@ class EPCubeClient:
         Assistant was off."""
         if self._battery_flow_last_kwh is not None or not isinstance(state, dict):
             return False
+        # The lifetime total is not tied to the day, so restore it even when the
+        # daily part below is stale or unusable.
+        try:
+            lifetime = float(state["lifetime_discharged_kwh"])
+        except (KeyError, TypeError, ValueError):
+            lifetime = None
+        if lifetime is not None and math.isfinite(lifetime) and lifetime >= 0 and not self._lifetime_known:
+            self._battery_discharge_lifetime_kwh = lifetime
+            self._lifetime_known = True
         try:
             saved_on = date.fromisoformat(str(state["date"]))
             charged = float(state["charged_kwh"])
@@ -705,6 +759,7 @@ class EPCubeClient:
             off_grid_seconds=int(info.get("offGridPowerSupplyTime", 0) or 0),
             battery_charge_today_kwh=self._battery_charge_today_kwh,
             battery_discharge_today_kwh=self._battery_discharge_today_kwh,
+            battery_discharge_lifetime_kwh=self._battery_discharge_lifetime_kwh,
             # US cubes report `hasEv`; the EU payload seen so far carries `hasEvse`
             # (False here, no `hasEv` key), so either one counts.
             has_ev=_truthy(info.get("hasEv")) or _truthy(info.get("hasEvse")),
@@ -775,6 +830,25 @@ class EPCubeClient:
             except (KeyError, TypeError, ValueError):
                 continue
         return out
+
+    async def get_warranty(self) -> WarrantyInfo | None:
+        """The warranty start and end dates from getWarranty (`activationDate` /
+        `usageEndDate`, both YYYY-MM-DD). Returns None if the route has no usable
+        dates, so callers can skip the warranty entities rather than guess."""
+        data = await self._get(f"{self._api_prefix}/device/getWarranty?devId={self._dev_id}")
+        if not isinstance(data, dict):
+            return None
+
+        def _day(key: str) -> date | None:
+            try:
+                return date.fromisoformat(str(data[key])[:10])
+            except (KeyError, TypeError, ValueError):
+                return None
+
+        start, end = _day("activationDate"), _day("usageEndDate")
+        if start is None and end is None:
+            return None
+        return WarrantyInfo(start=start, end=end)
 
     # ------------------------------------------------------------------
     # Writes

@@ -55,6 +55,11 @@ OPERATING_MODE_TOU = "time_of_use"
 OPERATING_MODE_BACKUP = "backup"
 
 # Wire-side workStatus codes (strings on the wire).
+# Warranty allowance for the battery modules: 80% of capacity until the earlier
+# of the warranty end date or this many full-equivalent charge-discharge cycles
+# (EP Cube Limited Warranty Statement V2.0).
+BATTERY_WARRANTY_CYCLES = 6000
+
 WORK_STATUS_SELF_CONSUMPTION = "1"
 WORK_STATUS_TOU = "2"
 WORK_STATUS_BACKUP = "3"

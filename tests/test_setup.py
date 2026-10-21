@@ -108,6 +108,7 @@ class TestSetupEntry:
             "solar_year", "backup_year",
             "coal_today", "coal_year", "trees_today", "trees_year",
             "dynamic_buy_below", "dynamic_sell_above",
+            "battery_discharge_lifetime", "battery_cycles", "warranty_end",
             # v1.2 instant-KPI tiles (derived from homeDeviceInfo power channels)
             "instant_self_consumption_pct",
             "instant_self_sufficiency_pct",

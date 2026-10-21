@@ -63,7 +63,9 @@ def device_list() -> list[dict[str, Any]]:
 # ----------------------------------------------------------------------
 @pytest.fixture
 def fake_client(get_switch_mode, device_list):
-    from custom_components.ep_cube.api import DeviceStatus
+    from datetime import date
+
+    from custom_components.ep_cube.api import DeviceStatus, WarrantyInfo
 
     client = MagicMock()
     client.dev_id = "5613"
@@ -86,6 +88,12 @@ def fake_client(get_switch_mode, device_list):
 
     client.battery_flow_state = _battery_flow_state
     client.restore_battery_flow = MagicMock(return_value=False)
+    # The lifetime total counts as already known, so the coordinator doesn't try to
+    # seed it from a recorder these tests don't have.
+    client.lifetime_known = True
+    client.get_warranty = AsyncMock(
+        return_value=WarrantyInfo(start=date(2026, 5, 20), end=date(2036, 5, 20))
+    )
 
     client.authenticate = AsyncMock(return_value=None)
     client.get_device_list = AsyncMock(return_value=device_list)

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -31,7 +31,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .api import DeviceStatus
-from .const import DOMAIN
+from .const import BATTERY_WARRANTY_CYCLES, DOMAIN
 from .coordinator import (
     EPCubeCoordinator,
     EPCubePriceCoordinator,
@@ -478,6 +478,43 @@ SENSORS: tuple[EPCubeSensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=lambda s: s.battery_discharge_today_kwh,
     ),
+    # Lifetime discharged energy and the full-equivalent cycles it amounts to,
+    # for tracking the battery warranty (80% capacity for 10 or 15 years or 6,000
+    # cycles). Estimates built from the same SoC deltas as the daily counters;
+    # saved across restarts and seeded once from the recorder's history.
+    EPCubeSensorDescription(
+        key="battery_discharge_lifetime",
+        translation_key="battery_discharge_lifetime",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.battery_discharge_lifetime_kwh,
+    ),
+)
+
+# Cycles (the sensor class below adds the warranty attributes) and the warranty end
+# date. Both are diagnostics; the date is unavailable until the cloud returns it.
+BATTERY_CYCLES_SENSOR = EPCubeSensorDescription(
+    key="battery_cycles",
+    translation_key="battery_cycles",
+    native_unit_of_measurement="cycles",
+    state_class=SensorStateClass.TOTAL_INCREASING,
+    suggested_display_precision=1,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    value_fn=lambda s: (
+        round(s.battery_discharge_lifetime_kwh / s.capacity_kwh, 3)
+        if s.capacity_kwh and s.capacity_kwh > 0
+        else None
+    ),
+)
+WARRANTY_END_SENSOR = EPCubeSensorDescription(
+    key="warranty_end",
+    translation_key="warranty_end",
+    device_class=SensorDeviceClass.DATE,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    value_fn=lambda s: None,
 )
 
 
@@ -903,6 +940,8 @@ async def async_setup_entry(
     entities.append(
         EPCubeUserReserveSensor(coordinator, entry.entry_id, USER_RESERVE_SENSOR, stored["shim"])
     )
+    entities.append(EPCubeCyclesSensor(coordinator, entry.entry_id, BATTERY_CYCLES_SENSOR))
+    entities.append(EPCubeWarrantySensor(coordinator, entry.entry_id, WARRANTY_END_SENSOR))
     async_add_entities(entities)
 
 
@@ -980,6 +1019,43 @@ class EPCubeUserReserveSensor(EPCubeSensor):
         if chosen is not None:
             return chosen
         return super().native_value
+
+
+class EPCubeCyclesSensor(EPCubeSensor):
+    """Estimated full-equivalent battery cycles, with the warranty allowance and
+    pace as attributes (the warranty dates come from the cloud, so the same code
+    covers a 10-year and a 15-year warranty)."""
+
+    @property
+    def extra_state_attributes(self) -> dict[str, float | str]:
+        attrs: dict[str, float | str] = {"warranty_cycle_limit": BATTERY_WARRANTY_CYCLES}
+        cycles = self.native_value
+        if isinstance(cycles, (int, float)):
+            attrs["percent_of_cycle_allowance"] = round(cycles / BATTERY_WARRANTY_CYCLES * 100, 2)
+        warranty = self.coordinator.warranty
+        if warranty is not None and warranty.end is not None:
+            attrs["warranty_end"] = warranty.end.isoformat()
+            if warranty.start is not None:
+                days = (warranty.end - warranty.start).days
+                if days > 0:
+                    attrs["cycle_budget_per_day"] = round(BATTERY_WARRANTY_CYCLES / days, 2)
+                elapsed = (dt_util.now().date() - warranty.start).days
+                if elapsed > 0 and isinstance(cycles, (int, float)):
+                    attrs["average_cycles_per_day"] = round(cycles / elapsed, 2)
+        return attrs
+
+
+class EPCubeWarrantySensor(EPCubeSensor):
+    """The warranty end date from the cloud's getWarranty route."""
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.coordinator.warranty is not None
+
+    @property
+    def native_value(self) -> date | None:
+        warranty = self.coordinator.warranty
+        return warranty.end if warranty is not None else None
 
 
 class EPCubePVSensor(EPCubeSensor):

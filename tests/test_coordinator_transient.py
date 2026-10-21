@@ -45,6 +45,8 @@ def _make(hass, outcomes):
     client.get_status = AsyncMock(side_effect=list(outcomes))
     client.get_switch_mode = AsyncMock(return_value={})
     client.get_pv_strings = AsyncMock(return_value={})
+    client.get_warranty = AsyncMock(return_value=None)
+    client.lifetime_known = True
     entry = MagicMock()
     entry.entry_id = "test_entry"
     coord = EPCubeCoordinator(hass, entry, client)
