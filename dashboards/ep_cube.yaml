@@ -2413,18 +2413,17 @@ views:
                     const rate = Number(((hass.states[IMP] || {attributes: {}}).attributes || {}).standing_charge) || 0;
                     const OLD_RATES = {'2026-10-07': 0.63};
                     const standingFor = s => { for (const k of Object.keys(OLD_RATES).sort()) if (s <= k) return OLD_RATES[k]; return rate; };
-                    const r = await hass.callWS({type: 'recorder/statistics_during_period', start_time: new Date((ms - 3) * 864e5).toISOString(), end_time: new Date(nowT).toISOString(), statistic_ids: [IMP, EXP], period: 'day', types: ['change']});
+                    // Each long-term statistics row carries the day it covers (last_reset), so a figure lands on
+                    // the right day however late Octopus published it, and the last row of a day holds its final
+                    // value. Hourly statistics reach back well beyond the sensor's own ten days of history.
+                    const r = await hass.callWS({type: 'recorder/statistics_during_period', start_time: new Date((ms - 3) * 864e5).toISOString(), end_time: new Date(nowT).toISOString(), statistic_ids: [IMP, EXP], period: 'hour', types: ['state', 'last_reset']});
                     const days = {};
-                    for (const [id, rows] of Object.entries(r)) for (const x of rows) { const cov = d2n(lp(x.start)) - 1; (days[cov] = days[cov] || {})[id === IMP ? 'i' : 'e'] = x.change; }
-                    // The sensor's own history (kept for about ten days) says exactly which day each figure is for,
-                    // through its last_reset attribute, so it overrides the date-shifted statistics where it exists.
-                    const hist = {};
-                    const h = await hass.callWS({type: 'history/history_during_period', start_time: new Date((ms - 2) * 864e5).toISOString(), end_time: new Date(nowT).toISOString(), entity_ids: [IMP, EXP], minimal_response: false, no_attributes: false, significant_changes_only: false});
-                    for (const [id, rows] of Object.entries(h)) for (const x of rows) { const lr = x.a && x.a.last_reset; const val = parseFloat(x.s); if (!lr || !isFinite(val)) continue; const cov = d2n(lp(Date.parse(lr))); (hist[cov] = hist[cov] || {})[id === IMP ? 'i' : 'e'] = val; }
-                    const minHist = Math.min(Infinity, ...Object.keys(hist).map(Number));
+                    for (const [id, rows] of Object.entries(r)) for (const x of rows) { if (x.last_reset == null || x.state == null) continue; const cov = d2n(lp(x.last_reset)); (days[cov] = days[cov] || {})[id === IMP ? 'i' : 'e'] = x.state; }
+                    // The sensor's current state can be newer than the last statistics row, so it overrides.
+                    for (const id of [IMP, EXP]) { const st = hass.states[id]; const lr = st && st.attributes && st.attributes.last_reset; const val = parseFloat(st && st.state); if (lr && isFinite(val)) { const cov = d2n(lp(Date.parse(lr))); (days[cov] = days[cov] || {})[id === IMP ? 'i' : 'e'] = val; } }
                     const out = [];
                     for (let d = ms; d <= me; d++) {
-                      const v = (d >= minHist ? hist[d] : days[d]) || {}; const s = n2s(d); const total = +(v.i || 0); const billed = total > 0 || +(v.e || 0) > 0;
+                      const v = days[d] || {}; const s = n2s(d); const total = +(v.i || 0); const billed = total > 0 || +(v.e || 0) > 0;
                       // A day with no figure yet (up to yesterday) still has its standing charge, as on Octopus's own page.
                       const pending = !billed && d <= d2n(today) - 1 && rate > 0;
                       const st = total > 0 ? Math.min(standingFor(s), total) : (pending ? standingFor(s) : 0);
