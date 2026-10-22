@@ -262,13 +262,17 @@ automation:
           lr: "{{ trigger.to_state.attributes.last_reset | string }}"
           amount: "{{ trigger.to_state.state | float(0) }}"
           energy: "{{ trigger.to_state.attributes.get('total_without_standing_charge', trigger.to_state.state) | float(0) }}"
+          day: "{{ (as_datetime(lr) | as_local).strftime('%Y-%m-%d') }}"
           prev: "{{ states('input_text.ep_cube_billed_import_last').split('|') }}"
-          same_day: "{{ prev | length > 1 and prev[0] == lr }}"
+          # Compare calendar days, not the stored text: after an Octopus reload the sensor can
+          # hand over the same last_reset in another notation ("2026-10-18 00:00:00+01:00" for
+          # "2026-10-17T23:00:00+00:00"), and a text comparison would then add the day again.
+          prev_day: "{{ (as_datetime(prev[0], none) | as_local).strftime('%Y-%m-%d') if prev | length > 1 and as_datetime(prev[0], none) is not none else '' }}"
+          same_day: "{{ prev_day == day }}"
           prev_amount: "{{ prev[1] | float(0) if same_day else 0 }}"
           prev_energy: "{{ (prev[2] if prev | length > 2 else prev[1]) | float(0) if same_day else 0 }}"
           d_amount: "{{ (amount - prev_amount) | round(2) }}"
           d_energy: "{{ (energy - prev_energy) | round(2) }}"
-          day: "{{ (as_datetime(lr) | as_local).strftime('%Y-%m-%d') }}"
           in_week: "{{ day >= (now() - timedelta(days=now().weekday())).strftime('%Y-%m-%d') }}"
           in_month: "{{ day >= now().strftime('%Y-%m-01') }}"
       - condition: template
@@ -334,11 +338,13 @@ automation:
       - variables:
           lr: "{{ trigger.to_state.attributes.last_reset | string }}"
           amount: "{{ trigger.to_state.state | float(0) }}"
+          day: "{{ (as_datetime(lr) | as_local).strftime('%Y-%m-%d') }}"
           prev: "{{ states('input_text.ep_cube_billed_export_last').split('|') }}"
-          same_day: "{{ prev | length > 1 and prev[0] == lr }}"
+          # Calendar days, not text: see the import automation above.
+          prev_day: "{{ (as_datetime(prev[0], none) | as_local).strftime('%Y-%m-%d') if prev | length > 1 and as_datetime(prev[0], none) is not none else '' }}"
+          same_day: "{{ prev_day == day }}"
           prev_amount: "{{ prev[1] | float(0) if same_day else 0 }}"
           d_amount: "{{ (amount - prev_amount) | round(2) }}"
-          day: "{{ (as_datetime(lr) | as_local).strftime('%Y-%m-%d') }}"
           in_week: "{{ day >= (now() - timedelta(days=now().weekday())).strftime('%Y-%m-%d') }}"
           in_month: "{{ day >= now().strftime('%Y-%m-01') }}"
       - condition: template

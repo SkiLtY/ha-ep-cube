@@ -183,6 +183,25 @@ class TestBilledImport:
         assert m.number(W_IMP) == pytest.approx(3.37)
         assert m.number(M_IMP) == pytest.approx(3.37)
 
+    async def test_the_same_day_in_another_notation_adds_nothing(self, friday, package):
+        """After an Octopus reload the sensor handed over the same day's last_reset as
+        local time with a space ("2026-10-19 00:00:00+01:00") instead of UTC ISO, and the
+        old text comparison counted the day again (20 Oct 2026: two extra adds of 18 Oct)."""
+        m = _Model(friday, _automation(package, IMPORT_ID))
+        m.feed("3.37", MON, 2.81)
+        m.feed("3.37", "2026-10-19 00:00:00+01:00", 2.81)
+        m.feed("3.37", MON, 2.81)
+        assert m.number(W_IMP) == pytest.approx(3.37)
+        assert m.number(M_IMP) == pytest.approx(3.37)
+        assert m.number(M_ENG) == pytest.approx(2.81)
+
+    async def test_the_same_export_day_in_another_notation_adds_nothing(self, friday, package):
+        m = _Model(friday, _automation(package, "ep_cube_billed_export_add"))
+        m.feed("1.78", MON)
+        m.feed("1.78", "2026-10-19 00:00:00+01:00")
+        m.feed("1.78", MON)
+        assert m.number("input_number.ep_cube_month_billed_export_total") == pytest.approx(1.78)
+
     async def test_last_weeks_day_counts_for_the_month_but_not_the_week(self, friday, package):
         m = _Model(friday, _automation(package, IMPORT_ID))
         m.feed("2.50", LAST_SUN, 1.94)
