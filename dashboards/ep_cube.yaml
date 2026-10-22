@@ -2263,360 +2263,411 @@ views:
             entities:
               - entity: input_boolean.ep_cube_show_standing_charge
                 name: Show standing charge
-          - type: custom:apexcharts-card
+          # This month and last month as tabs, each a chart with its table underneath. Only the open
+          # tab loads its figures. Last month reuses this month's cards (YAML anchors) and only
+          # changes the title and the month shown; the data generators read the month from the middle
+          # of the card's own span (an offset card's start is not exactly the 1st).
+          - type: custom:tabbed-card
             grid_options:
               columns: full
-            header:
-              show: true
-              title: "Billed cost · by day, this month"
-              show_states: false
-            card_mod:
-              style: |
-                #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
-            now:
-              show: false
-              label: ''
-            graph_span: 1month
-            span:
-              start: month
-            apex_config:
-              chart:
-                height: 340
-                stacked: true
-                dropShadow:
-                  enabled: true
-                  enabledOnSeries: [3]
-                  color: '#000000'
-                  blur: 3
-                  opacity: 0.9
-                  top: 0
-                  left: 0
-                toolbar:
-                  show: false
-                animations:
-                  enabled: false
-                zoom:
-                  enabled: false
-              xaxis:
-                type: datetime
-                labels:
-                  datetimeUTC: false
-                  formatter: "EVAL:function(v){return String(new Date(Number(v)).getDate());}"
-                axisTicks:
-                  show: false
-                axisBorder:
-                  show: false
-                tooltip:
-                  enabled: false
-              grid:
-                borderColor: '#ffffff17'
-              legend:
-                position: bottom
-                fontSize: '13px'
-                markers:
-                  width: 11
-                  height: 11
-                  radius: 11
-              tooltip:
-                theme: dark
-                shared: false
-                intersect: true
-                custom: "EVAL:function(o){var w=o.w,sr=w.config.series[o.seriesIndex],p=sr&&sr.data[o.dataPointIndex];if(!p)return '';var x=Array.isArray(p)?p[0]:p.x,rows=window.__epcMonthRowsData||[],r=null,i;for(i=0;i<rows.length;i++){if(rows[i].ts===x){r=rows[i];break;}}if(!r)return '';var money=function(v){return (v<0?'-£':'£')+Math.abs(v).toFixed(2);},line=function(c,n,v){return '<div style=\"display:flex;gap:8px;align-items:center;padding:2px 0\"><span style=\"width:10px;height:10px;border-radius:50%;background:'+c+'\"></span><span style=\"flex:1\">'+n+'</span><b>'+money(v)+'</b></div>';},h='';if(r.standing)h+=line('#90caf9','Standing charge',r.standing);h+=line('#42a5f5','Bought',r.energy)+line('#ab47bc','Sold',r.sold)+line('#eceff1','Net',r.net);return '<div style=\"padding:8px 12px;font-size:12px;min-width:170px;background:#1c1c1c;color:#eceff1;border:1px solid rgba(255,255,255,.18);border-radius:8px\"><div style=\"opacity:.7;margin-bottom:4px\">'+new Date(Number(x)).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+'</div>'+h+'</div>';}"
-                x:
-                  formatter: "EVAL:function(v){return new Date(Number(v)).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});}"
-                y:
-                  formatter: "EVAL:function(v){return v==null?'':(v<0?'-£':'£')+Math.abs(v).toFixed(2);}"
-              dataLabels:
-                enabled: false
-              stroke:
-                width: [0, 0, 0, 3, 0, 0, 0]
-              markers:
-                size: [0, 0, 0, 0, 0, 6, 6]
-                strokeWidth: 0
-              plotOptions:
-                bar:
-                  borderRadius: 0
-                  columnWidth: 70%
-            # Four entries that all name the first one as their series, so Apex puts the columns on one
-            # axis and stacks them (the card would otherwise give every series its own axis).
-            yaxis:
-              - id: c0
-                decimals: 0
-                apex_config:
-                  seriesName: Standing charge
-                  stepSize: 1
-                  labels:
-                    formatter: "EVAL:function(v){return (v<-0.005?'-£':'£')+Math.abs(v).toFixed(0);}"
-              - id: c1
-                show: false
-                apex_config:
-                  seriesName: Standing charge
-              - id: c2
-                show: false
-                apex_config:
-                  seriesName: Standing charge
-              - id: c3
-                show: false
-                apex_config:
-                  seriesName: Standing charge
-              - id: c4
-                show: false
-                apex_config:
-                  seriesName: Standing charge
-              - id: c5
-                show: false
-                apex_config:
-                  seriesName: Standing charge
-              - id: c6
-                show: false
-                apex_config:
-                  seriesName: Standing charge
-            series:
-              # Daily figures come from Octopus's own billed cost sensors (the same numbers as the
-              # Octopus dashboard). Their long-term statistics are dated when Octopus publishes each
-              # day (about 19:50 the evening after), so each is moved back one day. The first series
-              # (the Bought one) does the work and the others read it. It re-runs when the checkbox above is ticked,
-              # because that helper is this series' entity.
-              - entity: input_boolean.ep_cube_show_standing_charge
-                name: Standing charge
-                yaxis_id: c0
-                type: column
-                color: '#90caf9'
-                extend_to: false
-                show:
-                  legend_value: false
-                data_generator: |
-                  const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window.__epcMonthDays;
-                  for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window.__epcMonthDays; }
-                  const rows = c ? await c.p : []; return rows.filter(r => r.has).map(r => [r.ts, r.standing]);
-              - entity: input_boolean.ep_cube_show_standing_charge
-                name: Bought
-                yaxis_id: c1
-                type: column
-                color: '#42a5f5'
-                extend_to: false
-                show:
-                  legend_value: false
-                data_generator: |
-                  const KEY = '__epcMonthDays'; const nowT = Date.now(); const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window[KEY];
-                  if (!c || nowT - c.t > 30000 || c.showS !== showS) { c = {t: nowT, showS: showS, p: (async () => {
-                    const tz = hass.config.time_zone;
-                    const lp = ts => new Intl.DateTimeFormat('en-CA', {timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit'}).format(ts);
-                    const d2n = s => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) / 864e5;
-                    const n2s = n => new Date(n * 864e5).toISOString().slice(0, 10);
-                    const today = lp(nowT); const ms = d2n(today.slice(0, 8) + '01');
-                    const y = +today.slice(0, 4), m = +today.slice(5, 7) - 1; const me = Date.UTC(y, m + 1, 0) / 864e5;
-                    const IMP = 'sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost';
-                    const EXP = 'sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost';
-                    // The standing charge is the sensor's current daily rate. Days before the tariff
-                    // changed can have had a different one: list them here as 'last day': rate.
-                    const rate = Number(((hass.states[IMP] || {attributes: {}}).attributes || {}).standing_charge) || 0;
-                    const OLD_RATES = {'2026-10-07': 0.63};
-                    const standingFor = s => { for (const k of Object.keys(OLD_RATES).sort()) if (s <= k) return OLD_RATES[k]; return rate; };
-                    // Each long-term statistics row carries the day it covers (last_reset), so a figure lands on
-                    // the right day however late Octopus published it, and the last row of a day holds its final
-                    // value. Hourly statistics reach back well beyond the sensor's own ten days of history.
-                    const r = await hass.callWS({type: 'recorder/statistics_during_period', start_time: new Date((ms - 3) * 864e5).toISOString(), end_time: new Date(nowT).toISOString(), statistic_ids: [IMP, EXP], period: 'hour', types: ['state', 'last_reset']});
-                    const days = {};
-                    for (const [id, rows] of Object.entries(r)) for (const x of rows) { if (x.last_reset == null || x.state == null) continue; const cov = d2n(lp(x.last_reset)); (days[cov] = days[cov] || {})[id === IMP ? 'i' : 'e'] = x.state; }
-                    // The sensor's current state can be newer than the last statistics row, so it overrides.
-                    for (const id of [IMP, EXP]) { const st = hass.states[id]; const lr = st && st.attributes && st.attributes.last_reset; const val = parseFloat(st && st.state); if (lr && isFinite(val)) { const cov = d2n(lp(Date.parse(lr))); (days[cov] = days[cov] || {})[id === IMP ? 'i' : 'e'] = val; } }
-                    const out = [];
-                    for (let d = ms; d <= me; d++) {
-                      const v = days[d] || {}; const s = n2s(d); const total = +(v.i || 0); const billed = total > 0 || +(v.e || 0) > 0;
-                      // A day with no figure yet (up to yesterday) still has its standing charge, as on Octopus's own page.
-                      const pending = !billed && d <= d2n(today) - 1 && rate > 0;
-                      const st = total > 0 ? Math.min(standingFor(s), total) : (pending ? standingFor(s) : 0);
-                      const energy = +(total - st).toFixed(2), sold = +(v.e || 0), bought = Math.max(energy, 0) + (showS ? st : 0);
-                      out.push({ts: new Date(y, m, d - ms + 1, 12).getTime(), has: billed || (pending && showS), energy: Math.max(energy, 0), standing: showS ? +st.toFixed(2) : 0, sold: -sold, net: +(bought - sold).toFixed(2)});
-                    }
-                    const lows = out.filter(r => r.has).map(r => Math.min(r.sold, r.net, 0)), highs = out.filter(r => r.has).map(r => Math.max(r.energy + r.standing, r.net, 0));
-                    out.range = {min: Math.floor(Math.min(0, ...lows)), max: Math.ceil(Math.max(1, ...highs))};
-                    window.__epcMonthRowsData = out;
-                    return out; })()}; window[KEY] = c; }
-                  const rows = await c.p; return rows.filter(r => r.has).map(r => [r.ts, r.energy]);
-              - entity: input_boolean.ep_cube_show_standing_charge
-                name: Sold
-                yaxis_id: c2
-                type: column
-                color: '#ab47bc'
-                extend_to: false
-                show:
-                  legend_value: false
-                data_generator: |
-                  const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window.__epcMonthDays;
-                  for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window.__epcMonthDays; }
-                  const rows = c ? await c.p : []; return rows.filter(r => r.has).map(r => [r.ts, r.sold]);
-              - entity: input_boolean.ep_cube_show_standing_charge
-                name: Net
-                yaxis_id: c3
-                type: line
-                curve: smooth
-                color: '#eceff1'
-                extend_to: false
-                show:
-                  legend_value: false
-                data_generator: |
-                  const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window.__epcMonthDays;
-                  for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window.__epcMonthDays; }
-                  const rows = c ? await c.p : []; return rows.filter(r => r.has).map(r => [r.ts, r.net]);
-              # Invisible: puts the largest and smallest values on the shared axis so the sold bars (below
-              # zero) and the net line are never clipped.
-              - entity: input_boolean.ep_cube_show_standing_charge
-                name: Range
-                yaxis_id: c0
-                type: line
-                color: '#00000000'
-                stroke_width: 0
-                extend_to: false
-                show:
-                  in_legend: false
-                  legend_value: false
-                data_generator: |
-                  const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window.__epcMonthDays;
-                  for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window.__epcMonthDays; }
-                  const rows = c ? await c.p : []; const first = rows.find(r => r.has);
-                  return first && rows.range ? [[first.ts, rows.range.min], [first.ts, rows.range.max]] : [];
-              - entity: input_boolean.ep_cube_show_standing_charge
-                name: Spent
-                yaxis_id: c5
-                type: line
-                color: '#ff8a80'
-                stroke_width: 0
-                extend_to: false
-                show:
-                  legend_value: false
-                data_generator: |
-                  const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window.__epcMonthDays;
-                  for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window.__epcMonthDays; }
-                  const rows = c ? await c.p : []; return rows.filter(r => r.has && r.net > 0).map(r => [r.ts, r.net]);
-              - entity: input_boolean.ep_cube_show_standing_charge
-                name: Earned
-                yaxis_id: c6
-                type: line
-                color: '#69f0ae'
-                stroke_width: 0
-                extend_to: false
-                show:
-                  legend_value: false
-                data_generator: |
-                  const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window.__epcMonthDays;
-                  for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window.__epcMonthDays; }
-                  const rows = c ? await c.p : []; return rows.filter(r => r.has && r.net < 0).map(r => [r.ts, r.net]);
-          # A table of the same daily figures as the chart above, one row per billed day (newest
-          # first) with a month-to-date total. It is an apexcharts-card with an empty, hidden chart:
-          # the card is only the part that can run JavaScript on this dashboard, and its draw
-          # events write the table into the card. It reads the rows the chart's first series builds
-          # (window.__epcMonthDays), so the two always agree, and it follows the "show standing
-          # charge" switch because that helper is its series' entity.
-          - type: custom:apexcharts-card
-            grid_options:
-              columns: full
-            header:
-              show: true
-              title: "Billed cost · daily figures, this month"
-              show_states: false
-            card_mod:
-              style: |
-                #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
-                .apexcharts-yaxis, .apexcharts-xaxis, .apexcharts-inner { display: none; }
-            now:
-              show: false
-              label: ''
-            graph_span: 1month
-            span:
-              start: month
-            apex_config:
-              chart:
-                height: 1
-                toolbar:
-                  show: false
-                animations:
-                  enabled: false
-                zoom:
-                  enabled: false
-                events:
-                  mounted: &epc_month_table |
-                    EVAL:function(ctx){
-                      var money = function(v){ return (v < -0.005 ? '-£' : '£') + Math.abs(v).toFixed(2); };
-                      var build = function(tries){
-                        var c = window.__epcMonthDays;
-                        if (!c) { if (tries < 40) setTimeout(function(){ build(tries + 1); }, 250); return; }
-                        c.p.then(function(rows){
-                          var wrap = ctx.el.parentNode;
-                          if (!wrap) return;
-                          var host = wrap.querySelector('.epc-month-table');
-                          if (!host) { host = document.createElement('div'); host.className = 'epc-month-table'; wrap.appendChild(host); }
-                          var showS = !!c.showS;
-                          var th = 'padding:6px 10px;text-align:right;font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;font-weight:400;';
-                          var td = 'padding:6px 10px;text-align:right;border-top:1px solid rgba(255,255,255,.06);';
-                          var list = rows.filter(function(r){ return r.has; }).reverse();
-                          var tot = {e: 0, s: 0, o: 0, n: 0};
-                          var body = list.map(function(r){
-                            tot.e += r.energy; tot.s += r.standing; tot.o += -r.sold; tot.n += r.net;
-                            var col = r.net > 0.005 ? '#ff8a80' : (r.net < -0.005 ? '#69f0ae' : 'inherit');
-                            var day = new Date(r.ts).toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'short'});
-                            return '<tr><td style="' + td + 'text-align:left;">' + day + '</td><td style="' + td + '">' + money(r.energy) + '</td>'
-                              + (showS ? '<td style="' + td + '">' + money(r.standing) + '</td>' : '')
-                              + '<td style="' + td + '">' + (r.sold ? money(-r.sold) : '–') + '</td><td style="' + td + 'font-weight:600;color:' + col + ';">' + money(r.net) + '</td></tr>';
-                          }).join('');
-                          var colT = tot.n > 0.005 ? '#ff8a80' : (tot.n < -0.005 ? '#69f0ae' : 'inherit');
-                          var foot = '<tr style="font-weight:600;"><td style="' + td + 'text-align:left;">Month to date</td><td style="' + td + '">' + money(tot.e) + '</td>'
-                            + (showS ? '<td style="' + td + '">' + money(tot.s) + '</td>' : '')
-                            + '<td style="' + td + '">' + money(tot.o) + '</td><td style="' + td + 'color:' + colT + ';">' + money(tot.n) + '</td></tr>';
-                          host.innerHTML = '<div style="padding:4px 12px 16px;">'
-                            + (list.length ? '<table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr><th style="' + th + 'text-align:left;">Day</th><th style="' + th + '">Bought</th>'
-                            + (showS ? '<th style="' + th + '">Standing</th>' : '') + '<th style="' + th + '">Sold</th><th style="' + th + '">Net</th></tr></thead><tbody>' + body + foot + '</tbody></table>'
-                            : '<div style="padding:12px 0;opacity:.6;">No billed days yet this month.</div>')
-                            + '<div style="margin-top:8px;font-size:12px;opacity:.6;">Net is bought' + (showS ? ' plus standing charge' : '') + ' less sold; green means earned. A day appears once Octopus has billed it (about 19:50 the evening after).</div></div>';
-                        }).catch(function(){});
-                      };
-                      build(0);
-                    }
-                  updated: *epc_month_table
-              legend:
-                show: false
-              grid:
-                show: false
-              noData:
-                text: ''
-              tooltip:
-                enabled: false
-              dataLabels:
-                enabled: false
-              xaxis:
-                labels:
-                  show: false
-                axisTicks:
-                  show: false
-                axisBorder:
-                  show: false
-                tooltip:
-                  enabled: false
-            yaxis:
-              - id: t0
-                show: false
-                apex_config:
-                  show: false
-                  labels:
-                    show: false
-                  axisBorder:
-                    show: false
-                  axisTicks:
-                    show: false
-            series:
-              - entity: input_boolean.ep_cube_show_standing_charge
-                name: Table
-                yaxis_id: t0
-                type: line
-                extend_to: false
-                show:
-                  in_legend: false
-                  legend_value: false
-                data_generator: |
-                  const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window.__epcMonthDays;
-                  for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window.__epcMonthDays; }
-                  if (c) await c.p; return [];
+            tabs:
+              - attributes:
+                  label: This month
+                card:
+                  type: vertical-stack
+                  cards:
+                    - &epc_month_chart
+                      type: custom:apexcharts-card
+                      grid_options:
+                        columns: full
+                      header:
+                        show: true
+                        title: "Billed cost · by day, this month"
+                        show_states: false
+                      card_mod:
+                        style: |
+                          #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                      now:
+                        show: false
+                        label: ''
+                      graph_span: 1month
+                      span:
+                        start: month
+                      apex_config:
+                        chart:
+                          height: 340
+                          stacked: true
+                          dropShadow:
+                            enabled: true
+                            enabledOnSeries: [3]
+                            color: '#000000'
+                            blur: 3
+                            opacity: 0.9
+                            top: 0
+                            left: 0
+                          toolbar:
+                            show: false
+                          animations:
+                            enabled: false
+                          zoom:
+                            enabled: false
+                        xaxis:
+                          type: datetime
+                          labels:
+                            datetimeUTC: false
+                            formatter: "EVAL:function(v){return String(new Date(Number(v)).getDate());}"
+                          axisTicks:
+                            show: false
+                          axisBorder:
+                            show: false
+                          tooltip:
+                            enabled: false
+                        grid:
+                          borderColor: '#ffffff17'
+                        legend:
+                          position: bottom
+                          fontSize: '13px'
+                          markers:
+                            width: 11
+                            height: 11
+                            radius: 11
+                        tooltip:
+                          theme: dark
+                          shared: false
+                          intersect: true
+                          custom: "EVAL:function(o){var w=o.w,sr=w.config.series[o.seriesIndex],p=sr&&sr.data[o.dataPointIndex];if(!p)return '';var x=Array.isArray(p)?p[0]:p.x,rows=window.__epcMonthRowsData||[],r=null,i;for(i=0;i<rows.length;i++){if(rows[i].ts===x){r=rows[i];break;}}if(!r)return '';var money=function(v){return (v<0?'-£':'£')+Math.abs(v).toFixed(2);},line=function(c,n,v){return '<div style=\"display:flex;gap:8px;align-items:center;padding:2px 0\"><span style=\"width:10px;height:10px;border-radius:50%;background:'+c+'\"></span><span style=\"flex:1\">'+n+'</span><b>'+money(v)+'</b></div>';},h='';if(r.standing)h+=line('#90caf9','Standing charge',r.standing);h+=line('#42a5f5','Bought',r.energy)+line('#ab47bc','Sold',r.sold)+line('#eceff1','Net',r.net);return '<div style=\"padding:8px 12px;font-size:12px;min-width:170px;background:#1c1c1c;color:#eceff1;border:1px solid rgba(255,255,255,.18);border-radius:8px\"><div style=\"opacity:.7;margin-bottom:4px\">'+new Date(Number(x)).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+'</div>'+h+'</div>';}"
+                          x:
+                            formatter: "EVAL:function(v){return new Date(Number(v)).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});}"
+                          y:
+                            formatter: "EVAL:function(v){return v==null?'':(v<0?'-£':'£')+Math.abs(v).toFixed(2);}"
+                        dataLabels:
+                          enabled: false
+                        stroke:
+                          width: [0, 0, 0, 3, 0, 0, 0]
+                        markers:
+                          size: [0, 0, 0, 0, 0, 6, 6]
+                          strokeWidth: 0
+                        plotOptions:
+                          bar:
+                            borderRadius: 0
+                            columnWidth: 70%
+                      # Four entries that all name the first one as their series, so Apex puts the columns on one
+                      # axis and stacks them (the card would otherwise give every series its own axis).
+                      yaxis:
+                        - id: c0
+                          decimals: 0
+                          apex_config:
+                            seriesName: Standing charge
+                            stepSize: 1
+                            labels:
+                              formatter: "EVAL:function(v){return (v<-0.005?'-£':'£')+Math.abs(v).toFixed(0);}"
+                        - id: c1
+                          show: false
+                          apex_config:
+                            seriesName: Standing charge
+                        - id: c2
+                          show: false
+                          apex_config:
+                            seriesName: Standing charge
+                        - id: c3
+                          show: false
+                          apex_config:
+                            seriesName: Standing charge
+                        - id: c4
+                          show: false
+                          apex_config:
+                            seriesName: Standing charge
+                        - id: c5
+                          show: false
+                          apex_config:
+                            seriesName: Standing charge
+                        - id: c6
+                          show: false
+                          apex_config:
+                            seriesName: Standing charge
+                      series:
+                        # Daily figures come from Octopus's own billed cost sensors (the same numbers as the
+                        # Octopus dashboard). Their long-term statistics are dated when Octopus publishes each
+                        # day (about 19:50 the evening after), so each is moved back one day. The first series
+                        # (the Bought one) does the work and the others read it. It re-runs when the checkbox above is ticked,
+                        # because that helper is this series' entity.
+                        - entity: input_boolean.ep_cube_show_standing_charge
+                          name: Standing charge
+                          yaxis_id: c0
+                          type: column
+                          color: '#90caf9'
+                          extend_to: false
+                          show:
+                            legend_value: false
+                          data_generator: |
+                            const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; const KEY = '__epcMonthDays' + (start && end ? new Date((+start + +end) / 2).getFullYear() + '_' + new Date((+start + +end) / 2).getMonth() : 'now'); let c = window[KEY];
+                            for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window[KEY]; }
+                            const rows = c ? await c.p : []; return rows.filter(r => r.has).map(r => [r.ts, r.standing]);
+                        - entity: input_boolean.ep_cube_show_standing_charge
+                          name: Bought
+                          yaxis_id: c1
+                          type: column
+                          color: '#42a5f5'
+                          extend_to: false
+                          show:
+                            legend_value: false
+                          data_generator: |
+                            const KEY = '__epcMonthDays' + (start && end ? new Date((+start + +end) / 2).getFullYear() + '_' + new Date((+start + +end) / 2).getMonth() : 'now'); const nowT = Date.now(); const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window[KEY];
+                            if (!c || nowT - c.t > 30000 || c.showS !== showS) { c = {t: nowT, showS: showS, p: (async () => {
+                              const tz = hass.config.time_zone;
+                              const lp = ts => new Intl.DateTimeFormat('en-CA', {timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit'}).format(ts);
+                              const d2n = s => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) / 864e5;
+                              const n2s = n => new Date(n * 864e5).toISOString().slice(0, 10);
+                              const today = lp(nowT); const refDay = start && end ? lp((+start + +end) / 2) : today; const ms = d2n(refDay.slice(0, 8) + '01');
+                              const y = +refDay.slice(0, 4), m = +refDay.slice(5, 7) - 1; const me = Date.UTC(y, m + 1, 0) / 864e5;
+                              const IMP = 'sensor.octopus_energy_electricity_19l3564787_2200019819270_previous_accumulative_cost';
+                              const EXP = 'sensor.octopus_energy_electricity_19l3564787_2200044183701_export_previous_accumulative_cost';
+                              // The standing charge is the sensor's current daily rate. Days before the tariff
+                              // changed can have had a different one: list them here as 'last day': rate.
+                              const rate = Number(((hass.states[IMP] || {attributes: {}}).attributes || {}).standing_charge) || 0;
+                              const OLD_RATES = {'2026-10-07': 0.63};
+                              const standingFor = s => { for (const k of Object.keys(OLD_RATES).sort()) if (s <= k) return OLD_RATES[k]; return rate; };
+                              // Each long-term statistics row carries the day it covers (last_reset), so a figure lands on
+                              // the right day however late Octopus published it, and the last row of a day holds its final
+                              // value. Hourly statistics reach back well beyond the sensor's own ten days of history.
+                              const r = await hass.callWS({type: 'recorder/statistics_during_period', start_time: new Date((ms - 3) * 864e5).toISOString(), end_time: new Date(nowT).toISOString(), statistic_ids: [IMP, EXP], period: 'hour', types: ['state', 'last_reset']});
+                              const days = {};
+                              for (const [id, rows] of Object.entries(r)) for (const x of rows) { if (x.last_reset == null || x.state == null) continue; const cov = d2n(lp(x.last_reset)); (days[cov] = days[cov] || {})[id === IMP ? 'i' : 'e'] = x.state; }
+                              // The sensor's current state can be newer than the last statistics row, so it overrides.
+                              for (const id of [IMP, EXP]) { const st = hass.states[id]; const lr = st && st.attributes && st.attributes.last_reset; const val = parseFloat(st && st.state); if (lr && isFinite(val)) { const cov = d2n(lp(Date.parse(lr))); (days[cov] = days[cov] || {})[id === IMP ? 'i' : 'e'] = val; } }
+                              const out = [];
+                              for (let d = ms; d <= me; d++) {
+                                const v = days[d] || {}; const s = n2s(d); const total = +(v.i || 0); const billed = total > 0 || +(v.e || 0) > 0;
+                                // A day with no import figure (up to yesterday), even one with an export figure, still has its standing charge, as on Octopus's own page.
+                                const pending = !(total > 0) && d <= d2n(today) - 1 && rate > 0;
+                                const st = total > 0 ? Math.min(standingFor(s), total) : (pending ? standingFor(s) : 0);
+                                const energy = +(total - st).toFixed(2), sold = +(v.e || 0), bought = Math.max(energy, 0) + (showS ? st : 0);
+                                out.push({ts: new Date(y, m, d - ms + 1, 12).getTime(), has: billed || (pending && showS), energy: Math.max(energy, 0), standing: showS ? +st.toFixed(2) : 0, sold: -sold, net: +(bought - sold).toFixed(2)});
+                              }
+                              const lows = out.filter(r => r.has).map(r => Math.min(r.sold, r.net, 0)), highs = out.filter(r => r.has).map(r => Math.max(r.energy + r.standing, r.net, 0));
+                              out.range = {min: Math.floor(Math.min(0, ...lows)), max: Math.ceil(Math.max(1, ...highs))};
+                              window.__epcMonthRowsByKey = window.__epcMonthRowsByKey || {}; window.__epcMonthRowsByKey[KEY] = out; window.__epcMonthRowsData = [].concat(...Object.values(window.__epcMonthRowsByKey));
+                              return out; })()}; window[KEY] = c; }
+                            const rows = await c.p; return rows.filter(r => r.has).map(r => [r.ts, r.energy]);
+                        - entity: input_boolean.ep_cube_show_standing_charge
+                          name: Sold
+                          yaxis_id: c2
+                          type: column
+                          color: '#ab47bc'
+                          extend_to: false
+                          show:
+                            legend_value: false
+                          data_generator: |
+                            const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; const KEY = '__epcMonthDays' + (start && end ? new Date((+start + +end) / 2).getFullYear() + '_' + new Date((+start + +end) / 2).getMonth() : 'now'); let c = window[KEY];
+                            for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window[KEY]; }
+                            const rows = c ? await c.p : []; return rows.filter(r => r.has).map(r => [r.ts, r.sold]);
+                        - entity: input_boolean.ep_cube_show_standing_charge
+                          name: Net
+                          yaxis_id: c3
+                          type: line
+                          curve: smooth
+                          color: '#eceff1'
+                          extend_to: false
+                          show:
+                            legend_value: false
+                          data_generator: |
+                            const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; const KEY = '__epcMonthDays' + (start && end ? new Date((+start + +end) / 2).getFullYear() + '_' + new Date((+start + +end) / 2).getMonth() : 'now'); let c = window[KEY];
+                            for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window[KEY]; }
+                            const rows = c ? await c.p : []; return rows.filter(r => r.has).map(r => [r.ts, r.net]);
+                        # Invisible: puts the largest and smallest values on the shared axis so the sold bars (below
+                        # zero) and the net line are never clipped.
+                        - entity: input_boolean.ep_cube_show_standing_charge
+                          name: Range
+                          yaxis_id: c0
+                          type: line
+                          color: '#00000000'
+                          stroke_width: 0
+                          extend_to: false
+                          show:
+                            in_legend: false
+                            legend_value: false
+                          data_generator: |
+                            const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; const KEY = '__epcMonthDays' + (start && end ? new Date((+start + +end) / 2).getFullYear() + '_' + new Date((+start + +end) / 2).getMonth() : 'now'); let c = window[KEY];
+                            for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window[KEY]; }
+                            const rows = c ? await c.p : []; const first = rows.find(r => r.has);
+                            return first && rows.range ? [[first.ts, rows.range.min], [first.ts, rows.range.max]] : [];
+                        - entity: input_boolean.ep_cube_show_standing_charge
+                          name: Spent
+                          yaxis_id: c5
+                          type: line
+                          color: '#ff8a80'
+                          stroke_width: 0
+                          extend_to: false
+                          show:
+                            legend_value: false
+                          data_generator: |
+                            const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; const KEY = '__epcMonthDays' + (start && end ? new Date((+start + +end) / 2).getFullYear() + '_' + new Date((+start + +end) / 2).getMonth() : 'now'); let c = window[KEY];
+                            for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window[KEY]; }
+                            const rows = c ? await c.p : []; const pts = rows.filter(r => r.has && r.net > 0).map(r => [r.ts, r.net]); return pts.length ? pts : [[(rows.find(r => r.has) || {ts: Date.now()}).ts, null]];
+                        - entity: input_boolean.ep_cube_show_standing_charge
+                          name: Earned
+                          yaxis_id: c6
+                          type: line
+                          color: '#69f0ae'
+                          stroke_width: 0
+                          extend_to: false
+                          show:
+                            legend_value: false
+                          data_generator: |
+                            const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; const KEY = '__epcMonthDays' + (start && end ? new Date((+start + +end) / 2).getFullYear() + '_' + new Date((+start + +end) / 2).getMonth() : 'now'); let c = window[KEY];
+                            for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window[KEY]; }
+                            const rows = c ? await c.p : []; const pts = rows.filter(r => r.has && r.net < 0).map(r => [r.ts, r.net]); return pts.length ? pts : [[(rows.find(r => r.has) || {ts: Date.now()}).ts, null]];
+                    # A table of the same daily figures as the chart above, one row per billed day (newest
+                    # first) with a month-to-date total. It is an apexcharts-card with an empty, hidden chart:
+                    # the card is only the part that can run JavaScript on this dashboard, and its draw
+                    # events write the table into the card. It reads the rows the chart's first series builds
+                    # (window.__epcMonthDays), so the two always agree, and it follows the "show standing
+                    # charge" switch because that helper is its series' entity.
+                    - &epc_month_table_card
+                      type: custom:apexcharts-card
+                      grid_options:
+                        columns: full
+                      header:
+                        show: true
+                        title: "Billed cost · daily figures, this month"
+                        show_states: false
+                      card_mod:
+                        style: |
+                          #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                          .apexcharts-yaxis, .apexcharts-xaxis, .apexcharts-inner { display: none; }
+                      now:
+                        show: false
+                        label: ''
+                      graph_span: 1month
+                      span:
+                        start: month
+                      apex_config:
+                        chart:
+                          height: 1
+                          toolbar:
+                            show: false
+                          animations:
+                            enabled: false
+                          zoom:
+                            enabled: false
+                          events:
+                            mounted: &epc_month_table |
+                              EVAL:function(ctx){
+                                var money = function(v){ return (v < -0.005 ? '-£' : '£') + Math.abs(v).toFixed(2); };
+                                var build = function(tries){
+                                  var off = parseInt(String(((ctx.w.config.series || [])[0] || {}).name || '').split(':')[1], 10) || 0;
+                                  var dd = new Date(); dd = new Date(dd.getFullYear(), dd.getMonth() + off, 1);
+                                  var c = window['__epcMonthDays' + dd.getFullYear() + '_' + dd.getMonth()];
+                                  if (!c) { if (tries < 40) setTimeout(function(){ build(tries + 1); }, 250); return; }
+                                  c.p.then(function(rows){
+                                    var wrap = ctx.el.parentNode;
+                                    if (!wrap) return;
+                                    var host = wrap.querySelector('.epc-month-table');
+                                    if (!host) { host = document.createElement('div'); host.className = 'epc-month-table'; wrap.appendChild(host); }
+                                    var showS = !!c.showS;
+                                    var th = 'padding:6px 10px;text-align:right;font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;font-weight:400;';
+                                    var td = 'padding:6px 10px;text-align:right;border-top:1px solid rgba(255,255,255,.06);';
+                                    var list = rows.filter(function(r){ return r.has; }).reverse();
+                                    var tot = {e: 0, s: 0, o: 0, n: 0};
+                                    var body = list.map(function(r){
+                                      tot.e += r.energy; tot.s += r.standing; tot.o += -r.sold; tot.n += r.net;
+                                      var col = r.net > 0.005 ? '#ff8a80' : (r.net < -0.005 ? '#69f0ae' : 'inherit');
+                                      var day = new Date(r.ts).toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'short'});
+                                      return '<tr><td style="' + td + 'text-align:left;">' + day + '</td><td style="' + td + '">' + money(r.energy) + '</td>'
+                                        + (showS ? '<td style="' + td + '">' + money(r.standing) + '</td>' : '')
+                                        + '<td style="' + td + '">' + (r.sold ? money(-r.sold) : '–') + '</td><td style="' + td + 'font-weight:600;color:' + col + ';">' + money(r.net) + '</td></tr>';
+                                    }).join('');
+                                    var colT = tot.n > 0.005 ? '#ff8a80' : (tot.n < -0.005 ? '#69f0ae' : 'inherit');
+                                    var foot = '<tr style="font-weight:600;"><td style="' + td + 'text-align:left;">' + (off === 0 ? 'Month to date' : 'Month total') + '</td><td style="' + td + '">' + money(tot.e) + '</td>'
+                                      + (showS ? '<td style="' + td + '">' + money(tot.s) + '</td>' : '')
+                                      + '<td style="' + td + '">' + money(tot.o) + '</td><td style="' + td + 'color:' + colT + ';">' + money(tot.n) + '</td></tr>';
+                                    host.innerHTML = '<div style="padding:4px 12px 16px;">'
+                                      + (list.length ? '<table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr><th style="' + th + 'text-align:left;">Day</th><th style="' + th + '">Bought</th>'
+                                      + (showS ? '<th style="' + th + '">Standing</th>' : '') + '<th style="' + th + '">Sold</th><th style="' + th + '">Net</th></tr></thead><tbody>' + body + foot + '</tbody></table>'
+                                      : '<div style="padding:12px 0;opacity:.6;">No billed days yet this month.</div>')
+                                      + '<div style="margin-top:8px;font-size:12px;opacity:.6;">Net is bought' + (showS ? ' plus standing charge' : '') + ' less sold; green means earned. A day appears once Octopus has billed it (about 19:50 the evening after).</div></div>';
+                                  }).catch(function(){});
+                                };
+                                build(0);
+                              }
+                            updated: *epc_month_table
+                        legend:
+                          show: false
+                        grid:
+                          show: false
+                        noData:
+                          text: ''
+                        tooltip:
+                          enabled: false
+                        dataLabels:
+                          enabled: false
+                        xaxis:
+                          labels:
+                            show: false
+                          axisTicks:
+                            show: false
+                          axisBorder:
+                            show: false
+                          tooltip:
+                            enabled: false
+                      yaxis:
+                        - id: t0
+                          show: false
+                          apex_config:
+                            show: false
+                            labels:
+                              show: false
+                            axisBorder:
+                              show: false
+                            axisTicks:
+                              show: false
+                      series:
+                        - entity: input_boolean.ep_cube_show_standing_charge
+                          name: 'table:0'
+                          yaxis_id: t0
+                          type: line
+                          extend_to: false
+                          show:
+                            in_legend: false
+                            legend_value: false
+                          data_generator: |
+                            const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; const KEY = '__epcMonthDays' + (start && end ? new Date((+start + +end) / 2).getFullYear() + '_' + new Date((+start + +end) / 2).getMonth() : 'now'); let c = window[KEY];
+                            for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window[KEY]; }
+                            if (c) await c.p; return [];
+              - attributes:
+                  label: Last month
+                card:
+                  type: vertical-stack
+                  cards:
+                    - <<: *epc_month_chart
+                      header:
+                        show: true
+                        title: "Billed cost · by day, last month"
+                        show_states: false
+                      span:
+                        start: month
+                        offset: -1month
+                    - <<: *epc_month_table_card
+                      header:
+                        show: true
+                        title: "Billed cost · daily figures, last month"
+                        show_states: false
+                      span:
+                        start: month
+                        offset: -1month
+                      series:
+                        - entity: input_boolean.ep_cube_show_standing_charge
+                          name: 'table:-1'
+                          yaxis_id: t0
+                          type: line
+                          extend_to: false
+                          show:
+                            in_legend: false
+                            legend_value: false
+                          data_generator: |
+                            const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; const KEY = '__epcMonthDays' + (start && end ? new Date((+start + +end) / 2).getFullYear() + '_' + new Date((+start + +end) / 2).getMonth() : 'now'); let c = window[KEY];
+                            for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window[KEY]; }
+                            if (c) await c.p; return [];
 
   - title: Control
     path: control
