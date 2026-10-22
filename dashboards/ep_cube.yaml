@@ -2224,39 +2224,6 @@ views:
       - type: grid
         column_span: 3
         cards:
-          - type: custom:html-template-card
-            grid_options:
-              columns: 18
-            ignore_line_breaks: true
-            content: |
-              {% macro tile(label, value, unit, color) -%}
-              <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
-              {%- endmacro %}
-              {% set c_in = states('sensor.ep_cube_month_billed_import')|float(0) %}{% set c_en = states('sensor.ep_cube_month_billed_import_energy')|float(0) %}{% set c_ex = states('sensor.ep_cube_month_billed_export')|float(0) %}{% set net = c_in - c_ex %}{% set net_e = c_en - c_ex %}{% set p_today = states('predbat.cost_today')|float(0) / 100 %}{% set p_yest = states('predbat.cost_yesterday')|float(0) / 100 %}{% set last = as_datetime(states('input_text.ep_cube_billed_import_last').split('|')[0], none) %}{% set yday = (now() - timedelta(days=1)).date() %}{% set start = now().replace(day=1).date() %}{% set y_open = yday >= start and (last is none or (last|as_local).date() < yday) %}{% set plan = p_today + (p_yest if y_open else 0) %}{% set est = net + plan %}{% set est_e = net_e + plan %}
-              <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost month to date (billed, incl. standing charge)</div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">{{ tile('Bought', '£%.2f'|format(c_in), '', '#42a5f5') }}{{ tile('Sold', '£%.2f'|format(c_ex), 'earned', '#ab47bc') }}{{ tile('Net', '£%.2f'|format(net|abs), 'earned' if net < 0 else '', '#66bb6a' if net < 0 else '#ef5350') }}</div>
-              <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);font-size:13px;opacity:.75">Energy only, without the standing charge: bought £{{ '%.2f'|format(c_en) }} · net £{{ '%.2f'|format(net_e|abs) }}{{ ' earned' if net_e < 0 else '' }}</div>
-              <div style="margin-top:8px;font-size:13px;opacity:.75">Estimate including today so far{{ ' and yesterday' if y_open else '' }} (Predbat's plan, not yet billed): net £{{ '%.2f'|format(est|abs) }}{{ ' earned' if est < 0 else '' }} · energy only £{{ '%.2f'|format(est_e|abs) }}{{ ' earned' if est_e < 0 else '' }}</div>
-              <div style="margin-top:8px;font-size:13px;opacity:.6">Octopus publishes each day's billed figure around 19:50 the next evening, so the last day or two are still to come.</div></div>
-          - type: custom:html-template-card
-            grid_options:
-              columns: 18
-            ignore_line_breaks: true
-            content: |
-              {% macro tile(label, value, unit, color) -%}
-              <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
-              {%- endmacro %}
-              {% macro ring(label, pct, color) -%}
-              <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
-              {%- endmacro %}
-              {% set s = states('sensor.ep_cube_month_solar')|float(0) %}{% set i = states('sensor.ep_cube_month_import')|float(0) %}{% set e = states('sensor.ep_cube_month_export')|float(0) %}{% set l = states('sensor.ep_cube_month_consumed')|float(0) %}{% set sc = ([[((s - e) / s * 100) if s > 0 else 0, 0]|max, 100]|min) %}{% set cover = ([[((s - e) / l * 100) if l > 0 else 0, 0]|max, 100]|min) %}
-              <div style="padding:18px 20px;min-height:260px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy month to date</div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
-              <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Solar used at home', sc, '#4db6ac') }}{{ ring('Solar covers consumption', cover, '#66bb6a') }}</div></div>
-
-      - type: grid
-        column_span: 3
-        cards:
           - type: entities
             grid_options:
               columns: full
@@ -2276,6 +2243,45 @@ views:
                 card:
                   type: vertical-stack
                   cards:
+                    - type: horizontal-stack
+                      cards:
+                        - type: custom:html-template-card
+                          grid_options:
+                            columns: 18
+                          ignore_line_breaks: true
+                          card_mod:
+                            style: |
+                              :host { display: flex; }
+                              ha-card { flex: 1; }
+                          content: |
+                            {% macro tile(label, value, unit, color) -%}
+                            <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+                            {%- endmacro %}
+                            {% set c_in = states('sensor.ep_cube_month_billed_import')|float(0) %}{% set c_en = states('sensor.ep_cube_month_billed_import_energy')|float(0) %}{% set c_ex = states('sensor.ep_cube_month_billed_export')|float(0) %}{% set net = c_in - c_ex %}{% set net_e = c_en - c_ex %}{% set p_today = states('predbat.cost_today')|float(0) / 100 %}{% set p_yest = states('predbat.cost_yesterday')|float(0) / 100 %}{% set last = as_datetime(states('input_text.ep_cube_billed_import_last').split('|')[0], none) %}{% set yday = (now() - timedelta(days=1)).date() %}{% set start = now().replace(day=1).date() %}{% set y_open = yday >= start and (last is none or (last|as_local).date() < yday) %}{% set plan = p_today + (p_yest if y_open else 0) %}{% set est = net + plan %}{% set est_e = net_e + plan %}
+                            <div style="padding:18px 20px;min-height:320px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy cost month to date (billed, incl. standing charge)</div>
+                            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">{{ tile('Bought', '£%.2f'|format(c_in), '', '#42a5f5') }}{{ tile('Sold', '£%.2f'|format(c_ex), 'earned', '#ab47bc') }}{{ tile('Net', '£%.2f'|format(net|abs), 'earned' if net < 0 else '', '#66bb6a' if net < 0 else '#ef5350') }}</div>
+                            <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);font-size:13px;opacity:.75">Energy only, without the standing charge: bought £{{ '%.2f'|format(c_en) }} · net £{{ '%.2f'|format(net_e|abs) }}{{ ' earned' if net_e < 0 else '' }}</div>
+                            <div style="margin-top:8px;font-size:13px;opacity:.75">Estimate including today so far{{ ' and yesterday' if y_open else '' }} (Predbat's plan, not yet billed): net £{{ '%.2f'|format(est|abs) }}{{ ' earned' if est < 0 else '' }} · energy only £{{ '%.2f'|format(est_e|abs) }}{{ ' earned' if est_e < 0 else '' }}</div>
+                            <div style="margin-top:8px;font-size:13px;opacity:.6">Octopus publishes each day's billed figure around 19:50 the next evening, so the last day or two are still to come.</div></div>
+                        - type: custom:html-template-card
+                          grid_options:
+                            columns: 18
+                          ignore_line_breaks: true
+                          card_mod:
+                            style: |
+                              :host { display: flex; }
+                              ha-card { flex: 1; }
+                          content: |
+                            {% macro tile(label, value, unit, color) -%}
+                            <div style="border-left:3px solid {{ color }};padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div><div style="font-size:28px;font-weight:600;line-height:1.25">{{ value }}<span style="font-size:13px;font-weight:400;opacity:.6"> {{ unit }}</span></div></div>
+                            {%- endmacro %}
+                            {% macro ring(label, pct, color) -%}
+                            <div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient({{ color }} {{ pct }}%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ pct|round(0)|int }}%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">{{ label }}</div></div>
+                            {%- endmacro %}
+                            {% set s = states('sensor.ep_cube_month_solar')|float(0) %}{% set i = states('sensor.ep_cube_month_import')|float(0) %}{% set e = states('sensor.ep_cube_month_export')|float(0) %}{% set l = states('sensor.ep_cube_month_consumed')|float(0) %}{% set sc = ([[((s - e) / s * 100) if s > 0 else 0, 0]|max, 100]|min) %}{% set cover = ([[((s - e) / l * 100) if l > 0 else 0, 0]|max, 100]|min) %}
+                            <div style="padding:18px 20px;min-height:320px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">Energy month to date</div>
+                            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">{{ tile('Solar', '%.1f'|format(s), 'kWh', '#ffb300') }}{{ tile('Bought', '%.1f'|format(i), 'kWh', '#42a5f5') }}{{ tile('Sold', '%.1f'|format(e), 'kWh', '#ab47bc') }}{{ tile('Consumed', '%.1f'|format(l), 'kWh', '#eceff1') }}</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">{{ ring('Solar used at home', sc, '#4db6ac') }}{{ ring('Solar covers consumption', cover, '#66bb6a') }}</div></div>
                     - &epc_month_chart
                       type: custom:apexcharts-card
                       grid_options:
@@ -2442,7 +2448,7 @@ views:
                                 const pending = !(total > 0) && d <= d2n(today) - 1 && rate > 0;
                                 const st = total > 0 ? Math.min(standingFor(s), total) : (pending ? standingFor(s) : 0);
                                 const energy = +(total - st).toFixed(2), sold = +(v.e || 0), bought = Math.max(energy, 0) + (showS ? st : 0);
-                                out.push({ts: new Date(y, m, d - ms + 1, 12).getTime(), has: billed || (pending && showS), energy: Math.max(energy, 0), standing: showS ? +st.toFixed(2) : 0, sold: -sold, net: +(bought - sold).toFixed(2)});
+                                out.push({ts: new Date(y, m, d - ms + 1, 12).getTime(), has: billed || (pending && showS), energy: Math.max(energy, 0), standing: showS ? +st.toFixed(2) : 0, stAll: +st.toFixed(2), sold: -sold, net: +(bought - sold).toFixed(2)});
                               }
                               const lows = out.filter(r => r.has).map(r => Math.min(r.sold, r.net, 0)), highs = out.filter(r => r.has).map(r => Math.max(r.energy + r.standing, r.net, 0));
                               out.range = {min: Math.floor(Math.min(0, ...lows)), max: Math.ceil(Math.max(1, ...highs))};
@@ -2639,6 +2645,141 @@ views:
                 card:
                   type: vertical-stack
                   cards:
+                    - type: horizontal-stack
+                      cards:
+                        - &epc_month_summary_card
+                          type: custom:apexcharts-card
+                          # Last month's two summary tiles (money and energy), a side-by-side pair like this month's. The
+                          # template cards cannot read history, so like the daily table this is an apexcharts-card with
+                          # an empty, hidden chart whose draw events write the tiles into the card. Money comes from the
+                          # rows the chart above builds (window.__epcMonthDays...); energy from the cube's own monthly
+                          # counters, read at the last hour of the month.
+                          grid_options:
+                            columns: full
+                          header:
+                            show: false
+                          now:
+                            show: false
+                            label: ''
+                          graph_span: 1month
+                          span:
+                            start: month
+                            offset: -1month
+                          apex_config:
+                            chart:
+                              height: 1
+                              toolbar:
+                                show: false
+                              animations:
+                                enabled: false
+                              zoom:
+                                enabled: false
+                              events:
+                                mounted: &epc_month_summary |
+                                  EVAL:function(ctx){
+                                    var tile = function(label, value, unit, color){
+                                      return '<div style="border-left:3px solid ' + color + ';padding:2px 0 2px 12px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">' + label + '</div><div style="font-size:28px;font-weight:600;line-height:1.25">' + value + '<span style="font-size:13px;font-weight:400;opacity:.6"> ' + unit + '</span></div></div>';
+                                    };
+                                    var ring = function(label, pct, color){
+                                      pct = Math.max(0, Math.min(100, pct));
+                                      return '<div style="display:flex;align-items:center;gap:12px"><div style="width:60px;height:60px;border-radius:50%;background:conic-gradient(' + color + ' ' + pct + '%, rgba(255,255,255,.10) 0);display:flex;align-items:center;justify-content:center"><div style="width:46px;height:46px;border-radius:50%;background:var(--ha-card-background, var(--card-background-color));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">' + Math.round(pct) + '%</div></div><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6">' + label + '</div></div>';
+                                    };
+                                    var gbp = function(v){ return '£' + Math.abs(v).toFixed(2); };
+                                    // 36px sides and 336px height line these tiles up with this month's template cards, which sit in 16px of card padding.
+                                    var panel = function(title, tiles, extra){
+                                      return '<div style="padding:18px 36px;min-height:336px;box-sizing:border-box"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;margin-bottom:16px">' + title + '</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px 20px">' + tiles + '</div>' + extra + '</div>';
+                                    };
+                                    var build = function(tries){
+                                      var nm = String(((ctx.w.config.series || [])[0] || {}).name || '').split(':'); var off = parseInt(nm[1], 10) || 0; var kind = nm[2] || 'money';
+                                      var now = new Date(); var first = new Date(now.getFullYear(), now.getMonth() + off, 1); var next = new Date(now.getFullYear(), now.getMonth() + off + 1, 1);
+                                      var c = window['__epcMonthDays' + first.getFullYear() + '_' + first.getMonth()];
+                                      if (!c) { if (tries < 40) setTimeout(function(){ build(tries + 1); }, 250); return; }
+                                      var hass = document.querySelector('home-assistant').hass;
+                                      var ids = ['sensor.ep_cube_solar_this_month', 'sensor.ep_cube_grid_import_this_month', 'sensor.ep_cube_grid_export_this_month', 'sensor.ep_cube_backup_loads_this_month'];
+                                      Promise.all([c.p, hass.callWS({type: 'recorder/statistics_during_period', start_time: new Date(next.getTime() - 3 * 864e5).toISOString(), end_time: next.toISOString(), statistic_ids: ids, period: 'hour', types: ['state']})]).then(function(res){
+                                        var rows = res[0].filter(function(r){ return r.has; }), stats = res[1];
+                                        var last = function(id){ var a = (stats[id] || []).filter(function(x){ return x.start < next.getTime() && x.state != null; }); return a.length ? a[a.length - 1].state : null; };
+                                        var wrap = ctx.el.parentNode; if (!wrap) return;
+                                        var host = wrap.querySelector('.epc-month-summary');
+                                        if (!host) { host = document.createElement('div'); host.className = 'epc-month-summary'; wrap.appendChild(host); }
+                                        var eng = 0, stand = 0, sold = 0;
+                                        rows.forEach(function(r){ eng += r.energy; stand += (r.stAll != null ? r.stAll : r.standing); sold += -r.sold; });
+                                        var bought = eng + stand, net = bought - sold, netE = eng - sold;
+                                        var money = panel('Energy cost for the month (billed, incl. standing charge)',
+                                          tile('Bought', gbp(bought), '', '#42a5f5') + tile('Sold', gbp(sold), 'earned', '#ab47bc') + tile('Net', gbp(net), net < 0 ? 'earned' : '', net < 0 ? '#66bb6a' : '#ef5350'),
+                                          '<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);font-size:13px;opacity:.75">Energy only, without the standing charge: bought ' + gbp(eng) + ' · net ' + gbp(netE) + (netE < 0 ? ' earned' : '') + '</div>');
+                                        var s = last(ids[0]), i = last(ids[1]), e = last(ids[2]), l = last(ids[3]), energy;
+                                        if (s == null || i == null || e == null || l == null) {
+                                          energy = panel('Energy for the month', '<div style="opacity:.6">No energy totals were recorded for this month.</div>', '');
+                                        } else {
+                                          energy = panel('Energy for the month',
+                                            tile('Solar', s.toFixed(1), 'kWh', '#ffb300') + tile('Bought', i.toFixed(1), 'kWh', '#42a5f5') + tile('Sold', e.toFixed(1), 'kWh', '#ab47bc') + tile('Consumed', l.toFixed(1), 'kWh', '#eceff1'),
+                                            '<div style="display:flex;flex-wrap:wrap;gap:16px 32px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">' + ring('Solar used at home', s > 0 ? (s - e) / s * 100 : 0, '#4db6ac') + ring('Solar covers consumption', l > 0 ? (s - e) / l * 100 : 0, '#66bb6a') + '</div>');
+                                        }
+                                        host.innerHTML = kind === 'energy' ? energy : money;
+                                      }).catch(function(){});
+                                    };
+                                    build(0);
+                                  }
+                                updated: *epc_month_summary
+                            legend:
+                              show: false
+                            grid:
+                              show: false
+                            noData:
+                              text: ''
+                            tooltip:
+                              enabled: false
+                            dataLabels:
+                              enabled: false
+                            xaxis:
+                              labels:
+                                show: false
+                              axisTicks:
+                                show: false
+                              axisBorder:
+                                show: false
+                              tooltip:
+                                enabled: false
+                          yaxis:
+                            - id: s0
+                              show: false
+                              apex_config:
+                                show: false
+                                labels:
+                                  show: false
+                                axisBorder:
+                                  show: false
+                                axisTicks:
+                                  show: false
+                          card_mod:
+                            style: |
+                              .apexcharts-yaxis, .apexcharts-xaxis, .apexcharts-inner { display: none; }
+                              :host { display: flex; }
+                              ha-card { flex: 1; }
+                          series:
+                            - entity: input_boolean.ep_cube_show_standing_charge
+                              name: 'summary:-1:money'
+                              yaxis_id: s0
+                              type: line
+                              extend_to: false
+                              show:
+                                in_legend: false
+                                legend_value: false
+                              data_generator: |
+                                return [];
+                        - <<: *epc_month_summary_card
+                          series:
+                            - entity: input_boolean.ep_cube_show_standing_charge
+                              name: 'summary:-1:energy'
+                              yaxis_id: s0
+                              type: line
+                              extend_to: false
+                              show:
+                                in_legend: false
+                                legend_value: false
+                              data_generator: |
+                                return [];
                     - <<: *epc_month_chart
                       header:
                         show: true
