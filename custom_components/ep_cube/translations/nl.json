@@ -48,6 +48,7 @@
       "lpc_time_duration": {"name": "LPC-duur"},
       "backup_loads_mode": {"name": "Back-up-belastingmodus"},
       "firmware_version": {"name": "Firmwareversie"},
+      "connection_type": {"name": "Verbindingstype", "state": {"wifi": "Wi-Fi", "ethernet": "Ethernet", "unknown": "Onbekend"}},
       "rtu_version": {"name": "Versie communicatiemodule"},
       "model": {"name": "Model"},
       "serial_number": {"name": "Serienummer"},

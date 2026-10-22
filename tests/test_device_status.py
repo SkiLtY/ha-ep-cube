@@ -257,3 +257,13 @@ class TestSetupRegistersThem:
             assert ("binary_sensor", key) in keys
         for key in ("model", "serial_number", "firmware_version", "signal_level", "charging_limit_soc"):
             assert ("sensor", key) in keys
+
+
+class TestConnectionType:
+    @pytest.mark.parametrize(
+        ("code", "expected"), [(1, "wifi"), (3, "ethernet"), (2, "unknown"), (None, None)]
+    )
+    def test_value(self, code, expected):
+        from custom_components.ep_cube.sensor import CONNECTION_TYPE_SENSOR
+
+        assert CONNECTION_TYPE_SENSOR.value_fn(SimpleNamespace(networking=code)) == expected

@@ -573,6 +573,20 @@ STATUS_SENSORS: tuple[EPCubeSensorDescription, ...] = (
 )
 
 # Firmware versions come from their own cloud route, not the status poll.
+# How the cube reaches the cloud, from homeDeviceInfo's `networking` (1 Wi-Fi, 3 Ethernet).
+# Any other code reads "unknown", with the code as an attribute.
+CONNECTION_TYPE_OPTIONS = ["wifi", "ethernet", "unknown"]
+_CONNECTION_CODES = {1: "wifi", 3: "ethernet"}
+CONNECTION_TYPE_SENSOR = EPCubeSensorDescription(
+    key="connection_type",
+    translation_key="connection_type",
+    device_class=SensorDeviceClass.ENUM,
+    options=CONNECTION_TYPE_OPTIONS,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    value_fn=lambda s: (
+        None if s.networking is None else _CONNECTION_CODES.get(s.networking, "unknown")
+    ),
+)
 MODEL_SENSOR = EPCubeSensorDescription(
     key="model",
     translation_key="model",
@@ -1046,6 +1060,7 @@ async def async_setup_entry(
         EPCubeFirmwareSensor(coordinator, entry.entry_id, FIRMWARE_VERSION_SENSOR, "firmware_version")
     )
     entities.append(EPCubeFirmwareSensor(coordinator, entry.entry_id, RTU_VERSION_SENSOR, "rtu_version"))
+    entities.append(EPCubeConnectionSensor(coordinator, entry.entry_id, CONNECTION_TYPE_SENSOR))
     entities.append(EPCubeDetailsSensor(coordinator, entry.entry_id, MODEL_SENSOR, "model"))
     entities.append(
         EPCubeDetailsSensor(coordinator, entry.entry_id, SERIAL_NUMBER_SENSOR, "serial_number")
@@ -1173,6 +1188,16 @@ class EPCubeFirmwareSensor(EPCubeSensor):
     def native_value(self) -> str | None:
         firmware = self.coordinator.firmware
         return getattr(firmware, self._field, None) if firmware is not None else None
+
+
+class EPCubeConnectionSensor(EPCubeSensor):
+    """Wi-Fi / Ethernet, with the raw `networking` code as an attribute."""
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int]:
+        data = self.coordinator.data
+        code = getattr(data, "networking", None) if data is not None else None
+        return {"networking_code": code} if code is not None else {}
 
 
 class EPCubeDetailsSensor(EPCubeSensor):

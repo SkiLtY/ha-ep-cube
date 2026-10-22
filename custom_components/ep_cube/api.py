@@ -63,6 +63,11 @@ class AuthError(EPCubeError):
     """Bearer token rejected or no token configured."""
 
 
+class NoDynamicPricesError(EPCubeError):
+    """The cloud has no Dynamic-tariff prices for this cube (no Dynamic tariff is set up,
+    so `dynamicPrice/calcuPrice` answers with an HTTP-500-style "Server exception")."""
+
+
 class WriteVerificationError(EPCubeError):
     """Post-write read-back showed the cube did not adopt the requested state."""
 
@@ -176,6 +181,9 @@ class DeviceStatus:
     lpp_time_duration: float | None = None
     lpc_time_duration: float | None = None
     backup_loads_mode: int | None = None
+    # How the cube reaches the cloud: 1 = Wi-Fi, 3 = Ethernet (seen on real cubes; other
+    # codes are not known). A cube on Ethernet reports signal_level 0.
+    networking: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -831,6 +839,7 @@ class EPCubeClient:
             lpp_time_duration=_float_or_none(info.get("lppTimeDuration")),
             lpc_time_duration=_float_or_none(info.get("lpcTimeDuration")),
             backup_loads_mode=_int_or_none(info.get("backupLoadsMode")),
+            networking=_int_or_none(info.get("networking")),
         )
 
     async def get_switch_mode(self) -> dict[str, Any]:
@@ -989,7 +998,14 @@ class EPCubeClient:
         path = f"{self._api_prefix}/dynamicPrice/calcuPrice?devId={self._dev_id}"
         if date_str:
             path += f"&checkTime={date_str}"
-        data = await self._get(path)
+        try:
+            data = await self._get(path)
+        except ServerError:
+            raise   # a real outage, not "no Dynamic tariff": let the caller treat it as a failure
+        except EPCubeError as err:
+            if "envelope error status=500" in str(err):
+                raise NoDynamicPricesError(str(err)) from err
+            raise
         if not isinstance(data, dict):
             return {"import": [], "export": []}
 

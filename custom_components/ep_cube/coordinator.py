@@ -20,6 +20,7 @@ from .api import (
     DeviceDetails,
     EPCubeError,
     FirmwareInfo,
+    NoDynamicPricesError,
     RateLimitError,
     ServerError,
     WarrantyInfo,
@@ -429,6 +430,11 @@ class EPCubePriceCoordinator(DataUpdateCoordinator[dict[str, list[dict[str, Any]
             # answers for its own "today", which is the UTC day, so just after
             # local midnight in summer time it returns yesterday's prices.
             raw = await self.client.get_dynamic_prices(now.strftime("%Y-%m-%d"))
+        except NoDynamicPricesError as err:
+            # No Dynamic tariff is set up for this cube: that is a normal state, not a
+            # failure, so keep the price sensors empty and say nothing above debug level.
+            _LOGGER.debug("no Dynamic-tariff prices for this cube: %s", err)
+            return {"import": [], "export": []}
         except EPCubeError as err:
             raise UpdateFailed(f"dynamic prices fetch failed: {err}") from err
 

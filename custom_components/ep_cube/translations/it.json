@@ -48,6 +48,7 @@
       "lpc_time_duration": {"name": "Durata LPC"},
       "backup_loads_mode": {"name": "Modalità carichi di backup"},
       "firmware_version": {"name": "Versione firmware"},
+      "connection_type": {"name": "Tipo di connessione", "state": {"wifi": "Wi-Fi", "ethernet": "Ethernet", "unknown": "Sconosciuto"}},
       "rtu_version": {"name": "Versione modulo di comunicazione"},
       "model": {"name": "Modello"},
       "serial_number": {"name": "Numero di serie"},

@@ -10,7 +10,7 @@ import pytest
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.ep_cube.api import EPCubeClient, EPCubeError
+from custom_components.ep_cube.api import EPCubeClient, EPCubeError, NoDynamicPricesError
 from custom_components.ep_cube.coordinator import EPCubePriceCoordinator
 
 _orig_enumerate = threading.enumerate
@@ -105,6 +105,14 @@ class TestCoordinator:
             await _coordinator(hass, client)._async_update_data()
 
 
+    async def test_no_dynamic_tariff_is_quiet_and_empty(self, hass, caplog):
+        client = MagicMock()
+        client.get_dynamic_prices = AsyncMock(side_effect=NoDynamicPricesError("no tariff"))
+        data = await _coordinator(hass, client)._async_update_data()
+        assert data == {"import": [], "export": []}
+        assert not [r for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
+
+
 class TestClient:
     @pytest.fixture
     def make(self, hass):
@@ -141,3 +149,11 @@ class TestClient:
             json=self._body({"devId": "5613", "unitSmallest": "p"}),
         )
         assert await make().get_dynamic_prices() == {"import": [], "export": []}
+
+    async def test_no_dynamic_tariff_server_exception(self, aioclient_mock, make):
+        aioclient_mock.get(
+            re.compile(r"^https://mock\.invalid/api/dynamicPrice/calcuPrice\?.*$"),
+            json={"timestamp": "2026-10-22 10:00:00", "message": "Server exception.", "status": 500},
+        )
+        with pytest.raises(NoDynamicPricesError):
+            await make().get_dynamic_prices("2026-10-22")
