@@ -57,6 +57,23 @@ pred_bat:
   battery_loss_discharge: 0.03
   inverter_loss: 0.03
 
+  # The cube charges at full rate up to about 94% and then slows sharply, so Predbat's default
+  # (full rate to 100%) finishes the last few percent far too early in its plan. Measured on a
+  # 20 kWh EP Cube over seven overnight charges (Oct 2026, from Predbat's own 5-minute soc_kw):
+  # time per 1% step 95-96% 8.6 min, 96-97% 7.1, 97-98% 58, 98-99% 32, 99-100% 13, so the last
+  # 5% takes about two hours. The multipliers below are fractions of battery_rate_max and are
+  # written for 5800 W; with another battery_rate_max, scale them by 5800 / your value (for
+  # 7000, multiply each by 0.83). Keys are the rounded SoC percent; anything not listed is full
+  # rate. Measure your own cube before relying on these: it may differ by pack count and
+  # firmware.
+  battery_charge_power_curve:
+    95: 0.37
+    96: 0.27
+    97: 0.07
+    98: 0.05
+    99: 0.09
+    100: 0.05
+
   # ─── Control surface (write) ──────────────────────────────────────────────
   # Predbat calls these services. Our shim translates rate+window → TOU rewrite.
   inverter_can_charge_during_export: True
