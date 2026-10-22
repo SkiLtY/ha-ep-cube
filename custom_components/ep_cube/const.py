@@ -123,6 +123,11 @@ CONF_FORCE_CHARGE_MODE = "force_charge_mode"
 # One-shot checkbox in Configure: walk through the cloud's Dynamic-tariff pickers
 # (country, region, supplier, tariffs) and save the choice with saveBinding.
 CONF_CHANGE_TARIFF = "change_tariff"
+# Optional names for the four PV strings, set in Configure and used in the sensor names
+# ("East roof power" instead of "PV1 power"). Blank keeps the default. Entity and unique
+# IDs never change with a name.
+PV_NAME_KEYS = ("pv1_name", "pv2_name", "pv3_name", "pv4_name")
+PV_NAME_MAX_LENGTH = 40
 FORCE_CHARGE_MODE_TOU_OFFPEAK = "tou_offpeak"
 FORCE_CHARGE_MODE_DYNAMIC = "dynamic"
 DEFAULT_FORCE_CHARGE_MODE = FORCE_CHARGE_MODE_TOU_OFFPEAK

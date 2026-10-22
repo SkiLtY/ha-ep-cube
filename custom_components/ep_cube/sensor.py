@@ -31,7 +31,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .api import DeviceStatus
-from .const import BATTERY_WARRANTY_CYCLES, DOMAIN
+from .const import BATTERY_WARRANTY_CYCLES, DOMAIN, PV_NAME_KEYS
 from .coordinator import (
     EPCubeCoordinator,
     EPCubePriceCoordinator,
@@ -1027,7 +1027,13 @@ async def async_setup_entry(
         EPCubeStatsSensor(stats_coordinator, entry.entry_id, desc)
         for desc in STATS_SENSORS
     )
-    entities.extend(EPCubePVSensor(coordinator, entry.entry_id, desc) for desc in PV_SENSORS)
+    entities.extend(
+        EPCubePVSensor(
+            coordinator, entry.entry_id, desc,
+            str(entry.options.get(PV_NAME_KEYS[int(desc.key[2]) - 1]) or "").strip(),
+        )
+        for desc in PV_SENSORS
+    )
     price_coordinator: EPCubePriceCoordinator = stored["price_coordinator"]
     entities.extend(
         EPCubePriceSensor(price_coordinator, entry.entry_id, desc) for desc in PRICE_SENSORS
@@ -1203,6 +1209,13 @@ class EPCubePVSensor(EPCubeSensor):
     """Per-string PV reading, fed by the main coordinator's getSolarPvPower cache."""
 
     entity_description: EPCubePVSensorDescription  # type: ignore[assignment]
+
+    def __init__(self, coordinator, entry_id, description, custom_name: str = "") -> None:
+        super().__init__(coordinator, entry_id, description)
+        # The sensor names read "{pv_name} power" etc.; the placeholder is the name the
+        # user gave the string in Configure, or "PV1"-"PV4" when none was given.
+        string = int(description.key[2])
+        self._attr_translation_placeholders = {"pv_name": custom_name or f"PV{string}"}
 
     @property
     def native_value(self) -> float | None:

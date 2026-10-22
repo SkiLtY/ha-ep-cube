@@ -36,6 +36,8 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
 )
 
 from .api import (
@@ -51,6 +53,8 @@ from .const import (
     CONF_BASE_URL,
     CONF_BEARER_TOKEN,
     CONF_CHANGE_TARIFF,
+    PV_NAME_KEYS,
+    PV_NAME_MAX_LENGTH,
     CONF_CAPACITY_KWH,
     CONF_DEV_ID,
     CONF_FORCE_CHARGE_MODE,
@@ -120,6 +124,8 @@ class EPCubeOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         if user_input is not None:
             data = dict(user_input)
+            for key in PV_NAME_KEYS:
+                data[key] = str(data.get(key) or "").strip()[:PV_NAME_MAX_LENGTH]
             change_tariff = bool(data.pop(CONF_CHANGE_TARIFF, False))
             self._options = data
             if change_tariff:
@@ -148,6 +154,12 @@ class EPCubeOptionsFlow(OptionsFlow):
                         translation_key=CONF_FORCE_CHARGE_MODE,
                     )
                 ),
+                **{
+                    vol.Optional(
+                        key, default=str(self.config_entry.options.get(key) or "")
+                    ): TextSelector(TextSelectorConfig())
+                    for key in PV_NAME_KEYS
+                },
                 vol.Optional(CONF_CHANGE_TARIFF, default=False): BooleanSelector(),
             }
         )
