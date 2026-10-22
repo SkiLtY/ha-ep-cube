@@ -2504,6 +2504,120 @@ views:
                   const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window.__epcMonthDays;
                   for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window.__epcMonthDays; }
                   const rows = c ? await c.p : []; return rows.filter(r => r.has && r.net < 0).map(r => [r.ts, r.net]);
+          # A table of the same daily figures as the chart above, one row per billed day (newest
+          # first) with a month-to-date total. It is an apexcharts-card with an empty, hidden chart:
+          # the card is only the part that can run JavaScript on this dashboard, and its draw
+          # events write the table into the card. It reads the rows the chart's first series builds
+          # (window.__epcMonthDays), so the two always agree, and it follows the "show standing
+          # charge" switch because that helper is its series' entity.
+          - type: custom:apexcharts-card
+            grid_options:
+              columns: full
+            header:
+              show: true
+              title: "Billed cost · daily figures, this month"
+              show_states: false
+            card_mod:
+              style: |
+                #header__title span { font-size: 12px; font-weight: 400; letter-spacing: .04em; text-transform: uppercase; opacity: .6; color: var(--primary-text-color); }
+                .apexcharts-yaxis, .apexcharts-xaxis, .apexcharts-inner { display: none; }
+            now:
+              show: false
+              label: ''
+            graph_span: 1month
+            span:
+              start: month
+            apex_config:
+              chart:
+                height: 1
+                toolbar:
+                  show: false
+                animations:
+                  enabled: false
+                zoom:
+                  enabled: false
+                events:
+                  mounted: &epc_month_table |
+                    EVAL:function(ctx){
+                      var money = function(v){ return (v < -0.005 ? '-£' : '£') + Math.abs(v).toFixed(2); };
+                      var build = function(tries){
+                        var c = window.__epcMonthDays;
+                        if (!c) { if (tries < 40) setTimeout(function(){ build(tries + 1); }, 250); return; }
+                        c.p.then(function(rows){
+                          var wrap = ctx.el.parentNode;
+                          if (!wrap) return;
+                          var host = wrap.querySelector('.epc-month-table');
+                          if (!host) { host = document.createElement('div'); host.className = 'epc-month-table'; wrap.appendChild(host); }
+                          var showS = !!c.showS;
+                          var th = 'padding:6px 10px;text-align:right;font-size:12px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;font-weight:400;';
+                          var td = 'padding:6px 10px;text-align:right;border-top:1px solid rgba(255,255,255,.06);';
+                          var list = rows.filter(function(r){ return r.has; }).reverse();
+                          var tot = {e: 0, s: 0, o: 0, n: 0};
+                          var body = list.map(function(r){
+                            tot.e += r.energy; tot.s += r.standing; tot.o += -r.sold; tot.n += r.net;
+                            var col = r.net > 0.005 ? '#ff8a80' : (r.net < -0.005 ? '#69f0ae' : 'inherit');
+                            var day = new Date(r.ts).toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'short'});
+                            return '<tr><td style="' + td + 'text-align:left;">' + day + '</td><td style="' + td + '">' + money(r.energy) + '</td>'
+                              + (showS ? '<td style="' + td + '">' + money(r.standing) + '</td>' : '')
+                              + '<td style="' + td + '">' + (r.sold ? money(-r.sold) : '–') + '</td><td style="' + td + 'font-weight:600;color:' + col + ';">' + money(r.net) + '</td></tr>';
+                          }).join('');
+                          var colT = tot.n > 0.005 ? '#ff8a80' : (tot.n < -0.005 ? '#69f0ae' : 'inherit');
+                          var foot = '<tr style="font-weight:600;"><td style="' + td + 'text-align:left;">Month to date</td><td style="' + td + '">' + money(tot.e) + '</td>'
+                            + (showS ? '<td style="' + td + '">' + money(tot.s) + '</td>' : '')
+                            + '<td style="' + td + '">' + money(tot.o) + '</td><td style="' + td + 'color:' + colT + ';">' + money(tot.n) + '</td></tr>';
+                          host.innerHTML = '<div style="padding:4px 12px 16px;">'
+                            + (list.length ? '<table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr><th style="' + th + 'text-align:left;">Day</th><th style="' + th + '">Bought</th>'
+                            + (showS ? '<th style="' + th + '">Standing</th>' : '') + '<th style="' + th + '">Sold</th><th style="' + th + '">Net</th></tr></thead><tbody>' + body + foot + '</tbody></table>'
+                            : '<div style="padding:12px 0;opacity:.6;">No billed days yet this month.</div>')
+                            + '<div style="margin-top:8px;font-size:12px;opacity:.6;">Net is bought' + (showS ? ' plus standing charge' : '') + ' less sold; green means earned. A day appears once Octopus has billed it (about 19:50 the evening after).</div></div>';
+                        }).catch(function(){});
+                      };
+                      build(0);
+                    }
+                  updated: *epc_month_table
+              legend:
+                show: false
+              grid:
+                show: false
+              noData:
+                text: ''
+              tooltip:
+                enabled: false
+              dataLabels:
+                enabled: false
+              xaxis:
+                labels:
+                  show: false
+                axisTicks:
+                  show: false
+                axisBorder:
+                  show: false
+                tooltip:
+                  enabled: false
+            yaxis:
+              - id: t0
+                show: false
+                apex_config:
+                  show: false
+                  labels:
+                    show: false
+                  axisBorder:
+                    show: false
+                  axisTicks:
+                    show: false
+            series:
+              - entity: input_boolean.ep_cube_show_standing_charge
+                name: Table
+                yaxis_id: t0
+                type: line
+                extend_to: false
+                show:
+                  in_legend: false
+                  legend_value: false
+                data_generator: |
+                  const showS = (hass.states['input_boolean.ep_cube_show_standing_charge'] || {}).state === 'on'; let c = window.__epcMonthDays;
+                  for (let k = 0; (!c || c.showS !== showS) && k < 30; k++) { await new Promise(r => setTimeout(r, 100)); c = window.__epcMonthDays; }
+                  if (c) await c.p; return [];
 
   - title: Control
     path: control
