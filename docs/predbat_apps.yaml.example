@@ -66,6 +66,9 @@ pred_bat:
   # 7000, multiply each by 0.83). Keys are the rounded SoC percent; anything not listed is full
   # rate. Measure your own cube before relying on these: it may differ by pack count and
   # firmware.
+  # Checked on the first night with the curve in place (22-23 Oct 2026): charging started at
+  # 00:35 at about 6.5 kW, reached 96% at 02:32, 98% at about 03:30 and 99% at 04:00, so the
+  # plan and the real charge now finish together, with no two-hour tail left unplanned.
   battery_charge_power_curve:
     95: 0.37
     96: 0.27
