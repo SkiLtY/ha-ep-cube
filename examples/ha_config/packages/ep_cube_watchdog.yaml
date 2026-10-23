@@ -1,0 +1,88 @@
+# Hands-off helpers for an EP Cube + Predbat setup: restart Predbat after Home
+# Assistant starts, and tell you when something stops working. Drop this file next
+# to ep_cube.yaml in /config/packages/ and restart.
+#
+# BEFORE YOU USE IT, replace the two <...> parts below:
+#   <NOTIFY_SERVICE>  your notify action, for example notify.mobile_app_your_phone
+#                     (Developer tools > Actions, search "notify").
+#   <PREDBAT_ADDON>   your Predbat add-on's slug, for example 6adb4f0d_predbat
+#                     (Settings > Add-ons > Predbat; the slug is in the page address).
+#
+# The three alerts each fire once when the problem starts, not repeatedly. Delete any
+# automation you do not want. The Solcast alert only applies if you use Solcast.
+
+automation:
+  - id: ep_cube_restart_predbat_after_ha_start
+    alias: "EP Cube: restart Predbat after Home Assistant starts"
+    description: >-
+      Predbat holds on to the entities it read before Home Assistant restarted, so
+      restart it a few minutes after startup, once the integrations have loaded.
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    actions:
+      - delay: "00:03:00"
+      - action: hassio.addon_restart
+        data:
+          addon: <PREDBAT_ADDON>
+
+  - id: ep_cube_alert_cube_unavailable
+    alias: "EP Cube: alert when the cube stops reporting"
+    description: >-
+      The cube's battery level has been unavailable for 10 minutes: the cloud login,
+      the cloud itself or the integration is down, so Predbat cannot control the cube.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.ep_cube_battery_soc
+        to:
+          - unavailable
+          - unknown
+        for: "00:10:00"
+    actions:
+      - action: <NOTIFY_SERVICE>
+        data:
+          title: "EP Cube not reporting"
+          message: >-
+            The cube's battery level has been unavailable for 10 minutes, so Predbat
+            cannot change its mode. Check Settings > Devices & services > EP Cube.
+
+  - id: ep_cube_alert_predbat_stalled
+    alias: "EP Cube: alert when Predbat stops planning"
+    description: >-
+      Predbat re-plans every 5 minutes. If its status has not updated for 15 minutes,
+      it is stopped or stuck.
+    mode: single
+    triggers:
+      - trigger: template
+        value_template: >-
+          {{ (now().timestamp() - as_timestamp(state_attr('predbat.status', 'last_updated'), 0)) > 900 }}
+        for: "00:05:00"
+    actions:
+      - action: <NOTIFY_SERVICE>
+        data:
+          title: "Predbat has stopped planning"
+          message: >-
+            Predbat's status has not updated for over 15 minutes. Check the Predbat
+            add-on log; restarting the add-on usually clears it.
+
+  - id: ep_cube_alert_solcast_stale
+    alias: "EP Cube: alert when the Solcast forecast is stale"
+    description: >-
+      Solcast should update several times a day. If the last update was more than 15
+      hours ago (the overnight gap in a 04:30 to 15:00 schedule is 13.5 hours), an
+      update has failed, usually because the API call limit was used up.
+    mode: single
+    triggers:
+      - trigger: template
+        value_template: >-
+          {% set polled = states('sensor.solcast_pv_forecast_api_last_polled') | as_datetime(none) %}
+          {{ polled is not none and (now() - polled).total_seconds() > 54000 }}
+    actions:
+      - action: <NOTIFY_SERVICE>
+        data:
+          title: "Solcast forecast is stale"
+          message: >-
+            The last Solcast update was over 15 hours ago, so Predbat is planning with
+            an old PV forecast. Check the Solcast integration log and your call count.
