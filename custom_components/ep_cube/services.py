@@ -1588,9 +1588,20 @@ async def async_register_services(hass: HomeAssistant) -> None:
             )
             return
         target_soc_pct = float(plan.charge_limit_pct if plan.charge_limit_pct is not None else 100)
-        await shim.charge_start(
-            end_time=plan.charge_window.end, target_soc_pct=target_soc_pct
-        )
+        end_time = plan.charge_window.end
+        # best_charge_end is only the end of the next plan slot; run on to the end
+        # of the back-to-back charge slots, or the cube reverts mid-charge while
+        # Predbat (which sees one window and skips the repeat call) says Charging.
+        if plan.charge_run_end is not None and plan.charge_run_end > end_time:
+            _LOGGER.debug(
+                "charge_start: plan slot ends %s, charge run ends %s (limit %s%%)",
+                end_time.isoformat(), plan.charge_run_end.isoformat(),
+                plan.charge_run_limit_pct,
+            )
+            end_time = plan.charge_run_end
+            if plan.charge_run_limit_pct is not None:
+                target_soc_pct = float(plan.charge_run_limit_pct)
+        await shim.charge_start(end_time=end_time, target_soc_pct=target_soc_pct)
 
     async def handle_charge_stop(call: ServiceCall) -> None:
         await _resolve_shim(call).charge_stop()

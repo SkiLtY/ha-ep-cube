@@ -79,6 +79,13 @@ class PredbatPlan:
     # (predbat.best_export_limit) is the limit Predbat would program into an
     # inverter, which sits a few points lower (50 against 55 on 2026-10-15).
     discharge_planned_end_soc_pct: int | None = None
+    # `predbat.best_charge_end` is the end of the next plan slot, not of the whole
+    # charge. These carry the end and the Limit % of the run of back-to-back slots
+    # starting at `charge_window.start` (see `_charge_run`); None when the plan's
+    # slot curve is missing. 2026-10-26: a 00:30 to 05:30 charge was cut off at
+    # 02:00 because the first slot was taken as the whole window.
+    charge_run_end: datetime | None = None
+    charge_run_limit_pct: int | None = None
 
 
 def read_plan(hass: HomeAssistant) -> PredbatPlan:
@@ -97,6 +104,10 @@ def read_plan(hass: HomeAssistant) -> PredbatPlan:
         _planned_soc_pct_at(hass, discharge_window.end) if discharge_window is not None else None
     )
 
+    charge_run_end, charge_run_limit_pct = (
+        _charge_run(hass, charge_window) if charge_window is not None else (None, None)
+    )
+
     return PredbatPlan(
         charge_enabled=charge_window is not None,
         charge_window=charge_window,
@@ -105,7 +116,57 @@ def read_plan(hass: HomeAssistant) -> PredbatPlan:
         discharge_window=discharge_window,
         discharge_target_soc_pct=discharge_target_soc_pct,
         discharge_planned_end_soc_pct=discharge_planned_end_soc_pct,
+        charge_run_end=charge_run_end,
+        charge_run_limit_pct=charge_run_limit_pct,
     )
+
+
+def _charge_run(
+    hass: HomeAssistant, window: PredbatWindow
+) -> tuple[datetime | None, int | None]:
+    """End and Limit % of the charge that starts with `window`, over several slots.
+
+    `predbat.best_charge_limit` carries the planned limit as change points
+    (`results`: {slot start: limit %}, 0 = no charge). The run goes on from the
+    end of the first slot while the next slot still charges to at least the limit
+    reached so far (a drop means Predbat wants something else there, so the run
+    stops and the slot boundary stays the end). Returns (None, None) when the
+    curve is missing or has nothing for the window.
+    """
+    state = _state_obj(hass, "predbat.best_charge_limit")
+    results = state.attributes.get("results") if state is not None else None
+    if not isinstance(results, dict):
+        return None, None
+    steps: list[tuple[datetime, float]] = []
+    for key, value in results.items():
+        stamp = dt_util.parse_datetime(str(key))
+        try:
+            steps.append((stamp, float(value)))
+        except (TypeError, ValueError):
+            continue
+    steps = sorted((s for s in steps if s[0] is not None), key=lambda s: s[0])
+
+    def value_at(when: datetime) -> float | None:
+        found = None
+        for stamp, value in steps:
+            if stamp <= when:
+                found = value
+        return found
+
+    run_limit = value_at(window.start)
+    if run_limit is None or run_limit <= 0:
+        return None, None
+    end = window.end
+    while True:
+        value = value_at(end)
+        if value is None or value <= 0 or value < run_limit:
+            break
+        run_limit = max(run_limit, value)
+        following = [stamp for stamp, _ in steps if stamp > end]
+        if not following:
+            break                      # no known end: do not guess
+        end = following[0]
+    return end, int(math.ceil(run_limit))
 
 
 def _planned_soc_pct_at(hass: HomeAssistant, when: datetime) -> int | None:

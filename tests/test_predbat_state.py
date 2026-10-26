@@ -136,6 +136,71 @@ class TestReadPlan:
         assert plan.charge_limit_pct == 89
 
 
+class TestChargeRun:
+    """The whole charge over back-to-back slots, not just the next slot's end."""
+
+    @staticmethod
+    def _publish(hass, *, end, limit, results):
+        _set(hass, "predbat.best_charge_start", "00:30:00",
+             timestamp="2026-10-27T00:30:00+0000")
+        _set(hass, "predbat.best_charge_end", end.split("T")[1],
+             timestamp=f"{end}+0000")
+        hass.states.async_set("predbat.best_charge_limit", limit,
+                              {"results": results} if results is not None else {})
+
+    async def test_run_goes_on_to_the_end_of_the_charge(self, hass):
+        # 26 Oct 2026: the sensor said 02:00, the plan charged to 05:30.
+        self._publish(hass, end="2026-10-27T02:00:00", limit="100", results={
+            "2026-10-26T00:00:00+0000": 0,
+            "2026-10-27T00:30:00+0000": 100,
+            "2026-10-27T05:30:00+0000": 0,
+        })
+        plan = read_plan(hass)
+        assert plan.charge_window.end == datetime(2026, 10, 27, 2, 0, tzinfo=timezone.utc)
+        assert plan.charge_run_end == datetime(2026, 10, 27, 5, 30, tzinfo=timezone.utc)
+        assert plan.charge_run_limit_pct == 100
+
+    async def test_a_rising_limit_stays_in_the_run_and_sets_the_target(self, hass):
+        self._publish(hass, end="2026-10-27T01:00:00", limit="33", results={
+            "2026-10-27T00:30:00+0000": 33,
+            "2026-10-27T01:00:00+0000": 100,
+            "2026-10-27T05:30:00+0000": 0,
+        })
+        plan = read_plan(hass)
+        assert plan.charge_run_end == datetime(2026, 10, 27, 5, 30, tzinfo=timezone.utc)
+        assert plan.charge_run_limit_pct == 100
+
+    async def test_a_lower_limit_ends_the_run_at_the_slot_boundary(self, hass):
+        self._publish(hass, end="2026-10-27T01:00:00", limit="100", results={
+            "2026-10-27T00:30:00+0000": 100,
+            "2026-10-27T01:00:00+0000": 20,
+            "2026-10-27T05:00:00+0000": 49,
+            "2026-10-27T05:30:00+0000": 0,
+        })
+        plan = read_plan(hass)
+        assert plan.charge_run_end == datetime(2026, 10, 27, 1, 0, tzinfo=timezone.utc)
+        assert plan.charge_run_limit_pct == 100
+
+    async def test_no_curve_means_no_run(self, hass):
+        self._publish(hass, end="2026-10-27T02:00:00", limit="100", results=None)
+        plan = read_plan(hass)
+        assert plan.charge_run_end is None
+        assert plan.charge_run_limit_pct is None
+
+    async def test_a_run_with_no_known_end_is_not_guessed(self, hass):
+        self._publish(hass, end="2026-10-27T02:00:00", limit="100", results={
+            "2026-10-27T00:30:00+0000": 100,
+        })
+        plan = read_plan(hass)
+        assert plan.charge_run_end == datetime(2026, 10, 27, 2, 0, tzinfo=timezone.utc)
+
+    async def test_a_zero_first_limit_gives_no_run(self, hass):
+        self._publish(hass, end="2026-10-27T02:00:00", limit="0", results={
+            "2026-10-27T00:30:00+0000": 0,
+        })
+        assert read_plan(hass).charge_run_end is None
+
+
 class TestPlannedEndSoc:
     """The SoC the plan reaches at the end of the export window (the plan page's Limit %)."""
 
