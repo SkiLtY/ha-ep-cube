@@ -540,7 +540,7 @@ class TestGetStats:
 
 class TestGen1Capacity:
     """Gen 1 systems: no systemCapacity in deviceList, so capacity comes from
-    battery module serials × 3.3 kWh and batteryPackNum (5.0 kWh packs)
+    battery module serials × 3.32 kWh and batteryPackNum (5.0 kWh packs)
     must not overwrite it."""
 
     def _mock(self, aioclient_mock, device_list, home_device_info, get_switch_mode):
@@ -554,12 +554,12 @@ class TestGen1Capacity:
         self._mock(aioclient_mock, device_list_gen1, home_device_info, get_switch_mode)
         client = client_factory(dev_id="1234", sg_sn="100300000000000000001", capacity_kwh=0.0)
         await client.authenticate()
-        assert client.capacity_kwh == 39.6
+        assert client.capacity_kwh == 39.8
 
         # homeDeviceInfo's batteryPackNum (4 in the fixture) would give
         # 4 × 5.0 = 20 kWh; the Gen 1 module count must win.
         status = await client.get_status()
-        assert status.capacity_kwh == 39.6
+        assert status.capacity_kwh == 39.8
 
     async def test_gen2_still_uses_battery_pack_num(
         self, aioclient_mock, client_factory, device_list, home_device_info, get_switch_mode
