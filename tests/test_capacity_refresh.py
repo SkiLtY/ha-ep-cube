@@ -82,7 +82,7 @@ class TestCapacityRefresh:
     ):
         coord, _client, _ = _make(hass, device_list_gen1, gen1_home_device_info, get_switch_mode)
         status = await coord._async_update_data()
-        assert status.capacity_kwh == 39.6
+        assert status.capacity_kwh == 39.8
 
     async def test_refreshed_daily_not_every_poll(
         self, hass, device_list_gen1, gen1_home_device_info, get_switch_mode
@@ -114,7 +114,7 @@ class TestCapacityRefresh:
         status = await coord._async_update_data()
         assert status.capacity_kwh == 0.0     # cached value kept on failure
         status = await coord._async_update_data()
-        assert status.capacity_kwh == 39.6    # retried on the next poll
+        assert status.capacity_kwh == 39.8    # retried on the next poll
 
     async def test_gen2_unchanged(self, hass, device_list, home_device_info, get_switch_mode):
         coord, _client, _ = _make(hass, device_list, home_device_info, get_switch_mode)

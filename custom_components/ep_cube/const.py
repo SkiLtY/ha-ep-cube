@@ -19,11 +19,11 @@ CONF_CAPACITY_KWH = "capacity_kwh"   # cached fallback; primary source is batter
 # homeDeviceInfo response which exposes batteryPackNum but not systemCapacity.
 EP_CUBE_PACK_KWH = 5.0
 
-# First-generation (EP Cube 1.0) battery modules are 3.3 kWh each. Gen 1
+# First-generation (EP Cube 1.0) battery modules are 3.32 kWh each (12 modules = 39.8 kWh, the datasheet total). Gen 1
 # systems don't send `systemCapacity` in deviceList; instead capacity is
 # derived from the battery serials listed under deviceList's
 # `snData[].batterySnList` (one entry per module) × this.
-EP_CUBE_GEN1_PACK_KWH = 3.3
+EP_CUBE_GEN1_PACK_KWH = 3.32
 
 DEFAULT_BASE_URL = "https://monitoring-eu.epcube.com"
 DEFAULT_API_PREFIX = "/api"

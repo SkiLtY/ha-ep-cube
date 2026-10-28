@@ -97,12 +97,12 @@ class TestCapacityStringToKwh:
 
 
 class TestDeviceCapacityKwh:
-    """Gen 1 rows omit `systemCapacity`; capacity = battery serials × 3.3."""
+    """Gen 1 rows omit `systemCapacity`; capacity = battery serials × 3.32."""
 
     def test_gen1_counts_battery_serials(self, device_list_gen1):
         row = device_list_gen1[0]
         assert _battery_module_count(row) == 12
-        assert device_capacity_kwh(row) == (39.6, True)
+        assert device_capacity_kwh(row) == (39.8, True)
 
     def test_system_capacity_wins_when_present(self, device_list):
         assert device_capacity_kwh(device_list[0]) == (20.0, False)
@@ -124,7 +124,7 @@ class TestDeviceCapacityKwh:
 
     def test_comma_string_battery_list(self):
         row = {"snData": [{"batterySnList": "x,y,z"}]}
-        assert device_capacity_kwh(row) == (9.9, True)
+        assert device_capacity_kwh(row) == (10.0, True)
 
     @pytest.mark.parametrize(
         "row",

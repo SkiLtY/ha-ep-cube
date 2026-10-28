@@ -97,7 +97,7 @@ class EPCubeCoordinator(DataUpdateCoordinator[DeviceStatus]):
         self._details: DeviceDetails | None = None
         self._details_fetched: datetime | None = None
         # System capacity from deviceList (systemCapacity, or Gen 1 battery
-        # serials × 3.3 kWh). Refreshed daily; a failed fetch retries next poll.
+        # serials × 3.32 kWh). Refreshed daily; a failed fetch retries next poll.
         self._capacity_fetched: datetime | None = None
         self._lifetime_seed_attempts = 0
 

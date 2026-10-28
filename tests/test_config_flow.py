@@ -233,8 +233,8 @@ class TestErrorMapping:
             )
         assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
         assert result["data"][CONF_DEV_ID] == "1234"
-        # 12 battery serials × 3.3 kWh
-        assert result["data"][CONF_CAPACITY_KWH] == 39.6
+        # 12 battery serials × 3.32 kWh
+        assert result["data"][CONF_CAPACITY_KWH] == 39.8
 
 
 # ----------------------------------------------------------------------

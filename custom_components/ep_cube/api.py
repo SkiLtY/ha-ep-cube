@@ -311,7 +311,7 @@ def device_capacity_kwh(device: dict[str, Any]) -> tuple[float, bool]:
 
     Prefers the cloud's own `systemCapacity` ("20.0kWh"). Gen 1 systems
     don't send that field, so fall back to the number of battery serials in
-    `snData[].batterySnList` × EP_CUBE_GEN1_PACK_KWH (3.3 kWh). Returns
+    `snData[].batterySnList` × EP_CUBE_GEN1_PACK_KWH (3.32 kWh). Returns
     (0.0, False) if neither is available."""
     capacity = _capacity_string_to_kwh(device.get("systemCapacity"))
     if capacity > 0:
