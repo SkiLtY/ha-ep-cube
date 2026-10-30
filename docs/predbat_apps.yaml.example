@@ -30,6 +30,12 @@ pred_bat:
 
   battery_power:
     - sensor.ep_cube_battery_power
+  # Predbat expects battery power to be negative while charging and positive while
+  # discharging. The cube's sensor is the other way round (positive = charging), so
+  # tell Predbat to flip it. Without this Predbat reads a charge as a discharge, and
+  # its "Control failure" monitor raises a false alarm at the start of every charge.
+  battery_power_invert:
+    - true
   pv_power:
     - sensor.ep_cube_solar_power
   load_power:

@@ -125,6 +125,7 @@ Expect a TOU schedule with one or more `_predbat_override: true` slots covering 
 | Predbat: `service ep_cube.charge_start not found` | Services not registered after pulling Phase 2a code | `docker compose restart homeassistant`, then HA Developer Tools → Actions → type `ep_cube` and verify the 9 services |
 | Predbat plans correctly but no service calls fire | Predbat in "predict only" mode | In `apps.yaml` set `set_charge_window: True` and `set_discharge_window: True` |
 | Predbat keeps re-issuing identical plans | Expected — shim's `_matches_active` idempotency returns no-op | Working as designed; check HA log for `idempotent no-op` debug messages |
+| Predbat log: `Warn: Control failure: ... battery discharging at ...W` at the start of every charge, and the "Control failures" counter never reaches 0 | Predbat reads the cube's battery power with the wrong sign: the cube's `battery_power` sensor is positive while charging, but Predbat expects negative while charging, so it sees a charge as a discharge | Under `battery_power:` in `apps.yaml` add `battery_power_invert:` with `- true` (see `docs/predbat_apps.yaml.example`). Predbat reloads the file by itself; the next charge should log a negative battery power and no warning |
 
 ## Tariff (Phase 2c — done)
 
