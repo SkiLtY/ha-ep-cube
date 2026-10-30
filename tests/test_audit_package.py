@@ -118,6 +118,7 @@ async def test_sensors_and_alert(hass):
     assert imp == "-30.4"
     hass.states.async_set("sensor.ep_cube_audit_import_difference", imp)
     assert _render(hass, alert) == "True"
-    # no result yet
+    # no result yet: the state is empty (none), not the word "unknown", so Home Assistant
+    # does not log an error for a numeric sensor
     hass.states.async_set("input_text.ep_cube_audit_import_result", "")
-    assert _render(hass, sensors["ep_cube_audit_import_difference"]["state"]) == "unknown"
+    assert _render(hass, sensors["ep_cube_audit_import_difference"]["state"]) == "None"

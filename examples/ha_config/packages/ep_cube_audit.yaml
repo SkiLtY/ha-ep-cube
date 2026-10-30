@@ -57,7 +57,7 @@ template:
           {% if p | length == 3 and p[1] | float(0) > 0 %}
             {{ ((p[2] | float(0) - p[1] | float(0)) / (p[1] | float(0)) * 100) | round(1) }}
           {% else %}
-            unknown
+            {{ none }}
           {% endif %}
         attributes:
           day: "{{ states('input_text.ep_cube_audit_import_result').split('|')[0] }}"
@@ -72,7 +72,7 @@ template:
           {% if p | length == 3 %}
             {{ (p[2] | float(0) - p[1] | float(0)) | round(2) }}
           {% else %}
-            unknown
+            {{ none }}
           {% endif %}
         attributes:
           day: "{{ states('input_text.ep_cube_audit_export_result').split('|')[0] }}"
