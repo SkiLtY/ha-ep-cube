@@ -1,0 +1,202 @@
+# Checks the cube's daily grid totals against the meter, using the figures Octopus bills.
+#
+# The cube measures what crosses the meter, and Octopus publishes the same thing for each
+# finished day, a couple of days late. The two should agree to within a percent or two, so a
+# bigger gap means a cloud counter glitched on that day. This package remembers the cube's
+# daily totals, compares each day with Octopus when its figure arrives, and tells you when
+# they differ by more than a limit you can set. It only reads sensors; it does not change
+# anything on the cube or in Predbat. Drop this file next to ep_cube.yaml in
+# /config/packages/ and restart.
+#
+# BEFORE YOU USE IT, replace the <...> parts below:
+#   <SERIAL>, <IMPORT_MPAN>, <EXPORT_MPAN>  the parts of your Octopus entity names (Developer
+#       tools > States, search "previous_accumulative_consumption")
+#   <NOTIFY_SERVICE>  your notify action, for example notify.mobile_app_your_phone
+#
+# Octopus's "previous_accumulative_consumption" sensors hold ONE day at a time. The sensor's
+# last_reset attribute says which day a figure covers (the import and export sensors can be a
+# day apart, and a figure is sometimes repeated for two mornings), so each one is matched with
+# the cube's total for that day, not for "yesterday". The cube's own totals are remembered for
+# the last 12 days, so a figure that arrives two days late still has something to compare with.
+#
+# In a month of readings the cube's import ran about 1% below the meter and its export agreed
+# to within 0.03 kWh a day, so the default limit of 3% is a watchdog for a bad day, not a daily
+# correction.
+input_number:
+  ep_cube_audit_threshold:
+    name: EP Cube audit - alert when the cube and the meter differ by more than (%)
+    min: 1
+    max: 20
+    step: 0.5
+    mode: box
+    initial: 3
+    unit_of_measurement: "%"
+
+# The cube's grid import and export for each of the last 12 finished days, as
+# "MM-DD,import,export;MM-DD,import,export;..." (kWh).
+input_text:
+  ep_cube_audit_cube_days:
+    name: EP Cube audit - cube daily grid totals
+    max: 255
+  # The latest day compared, as "MM-DD|Octopus kWh|cube kWh", per direction.
+  ep_cube_audit_import_result:
+    name: EP Cube audit - latest import comparison
+    max: 60
+  ep_cube_audit_export_result:
+    name: EP Cube audit - latest export comparison
+    max: 60
+
+template:
+  - sensor:
+      - name: "ep_cube_audit_import_difference"
+        unique_id: ep_cube_audit_import_difference
+        unit_of_measurement: "%"
+        # Cube minus meter, as a percentage of the meter. Negative: the cube read lower.
+        state: >
+          {% set p = states('input_text.ep_cube_audit_import_result').split('|') %}
+          {% if p | length == 3 and p[1] | float(0) > 0 %}
+            {{ ((p[2] | float(0) - p[1] | float(0)) / (p[1] | float(0)) * 100) | round(1) }}
+          {% else %}
+            unknown
+          {% endif %}
+        attributes:
+          day: "{{ states('input_text.ep_cube_audit_import_result').split('|')[0] }}"
+          octopus_kwh: "{{ (states('input_text.ep_cube_audit_import_result').split('|') + ['', '', ''])[1] }}"
+          cube_kwh: "{{ (states('input_text.ep_cube_audit_import_result').split('|') + ['', '', ''])[2] }}"
+      - name: "ep_cube_audit_export_difference"
+        unique_id: ep_cube_audit_export_difference
+        unit_of_measurement: kWh
+        # Cube minus meter, in kWh (export is often a few tenths, so a percentage would jump about).
+        state: >
+          {% set p = states('input_text.ep_cube_audit_export_result').split('|') %}
+          {% if p | length == 3 %}
+            {{ (p[2] | float(0) - p[1] | float(0)) | round(2) }}
+          {% else %}
+            unknown
+          {% endif %}
+        attributes:
+          day: "{{ states('input_text.ep_cube_audit_export_result').split('|')[0] }}"
+          octopus_kwh: "{{ (states('input_text.ep_cube_audit_export_result').split('|') + ['', '', ''])[1] }}"
+          cube_kwh: "{{ (states('input_text.ep_cube_audit_export_result').split('|') + ['', '', ''])[2] }}"
+  - binary_sensor:
+      - name: "ep_cube_audit_alert"
+        unique_id: ep_cube_audit_alert
+        device_class: problem
+        # On when the latest import is off by more than the limit, or the latest export by more
+        # than 0.3 kWh plus the same percentage of what Octopus billed.
+        state: >
+          {% set limit = states('input_number.ep_cube_audit_threshold') | float(3) %}
+          {% set di = states('sensor.ep_cube_audit_import_difference') | float(none) %}
+          {% set de = states('sensor.ep_cube_audit_export_difference') | float(none) %}
+          {% set oe = (states('input_text.ep_cube_audit_export_result').split('|') + ['', '0'])[1] | float(0) %}
+          {{ (di is not none and di | abs > limit) or (de is not none and de | abs > 0.3 + limit / 100 * oe) }}
+
+automation:
+  # Once a day, remember yesterday's final cube totals (the same *_yesterday sensors the weekly
+  # package adds up). The hourly check also catches up after Home Assistant was off at 01:25,
+  # and a day already stored is never added twice.
+  - id: ep_cube_audit_store_cube_days
+    alias: "EP Cube audit: remember yesterday's grid totals"
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "25"
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: template
+        value_template: >
+          {% set day = (now() - timedelta(days=1)).strftime('%m-%d') %}
+          {{ now().hour >= 1
+             and states('sensor.ep_cube_grid_import_yesterday') | float(0) > 1
+             and (day ~ ',') not in states('input_text.ep_cube_audit_cube_days') }}
+    actions:
+      - variables:
+          day: "{{ (now() - timedelta(days=1)).strftime('%m-%d') }}"
+          entry: >-
+            {{ day }},{{ states('sensor.ep_cube_grid_import_yesterday') | float(0) | round(2) }},{{ states('sensor.ep_cube_grid_export_yesterday') | float(0) | round(2) }}
+          kept: >-
+            {{ (states('input_text.ep_cube_audit_cube_days').split(';') | select('match', '^[0-9][0-9]-[0-9][0-9],') | list + [entry])[-12:] | join(';') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.ep_cube_audit_cube_days
+        data:
+          value: "{{ kept }}"
+
+  - id: ep_cube_audit_import
+    alias: "EP Cube audit: compare Octopus's import with the cube"
+    mode: queued
+    triggers:
+      # Replace with your own import sensor (serial and import MPAN).
+      - trigger: state
+        entity_id: sensor.octopus_energy_electricity_<SERIAL>_<IMPORT_MPAN>_previous_accumulative_consumption
+    conditions:
+      - condition: template
+        value_template: >
+          {% set s = trigger.to_state %}
+          {{ s is not none and (s.state | is_number) and s.state | float(0) > 1
+             and s.attributes.last_reset is not none }}
+    actions:
+      - variables:
+          day: "{{ (as_datetime(trigger.to_state.attributes.last_reset) | as_local).strftime('%m-%d') }}"
+          octopus: "{{ trigger.to_state.state | float(0) | round(3) }}"
+          row: "{{ states('input_text.ep_cube_audit_cube_days').split(';') | select('match', day ~ ',') | list | first | default('') }}"
+          cube: "{{ row.split(',')[1] | float(0) if row else 0 }}"
+      # Without the cube's total for that day (before this package was added, or more than
+      # 12 days ago) there is nothing to compare with.
+      - condition: template
+        value_template: "{{ cube | float(0) > 0 }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.ep_cube_audit_import_result
+        data:
+          value: "{{ day }}|{{ octopus }}|{{ cube }}"
+
+  - id: ep_cube_audit_export
+    alias: "EP Cube audit: compare Octopus's export with the cube"
+    mode: queued
+    triggers:
+      # Replace with your own export sensor (serial and export MPAN).
+      - trigger: state
+        entity_id: sensor.octopus_energy_electricity_<SERIAL>_<EXPORT_MPAN>_export_previous_accumulative_consumption
+    conditions:
+      - condition: template
+        value_template: >
+          {% set s = trigger.to_state %}
+          {{ s is not none and (s.state | is_number) and s.attributes.last_reset is not none }}
+    actions:
+      - variables:
+          day: "{{ (as_datetime(trigger.to_state.attributes.last_reset) | as_local).strftime('%m-%d') }}"
+          octopus: "{{ trigger.to_state.state | float(0) | round(3) }}"
+          row: "{{ states('input_text.ep_cube_audit_cube_days').split(';') | select('match', day ~ ',') | list | first | default('') }}"
+          cube: "{{ row.split(',')[2] | float(0) if row else -1 }}"
+      - condition: template
+        value_template: "{{ cube | float(-1) >= 0 }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.ep_cube_audit_export_result
+        data:
+          value: "{{ day }}|{{ octopus }}|{{ cube }}"
+
+  - id: ep_cube_audit_alert
+    alias: "EP Cube audit: alert when the cube and the meter disagree"
+    description: >-
+      Fires once when the latest comparison goes over the limit, not on every update.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.ep_cube_audit_alert
+        to: "on"
+    actions:
+      - action: <NOTIFY_SERVICE>
+        data:
+          title: "EP Cube and the meter disagree"
+          message: >-
+            Import on {{ state_attr('sensor.ep_cube_audit_import_difference', 'day') }}:
+            the cube read {{ state_attr('sensor.ep_cube_audit_import_difference', 'cube_kwh') }} kWh,
+            Octopus billed {{ state_attr('sensor.ep_cube_audit_import_difference', 'octopus_kwh') }} kWh
+            ({{ states('sensor.ep_cube_audit_import_difference') }}%). Export on
+            {{ state_attr('sensor.ep_cube_audit_export_difference', 'day') }}: the cube read
+            {{ state_attr('sensor.ep_cube_audit_export_difference', 'cube_kwh') }} kWh, Octopus billed
+            {{ state_attr('sensor.ep_cube_audit_export_difference', 'octopus_kwh') }} kWh. A cloud counter
+            may have glitched on that day.
