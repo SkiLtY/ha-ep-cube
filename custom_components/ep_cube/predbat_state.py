@@ -40,8 +40,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
@@ -295,17 +297,89 @@ def _describe_window(w: PredbatWindow | None) -> str | None:
 PREDBAT_READ_ONLY_SWITCH = "switch.predbat_set_read_only"
 
 
-def predbat_controls_cube(hass: HomeAssistant) -> bool:
-    """True when Predbat is installed and allowed to write to the cube.
+# Where the PredbatPresence tracker lives in hass.data (a top-level key of its own,
+# so it does not show up among the config entries stored under DOMAIN).
+PREDBAT_PRESENCE_KEY = "ep_cube_predbat_presence"
+# A missing switch counts as "Predbat is just not publishing yet" for this long after
+# it was last seen, so a Home Assistant or Predbat restart (minutes) is covered, while
+# an uninstalled Predbat stops blocking the standalone services after a day.
+PREDBAT_GONE_AFTER = timedelta(hours=24)
+_PRESENCE_REFRESH = timedelta(minutes=10)
+_PRESENCE_SAVE_EVERY = timedelta(hours=1)
 
-    Judged from Predbat's read-only switch alone: in monitor-only mode it is "on"
-    and Predbat sends no commands. Only an explicit "off" counts as control; a
-    missing or unavailable switch means we cannot tell, and then the caller is
-    allowed. The predbat.* entities are deliberately not consulted: they vanish
-    after a Home Assistant restart until Predbat republishes them, which would let
-    a forced action through while Predbat is about to resume control."""
+
+class PredbatPresence:
+    """Remembers, across restarts, when Predbat's read-only switch was last seen.
+
+    Predbat publishes its entities itself, so after a Home Assistant restart they are
+    missing until it republishes them. Without a memory, "no switch" looks the same as
+    "no Predbat" and a forced action would slip through while Predbat is about to
+    resume control."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._hass = hass
+        self._store: Store = Store(hass, 1, "ep_cube.predbat_presence")
+        self._saved_at: datetime | None = None
+        self.last_seen: datetime | None = None
+        self._unsubs: list = []
+
+    async def async_start(self) -> None:
+        data = await self._store.async_load() or {}
+        raw = data.get("last_seen")
+        self.last_seen = self._saved_at = dt_util.parse_datetime(raw) if raw else None
+        self._unsubs = [
+            async_track_state_change_event(
+                self._hass, [PREDBAT_READ_ONLY_SWITCH], self._on_event
+            ),
+            async_track_time_interval(self._hass, self._on_tick, _PRESENCE_REFRESH),
+        ]
+        self.refresh()
+
+    @callback
+    def _on_event(self, _event: Any) -> None:
+        self.refresh()
+
+    @callback
+    def _on_tick(self, _now: datetime) -> None:
+        self.refresh()
+
+    @callback
+    def refresh(self) -> None:
+        if self._hass.states.get(PREDBAT_READ_ONLY_SWITCH) is None:
+            return
+        now = dt_util.utcnow()
+        self.last_seen = now
+        if self._saved_at is None or now - self._saved_at >= _PRESENCE_SAVE_EVERY:
+            self._saved_at = now
+            self._store.async_delay_save(lambda: {"last_seen": now.isoformat()}, 5)
+
+    @property
+    def recently_seen(self) -> bool:
+        return (
+            self.last_seen is not None
+            and dt_util.utcnow() - self.last_seen < PREDBAT_GONE_AFTER
+        )
+
+    def stop(self) -> None:
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs = []
+
+
+def predbat_controls_cube(hass: HomeAssistant) -> bool:
+    """True unless we can tell Predbat is not driving the cube.
+
+    The only "not driving" signals are Predbat's read-only switch reading "on"
+    (monitor mode), or no sign of Predbat at all. Anything else is treated as control,
+    so a forced action is refused rather than risked: the switch "off", "unavailable"
+    or "unknown", or the switch missing while Predbat was seen recently (it has not
+    republished since a restart). The predbat.* entities are not consulted; they
+    vanish the same way."""
     switch = hass.states.get(PREDBAT_READ_ONLY_SWITCH)
-    return switch is not None and switch.state == "off"
+    if switch is None:
+        presence = hass.data.get(PREDBAT_PRESENCE_KEY)
+        return presence is not None and presence.recently_seen
+    return switch.state != "on"
 
 
 def ensure_predbat_not_in_control(hass: HomeAssistant, action: str) -> None:
@@ -315,7 +389,7 @@ def ensure_predbat_not_in_control(hass: HomeAssistant, action: str) -> None:
     must not call it, so a running override can always be ended."""
     if predbat_controls_cube(hass):
         raise HomeAssistantError(
-            f"Predbat is controlling this cube, so {action} would be replaced by its "
-            f"plan. Put Predbat in read-only mode ({PREDBAT_READ_ONLY_SWITCH}) or use "
-            "Predbat instead."
+            f"Predbat is controlling this cube (or has not reported its state yet), so "
+            f"{action} would be replaced by its plan. Put Predbat in read-only mode "
+            f"({PREDBAT_READ_ONLY_SWITCH}) or use Predbat instead."
         )

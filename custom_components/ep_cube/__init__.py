@@ -36,6 +36,7 @@ from .coordinator import (
     EPCubeStatsCoordinator,
     battery_flow_store,
 )
+from .predbat_state import PREDBAT_PRESENCE_KEY, PredbatPresence
 from .services import (
     PredbatShim,
     async_register_services,
@@ -151,6 +152,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "client": client,
         "shim": shim,
     }
+    if PREDBAT_PRESENCE_KEY not in hass.data:
+        presence = PredbatPresence(hass)
+        await presence.async_start()
+        hass.data[PREDBAT_PRESENCE_KEY] = presence
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Reload when the options change (the Configure button), so the shim is
@@ -260,4 +265,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
         if not hass.data[DOMAIN]:
             async_unregister_services(hass)
+            if (presence := hass.data.pop(PREDBAT_PRESENCE_KEY, None)) is not None:
+                presence.stop()
     return unload_ok

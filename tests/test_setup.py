@@ -23,6 +23,7 @@ from custom_components.ep_cube.const import (
     FORCE_EXPORT_MODE_DYNAMIC,
     FORCE_EXPORT_MODE_TOU_PEAK,
 )
+from custom_components.ep_cube.predbat_state import PREDBAT_PRESENCE_KEY
 
 
 @pytest.fixture
@@ -795,7 +796,7 @@ class TestForceExportService:
         assert not shim.is_active
 
     @pytest.mark.parametrize(
-        "switch_state", ["on", None, "unavailable"], ids=["monitor-only", "no-switch", "unavailable"]
+        "switch_state", ["on", None], ids=["monitor-only", "no-predbat"]
     )
     async def test_allowed_when_predbat_is_not_in_control(
         self, hass, setup_integration, switch_state
@@ -806,6 +807,46 @@ class TestForceExportService:
             DOMAIN, "force_export", {"duration_minutes": 20, "reserve_pct": 55}, blocking=True
         )
         assert hass.data[DOMAIN][setup_integration.entry_id]["shim"].is_active
+
+    @pytest.mark.parametrize("switch_state", ["unavailable", "unknown"])
+    async def test_refused_when_the_switch_cannot_be_read(
+        self, hass, setup_integration, switch_state
+    ):
+        from homeassistant.exceptions import HomeAssistantError
+
+        hass.states.async_set("switch.predbat_set_read_only", switch_state)
+        with pytest.raises(HomeAssistantError, match="Predbat is controlling this cube"):
+            await hass.services.async_call(
+                DOMAIN, "force_export", {"duration_minutes": 20, "reserve_pct": 55}, blocking=True
+            )
+
+    async def test_refused_when_the_switch_is_missing_but_predbat_was_just_seen(
+        self, hass, setup_integration
+    ):
+        # Right after a restart Predbat has not republished its switch yet.
+        from homeassistant.exceptions import HomeAssistantError
+
+        presence = hass.data[PREDBAT_PRESENCE_KEY]
+        presence.last_seen = dt_util.utcnow() - timedelta(minutes=30)
+        with pytest.raises(HomeAssistantError, match="Predbat is controlling this cube"):
+            await hass.services.async_call(
+                DOMAIN, "force_export", {"duration_minutes": 20, "reserve_pct": 55}, blocking=True
+            )
+
+    async def test_allowed_when_predbat_has_been_gone_for_a_day(self, hass, setup_integration):
+        presence = hass.data[PREDBAT_PRESENCE_KEY]
+        presence.last_seen = dt_util.utcnow() - timedelta(hours=25)
+        await hass.services.async_call(
+            DOMAIN, "force_export", {"duration_minutes": 20, "reserve_pct": 55}, blocking=True
+        )
+        assert hass.data[DOMAIN][setup_integration.entry_id]["shim"].is_active
+
+    async def test_seeing_the_switch_records_it(self, hass, setup_integration):
+        presence = hass.data[PREDBAT_PRESENCE_KEY]
+        assert presence.last_seen is None
+        hass.states.async_set("switch.predbat_set_read_only", "on")
+        await hass.async_block_till_done()
+        assert presence.recently_seen
 
     async def test_stop_is_allowed_even_while_predbat_is_in_control(
         self, hass, setup_integration
