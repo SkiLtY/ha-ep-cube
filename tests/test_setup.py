@@ -786,7 +786,6 @@ class TestForceExportService:
     async def test_refused_while_predbat_is_in_control(self, hass, setup_integration):
         from homeassistant.exceptions import HomeAssistantError
 
-        hass.states.async_set("predbat.status", "Idle")
         hass.states.async_set("switch.predbat_set_read_only", "off")
         with pytest.raises(HomeAssistantError, match="Predbat is controlling this cube"):
             await hass.services.async_call(
@@ -801,7 +800,6 @@ class TestForceExportService:
     async def test_allowed_when_predbat_is_not_in_control(
         self, hass, setup_integration, switch_state
     ):
-        hass.states.async_set("predbat.status", "Idle")
         if switch_state is not None:
             hass.states.async_set("switch.predbat_set_read_only", switch_state)
         await hass.services.async_call(
@@ -812,7 +810,6 @@ class TestForceExportService:
     async def test_stop_is_allowed_even_while_predbat_is_in_control(
         self, hass, setup_integration
     ):
-        hass.states.async_set("predbat.status", "Idle")
         hass.states.async_set("switch.predbat_set_read_only", "off")
         await hass.services.async_call(DOMAIN, "force_export_stop", {}, blocking=True)
 
@@ -844,7 +841,6 @@ class TestForceChargeService:
     async def test_refused_while_predbat_is_in_control(self, hass, setup_integration):
         from homeassistant.exceptions import HomeAssistantError
 
-        hass.states.async_set("predbat.status", "Idle")
         hass.states.async_set("switch.predbat_set_read_only", "off")
         with pytest.raises(HomeAssistantError, match="Predbat is controlling this cube"):
             await hass.services.async_call(
@@ -853,7 +849,6 @@ class TestForceChargeService:
         assert not hass.data[DOMAIN][setup_integration.entry_id]["shim"].is_active
 
     async def test_allowed_in_predbat_monitor_mode(self, hass, setup_integration):
-        hass.states.async_set("predbat.status", "Idle")
         hass.states.async_set("switch.predbat_set_read_only", "on")
         await hass.services.async_call(
             DOMAIN, "force_charge", {"duration_minutes": 30, "target_pct": 80}, blocking=True

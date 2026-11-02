@@ -298,12 +298,12 @@ PREDBAT_READ_ONLY_SWITCH = "switch.predbat_set_read_only"
 def predbat_controls_cube(hass: HomeAssistant) -> bool:
     """True when Predbat is installed and allowed to write to the cube.
 
-    Presence of the predbat.* entities is not enough: in monitor-only mode they
-    all exist but Predbat sends no commands. Only an explicit "off" on its
-    read-only switch counts as control; a missing or unavailable switch means
-    we cannot tell, and then the caller is allowed."""
-    if not any(state.entity_id.startswith("predbat.") for state in hass.states.async_all()):
-        return False
+    Judged from Predbat's read-only switch alone: in monitor-only mode it is "on"
+    and Predbat sends no commands. Only an explicit "off" counts as control; a
+    missing or unavailable switch means we cannot tell, and then the caller is
+    allowed. The predbat.* entities are deliberately not consulted: they vanish
+    after a Home Assistant restart until Predbat republishes them, which would let
+    a forced action through while Predbat is about to resume control."""
     switch = hass.states.get(PREDBAT_READ_ONLY_SWITCH)
     return switch is not None and switch.state == "off"
 
