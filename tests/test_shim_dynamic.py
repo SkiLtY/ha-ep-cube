@@ -150,7 +150,35 @@ class TestDynamicExport:
         await dyn_shim.discharge_start(end_time=end, target_soc_pct=55.0)   # reserve 55
         await dyn_shim.discharge_start(end_time=end, target_soc_pct=55.0)   # same: no write
         assert fake_client.switch_mode.await_count == 1
-        await dyn_shim.discharge_start(end_time=end, target_soc_pct=56.0)   # reserve 56
+        await dyn_shim.discharge_start(end_time=end, target_soc_pct=60.0)   # reserve 60
+        assert fake_client.switch_mode.await_count == 2
+
+    async def test_a_wobble_of_a_point_or_two_is_not_rewritten(
+        self, dyn_shim, fake_client
+    ):
+        end = _future(30)
+        await dyn_shim.discharge_start(end_time=end, target_soc_pct=33.0)   # written: 33
+        for target in (34.0, 32.0, 35.0, 31.0, 33.0):                      # all within 2
+            await dyn_shim.discharge_start(end_time=end, target_soc_pct=target)
+        assert fake_client.switch_mode.await_count == 1
+        assert dyn_shim._active_override["reserve_pct"] == 33
+
+    async def test_the_tolerance_is_measured_from_the_value_written(
+        self, dyn_shim, fake_client
+    ):
+        end = _future(30)
+        await dyn_shim.discharge_start(end_time=end, target_soc_pct=40.0)   # written: 40
+        await dyn_shim.discharge_start(end_time=end, target_soc_pct=42.0)   # 2 away: kept
+        assert fake_client.switch_mode.await_count == 1
+        await dyn_shim.discharge_start(end_time=end, target_soc_pct=43.0)   # 3 from 40: rewritten
+        assert fake_client.switch_mode.await_count == 2
+        assert _write(fake_client, 1)["selfConsumptioinReserveSoc"] == "43"
+
+    async def test_a_new_end_time_is_still_rewritten_even_for_the_same_reserve(
+        self, dyn_shim, fake_client
+    ):
+        await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=55.0)
+        await dyn_shim.discharge_start(end_time=_future(60), target_soc_pct=55.0)
         assert fake_client.switch_mode.await_count == 2
 
     async def test_revert_restores_standard_tou_and_checks_it(self, dyn_shim, fake_client):

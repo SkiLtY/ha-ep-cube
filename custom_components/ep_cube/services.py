@@ -37,7 +37,9 @@ enough that the inverter never ambiguates the tier ordering.
    set* endpoint, restoring TOU slots if baseline was in TOU mode.
 
 Idempotency: `_matches_active()` shortcuts any call whose effective parameters
-match the live override.
+match the live override. A stopping level (`reserve_pct`, `limit_pct`) within
+OVERRIDE_TARGET_TOLERANCE_PCT of the one written counts as a match, so Predbat's
+one-point wobble does not cause a cloud write each time.
 """
 from __future__ import annotations
 
@@ -81,6 +83,7 @@ from .const import (
     FORCE_EXPORT_MODE_DYNAMIC,
     OPERATING_MODE_SELF_CONSUMPTION,
     OPERATING_MODE_TOU,
+    OVERRIDE_TARGET_TOLERANCE_PCT,
     SHIM_PRICE_MID_PEAK,
     SHIM_PRICE_OFF_PEAK,
     SHIM_PRICE_PEAK,
@@ -536,6 +539,15 @@ def has_non_shim_user_slots(state: dict[str, Any]) -> bool:
         if _first_non_shim_price(state.get(key)) is not None:
             return True
     return False
+
+
+# Override parameters that are stopping levels in percent: a change of a point or two is
+# not worth a cloud write (see OVERRIDE_TARGET_TOLERANCE_PCT).
+_TOLERANT_TARGET_KEYS = frozenset({"reserve_pct", "limit_pct"})
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 class PredbatShim:
@@ -1111,7 +1123,11 @@ class PredbatShim:
         if not self._active_override:
             return False
         for key, value in params.items():
-            if self._active_override.get(key) != value:
+            active = self._active_override.get(key)
+            if key in _TOLERANT_TARGET_KEYS and _is_number(value) and _is_number(active):
+                if abs(active - value) > OVERRIDE_TARGET_TOLERANCE_PCT:
+                    return False
+            elif active != value:
                 return False
         return True
 

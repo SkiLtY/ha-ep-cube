@@ -179,6 +179,13 @@ DEFAULT_SELF_CONSUMPTION_RESERVE_PCT = 20
 # After a dynamic export window should have ended, check the cube really left
 # Dynamic mode this many minutes later and retry the revert if not. A cube
 # stuck in Dynamic mode would not take the cheap-rate charge.
+# Predbat re-plans every few minutes and its target SoC often wobbles by a point or two
+# (a Saturday export was re-applied five times in 45 minutes as the target moved between 32%
+# and 34%). A live Dynamic export or charge whose stopping level is within this many points
+# of the new target is left alone, because each rewrite is a cloud write that can fail. The
+# difference is measured from the value last written, so a slow drift still gets through.
+OVERRIDE_TARGET_TOLERANCE_PCT = 2
+
 DYNAMIC_REVERT_WATCHDOG_MINUTES = 5
 DYNAMIC_REVERT_RETRY_SECONDS = 60
 DYNAMIC_REVERT_MAX_RETRIES = 5
