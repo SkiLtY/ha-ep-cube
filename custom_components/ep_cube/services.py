@@ -92,7 +92,13 @@ from .const import (
     WORK_STATUS_SELF_CONSUMPTION,
     WORK_STATUS_TOU,
 )
-from .predbat_state import PredbatPlan, PredbatStateError, describe, read_plan
+from .predbat_state import (
+    PredbatPlan,
+    PredbatStateError,
+    describe,
+    ensure_predbat_not_in_control,
+    read_plan,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -105,7 +111,8 @@ SERVICE_CHARGE_FREEZE = "charge_freeze"
 SERVICE_DISCHARGE_FREEZE = "discharge_freeze"
 SERVICE_IDLE = "idle"
 SERVICE_DEBUG_FREEZE = "debug_freeze"
-SERVICE_DEBUG_DYNAMIC_EXPORT = "debug_dynamic_export"
+SERVICE_FORCE_EXPORT = "force_export"
+SERVICE_FORCE_EXPORT_STOP = "force_export_stop"
 SERVICE_DEBUG_DYNAMIC_CHARGE = "debug_dynamic_charge"
 SERVICE_DEBUG_PROBE = "debug_probe"
 SERVICE_DEBUG_PROBE_WRITE = "debug_probe_write"
@@ -114,6 +121,10 @@ SERVICE_DEBUG_PROBE_WRITE = "debug_probe_write"
 KIND_CHARGE = "charge"
 KIND_DISCHARGE = "discharge"
 KIND_FREEZE = "freeze"
+
+# Longest forced export the service accepts; the revert and watchdog are scheduled
+# from this window, so an unbounded value would leave the cube exporting unattended.
+FORCE_EXPORT_MAX_MINUTES = 240
 
 # Predbat shim services accept only an optional device_id. Window/SoC/rate
 # parameters come from the Predbat dummy entities (see predbat_state.py).
@@ -130,21 +141,16 @@ DEBUG_FREEZE_SCHEMA = vol.Schema(
     }
 )
 
-# debug_dynamic_export bypasses read_plan too: a forced Dynamic-tariff export
-# for a short, bounded time, stopping at the given Reserve SoC. For exercising
-# the new path against the live cube before Predbat is allowed to use it.
-DEBUG_DYNAMIC_EXPORT_SCHEMA = vol.Schema(
+# force_export: the supported way to export battery energy to the grid without
+# Predbat. Same Dynamic-tariff path Predbat uses, with a documented, stable schema.
+# The reserve is required so an export always has an explicit stopping point.
+FORCE_EXPORT_SCHEMA = vol.Schema(
     {
         vol.Optional("device_id"): cv.string,
-        vol.Optional("duration_minutes", default=5): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=60)
+        vol.Required("duration_minutes"): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=FORCE_EXPORT_MAX_MINUTES)
         ),
-        vol.Optional("reserve_pct", default=50): vol.All(
-            vol.Coerce(float), vol.Range(min=0, max=100)
-        ),
-        # Test hook: write this exact sell-above (for example 0.00 to learn whether
-        # the cube reads 0 as "selling off") instead of the one the guard picks.
-        vol.Optional("sell_above"): vol.All(vol.Coerce(float), vol.Range(min=0, max=5)),
+        vol.Required("reserve_pct"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
     }
 )
 
@@ -678,7 +684,6 @@ class PredbatShim:
         self,
         end_time: datetime,
         target_soc_pct: float,
-        sell_above_override: float | None = None,
     ) -> None:
         """Force a grid export by switching the cube to Dynamic-tariff mode.
 
@@ -702,11 +707,7 @@ class PredbatShim:
             _LOGGER.debug("discharge_start (dynamic): idempotent no-op")
             return
         await self._warn_if_cube_has_no_price("export", "export")
-        sell_above = (
-            sell_above_override
-            if sell_above_override is not None
-            else self._sell_above_for_window(end_time)
-        )
+        sell_above = self._sell_above_for_window(end_time)
         payload = self._build_dynamic_override(reserve, sell_above)
         await self._apply_dynamic_override(payload, params)
         self._schedule_revert(end_time)
@@ -718,14 +719,13 @@ class PredbatShim:
             sell_above, DYNAMIC_EXPORT_BUY_BELOW_P,
         )
 
-    async def debug_dynamic_export(
-        self, duration_minutes: int, reserve_pct: float, sell_above: float | None = None
-    ) -> None:
-        """Manual forced export for `duration_minutes`, stopping at `reserve_pct`.
-        Diagnostic tool (like debug_freeze) for exercising the Dynamic-tariff
-        path against the live cube without involving Predbat."""
+    async def force_export(self, duration_minutes: int, reserve_pct: float) -> None:
+        """Supported forced export for `duration_minutes`, stopping at `reserve_pct`
+        (never below the cube's own self-consumption reserve). The same
+        Dynamic-tariff path as a Predbat export window, whatever the configured
+        force export mode, with the same revert and watchdog."""
         end_time = dt_util.utcnow() + timedelta(minutes=duration_minutes)
-        await self._discharge_start_dynamic(end_time, reserve_pct, sell_above)
+        await self._discharge_start_dynamic(end_time, reserve_pct)
 
     async def debug_dynamic_charge(self, duration_minutes: int, limit_pct: float) -> None:
         """Experiment: charge from the grid in Dynamic-tariff mode for
@@ -1670,18 +1670,16 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def handle_idle(call: ServiceCall) -> None:
         await _resolve_shim(call).idle()
 
-    async def handle_debug_dynamic_export(call: ServiceCall) -> None:
-        # Diagnostic: skips read_plan and forces a Dynamic-tariff export for
-        # `duration_minutes`, stopping at `reserve_pct`.
+    async def handle_force_export(call: ServiceCall) -> None:
+        ensure_predbat_not_in_control(hass, "a forced export")
         shim = _resolve_shim(call)
-        duration = int(call.data.get("duration_minutes", 5))
-        reserve = float(call.data.get("reserve_pct", 50))
-        sell_above = call.data.get("sell_above")
-        _LOGGER.warning(
-            "debug_dynamic_export: bypassing predbat plan — forced export for %d min, reserve %.0f%%, sell above %s",
-            duration, reserve, "guard" if sell_above is None else f"{sell_above:.2f}p",
-        )
-        await shim.debug_dynamic_export(duration, reserve, sell_above)
+        duration = int(call.data["duration_minutes"])
+        reserve = float(call.data["reserve_pct"])
+        _LOGGER.info("force_export: %d min, reserve %.0f%%", duration, reserve)
+        await shim.force_export(duration, reserve)
+
+    async def handle_force_export_stop(call: ServiceCall) -> None:
+        await _resolve_shim(call).discharge_stop()
 
     async def handle_debug_dynamic_charge(call: ServiceCall) -> None:
         # Diagnostic: skips read_plan and charges from the grid in Dynamic-tariff
@@ -1765,10 +1763,10 @@ async def async_register_services(hass: HomeAssistant) -> None:
         schema=DEBUG_DYNAMIC_CHARGE_SCHEMA,
     )
     hass.services.async_register(
-        DOMAIN,
-        SERVICE_DEBUG_DYNAMIC_EXPORT,
-        handle_debug_dynamic_export,
-        schema=DEBUG_DYNAMIC_EXPORT_SCHEMA,
+        DOMAIN, SERVICE_FORCE_EXPORT, handle_force_export, schema=FORCE_EXPORT_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_FORCE_EXPORT_STOP, handle_force_export_stop, schema=SHIM_SCHEMA
     )
     hass.services.async_register(
         DOMAIN,
@@ -1788,7 +1786,8 @@ async def async_register_services(hass: HomeAssistant) -> None:
 
 def async_unregister_services(hass: HomeAssistant) -> None:
     for service in (
-        SERVICE_DEBUG_DYNAMIC_EXPORT,
+        SERVICE_FORCE_EXPORT,
+        SERVICE_FORCE_EXPORT_STOP,
         SERVICE_DEBUG_DYNAMIC_CHARGE,
         SERVICE_DEBUG_PROBE,
         SERVICE_DEBUG_PROBE_WRITE,

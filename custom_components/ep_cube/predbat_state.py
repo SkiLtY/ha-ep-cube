@@ -41,6 +41,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
@@ -288,3 +289,33 @@ def _describe_window(w: PredbatWindow | None) -> str | None:
     if w is None:
         return None
     return f"{w.start.isoformat()}→{w.end.isoformat()}"
+
+
+# Predbat's monitor-only switch: on = Predbat reads but never writes to the cube.
+PREDBAT_READ_ONLY_SWITCH = "switch.predbat_set_read_only"
+
+
+def predbat_controls_cube(hass: HomeAssistant) -> bool:
+    """True when Predbat is installed and allowed to write to the cube.
+
+    Presence of the predbat.* entities is not enough: in monitor-only mode they
+    all exist but Predbat sends no commands. Only an explicit "off" on its
+    read-only switch counts as control; a missing or unavailable switch means
+    we cannot tell, and then the caller is allowed."""
+    if not any(state.entity_id.startswith("predbat.") for state in hass.states.async_all()):
+        return False
+    switch = hass.states.get(PREDBAT_READ_ONLY_SWITCH)
+    return switch is not None and switch.state == "off"
+
+
+def ensure_predbat_not_in_control(hass: HomeAssistant, action: str) -> None:
+    """Guard for every standalone (non-Predbat) control service: refuse while
+    Predbat is driving the cube, since its next plan would replace the action.
+    Call this first in any new user-facing control service. Stop/cancel services
+    must not call it, so a running override can always be ended."""
+    if predbat_controls_cube(hass):
+        raise HomeAssistantError(
+            f"Predbat is controlling this cube, so {action} would be replaced by its "
+            f"plan. Put Predbat in read-only mode ({PREDBAT_READ_ONLY_SWITCH}) or use "
+            "Predbat instead."
+        )

@@ -11,6 +11,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import STATE_UNAVAILABLE, EntityCategory
 from homeassistant.helpers import entity_registry as er
@@ -757,7 +758,7 @@ class TestUserReserveSensor:
         entity_id = await self._entity_id(hass, setup_integration)
         bucket = hass.data[DOMAIN][setup_integration.entry_id]
         shim, coordinator = bucket["shim"], bucket["coordinator"]
-        await shim.debug_dynamic_export(5, 55.0)
+        await shim.force_export(5, 55.0)
         # the cube now reports the export target as its reserve ...
         fake_client.get_status.return_value = replace(
             fake_client.get_status.return_value, reserve_soc_pct=55.0
@@ -770,6 +771,64 @@ class TestUserReserveSensor:
         await coordinator.async_refresh()
         await hass.async_block_till_done()
         assert float(hass.states.get(entity_id).state) == 55.0   # live again after the revert
+
+
+class TestForceExportService:
+    async def test_service_starts_and_stops_an_export(self, hass, setup_integration, fake_client):
+        await hass.services.async_call(
+            DOMAIN, "force_export", {"duration_minutes": 20, "reserve_pct": 55}, blocking=True
+        )
+        shim = hass.data[DOMAIN][setup_integration.entry_id]["shim"]
+        assert shim.is_active
+        await hass.services.async_call(DOMAIN, "force_export_stop", {}, blocking=True)
+        assert not shim.is_active
+
+    async def test_refused_while_predbat_is_in_control(self, hass, setup_integration):
+        from homeassistant.exceptions import HomeAssistantError
+
+        hass.states.async_set("predbat.status", "Idle")
+        hass.states.async_set("switch.predbat_set_read_only", "off")
+        with pytest.raises(HomeAssistantError, match="Predbat is controlling this cube"):
+            await hass.services.async_call(
+                DOMAIN, "force_export", {"duration_minutes": 20, "reserve_pct": 55}, blocking=True
+            )
+        shim = hass.data[DOMAIN][setup_integration.entry_id]["shim"]
+        assert not shim.is_active
+
+    @pytest.mark.parametrize(
+        "switch_state", ["on", None, "unavailable"], ids=["monitor-only", "no-switch", "unavailable"]
+    )
+    async def test_allowed_when_predbat_is_not_in_control(
+        self, hass, setup_integration, switch_state
+    ):
+        hass.states.async_set("predbat.status", "Idle")
+        if switch_state is not None:
+            hass.states.async_set("switch.predbat_set_read_only", switch_state)
+        await hass.services.async_call(
+            DOMAIN, "force_export", {"duration_minutes": 20, "reserve_pct": 55}, blocking=True
+        )
+        assert hass.data[DOMAIN][setup_integration.entry_id]["shim"].is_active
+
+    async def test_stop_is_allowed_even_while_predbat_is_in_control(
+        self, hass, setup_integration
+    ):
+        hass.states.async_set("predbat.status", "Idle")
+        hass.states.async_set("switch.predbat_set_read_only", "off")
+        await hass.services.async_call(DOMAIN, "force_export_stop", {}, blocking=True)
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            {"reserve_pct": 50},                                   # no duration
+            {"duration_minutes": 20},                              # no reserve
+            {"duration_minutes": 0, "reserve_pct": 50},
+            {"duration_minutes": 241, "reserve_pct": 50},
+            {"duration_minutes": 20, "reserve_pct": 101},
+        ],
+    )
+    async def test_schema_rejects_bad_input(self, hass, setup_integration, data):
+        with pytest.raises(vol.Invalid):
+            await hass.services.async_call(DOMAIN, "force_export", data, blocking=True)
 
 
 class TestSelectKeepsTheBaselineInStep:

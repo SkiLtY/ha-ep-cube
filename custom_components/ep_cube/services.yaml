@@ -45,6 +45,46 @@ idle:
   name: Predbat — idle
   description: Restore the baseline TOU schedule.
 
+# Supported services (stable schema)
+force_export:
+  name: Force export to the grid
+  description: Export battery energy to the grid for a set time, stopping at the Reserve SoC you give (never below the cube's own self-consumption reserve). Uses the cube's Dynamic tariff mode, the same path Predbat uses, so Dynamic tariff must already be set up in the EP Cube app. The cube returns to its previous mode at the end, or earlier if you call force_export_stop. It is refused while Predbat is controlling the cube (its read-only switch is off), because Predbat would replace the export with its own plan; with Predbat in read-only mode, or without Predbat, it works.
+  fields:
+    duration_minutes:
+      name: Duration (minutes)
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 240
+          unit_of_measurement: min
+    reserve_pct:
+      name: Reserve SoC (%)
+      required: true
+      description: The export stops at this state of charge.
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    device_id:
+      name: Device ID
+      required: false
+      description: Cube devId - only required if multiple EP Cubes are configured.
+      selector:
+        text:
+
+force_export_stop:
+  name: Stop a forced export
+  description: End a forced export early and return the cube to its previous mode. Does nothing if no export is running.
+  fields:
+    device_id:
+      name: Device ID
+      required: false
+      description: Cube devId - only required if multiple EP Cubes are configured.
+      selector:
+        text:
+
 # Diagnostic — bypasses Predbat plan reading
 debug_freeze:
   name: Debug — freeze for N minutes
@@ -59,46 +99,6 @@ debug_freeze:
           min: 1
           max: 60
           unit_of_measurement: min
-    device_id:
-      name: Device ID
-      required: false
-      description: Cube devId — only required if multiple EP Cubes are configured.
-      selector:
-        text:
-
-debug_dynamic_export:
-  name: Debug — forced export (Dynamic tariff) for N minutes
-  description: Diagnostic only. Snapshots the cloud baseline, switches the cube to Dynamic-tariff mode with a low sell-above threshold so it exports battery energy to the grid at full power until the Reserve SoC, then auto-reverts to the baseline (with a watchdog that confirms the cube left Dynamic mode). Bypasses Predbat plan reading. The cube must already have Dynamic tariff configured in the EP Cube app (Octopus price source, import and sell tariffs).
-  fields:
-    duration_minutes:
-      name: Duration (minutes)
-      required: false
-      default: 5
-      selector:
-        number:
-          min: 1
-          max: 60
-          unit_of_measurement: min
-    reserve_pct:
-      name: Reserve SoC (%)
-      required: false
-      default: 50
-      description: The export stops at this state of charge. Never below the cube's own self-consumption reserve.
-      selector:
-        number:
-          min: 0
-          max: 100
-          unit_of_measurement: "%"
-    sell_above:
-      name: Sell-above override (p/kWh)
-      required: false
-      description: Test hook. Writes exactly this sell-above (0-5) instead of the one chosen from the window's export prices, for example 0 to see whether the cube treats 0.00 as "selling off".
-      selector:
-        number:
-          min: 0
-          max: 5
-          step: 0.01
-          unit_of_measurement: p/kWh
     device_id:
       name: Device ID
       required: false

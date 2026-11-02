@@ -243,12 +243,33 @@ class TestDynamicExport:
         assert dyn_shim._revert_retries == 1
         assert dyn_shim._active_override is not None     # still believed active
 
-    async def test_debug_dynamic_export_uses_the_given_reserve(self, shim, fake_client):
-        # Works whatever the configured mode: it is the manual live-test hook.
-        await shim.debug_dynamic_export(5, 60.0)
+
+
+class TestForceExport:
+    async def test_exports_in_dynamic_mode_whatever_the_configured_mode(self, shim, fake_client):
+        # `shim` is in the default TOU export mode; the service ignores that.
+        await shim.force_export(30, 60.0)
         payload = _write(fake_client, 0)
         assert payload["touType"] == 1
         assert payload["selfConsumptioinReserveSoc"] == "60"
+        assert payload["dynamicChargePrice"] == 0.0     # never imports for the export
+
+    async def test_the_reserve_never_goes_below_the_cubes_own(self, shim, fake_client):
+        await shim.force_export(30, 0.0)
+        assert int(_write(fake_client, 0)["selfConsumptioinReserveSoc"]) >= 10
+
+    async def test_a_second_call_replaces_the_window(self, shim, fake_client):
+        # Each call starts a fresh window, so it re-applies rather than no-ops.
+        await shim.force_export(30, 60.0)
+        await shim.force_export(30, 70.0)
+        assert _write(fake_client, 1)["selfConsumptioinReserveSoc"] == "70"
+        assert shim._active_override["reserve_pct"] == 70
+
+    async def test_stopping_restores_the_baseline(self, shim, fake_client):
+        await shim.force_export(30, 60.0)
+        await shim.discharge_stop()
+        assert shim._active_override is None
+        assert _write(fake_client, fake_client.switch_mode.await_count - 1)["touType"] == 0
 
 
 class TestDynamicBaselineHandling:
@@ -573,13 +594,8 @@ class TestDynamicCharge:
         assert dyn_shim._baseline["backupPowerReserveSoc"] == "90"
 
 
-    async def test_sell_above_override_is_written_exactly(self, dyn_shim, fake_client):
-        await dyn_shim.debug_dynamic_export(5, 60.0, 0.0)
-        assert _write(fake_client, 0)["dynamicDischargePrice"] == 0.0
-        assert _write(fake_client, 0)["selfConsumptioinReserveSoc"] == "60"
-
-    async def test_without_an_override_the_guard_picks_the_threshold(self, dyn_shim, fake_client):
-        await dyn_shim.debug_dynamic_export(5, 60.0)
+    async def test_the_guard_picks_the_threshold(self, dyn_shim, fake_client):
+        await dyn_shim.force_export(5, 60.0)
         assert _write(fake_client, 0)["dynamicDischargePrice"] == 0.0
 
 

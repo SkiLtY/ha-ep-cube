@@ -133,6 +133,22 @@ All shim services accept only an optional `device_id`. Window and SoC parameters
 | `ep_cube.discharge_freeze` | Alias for `charge_freeze`; end-time taken from export window |
 | `ep_cube.idle` | Restore baseline TOU schedule |
 
+### Force export (no Predbat needed)
+
+| Service | Purpose |
+|---------|---------|
+| `ep_cube.force_export` | Export battery energy to the grid for `duration_minutes` (1-240), stopping at `reserve_pct` (never below the cube's own self-consumption reserve) |
+| `ep_cube.force_export_stop` | End a forced export early and return to the previous mode |
+
+Both take an optional `device_id`. It uses the cube's Dynamic tariff mode, so Dynamic tariff must already be set up in the EP Cube app. The cube returns to its previous mode at the end of the window, with the same revert and watchdog Predbat's exports use. While Predbat is controlling the cube (its `switch.predbat_set_read_only` is off) `force_export` is refused, because Predbat would replace it with its own plan. With Predbat in read-only (monitor) mode, or without Predbat, it works; `force_export_stop` always works. Example:
+
+```yaml
+action: ep_cube.force_export
+data:
+  duration_minutes: 120
+  reserve_pct: 40
+```
+
 > [!IMPORTANT]
 > **v1.0 is an opinionated Predbat bridge.** The integration treats Predbat as the single source of truth for time-of-use control. There is no user-facing TOU writer service. If the cube has user-painted TOU slots while Predbat is installed, an HA Repair issue offers a one-click wipe to hand control back to Predbat. Manual TOU painting belongs in the EP Cube mobile app or a different integration ([Bobsilvio/epcube](https://github.com/Bobsilvio/epcube) is a good fit for fixed-tariff non-Predbat users).
 
