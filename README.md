@@ -133,14 +133,16 @@ All shim services accept only an optional `device_id`. Window and SoC parameters
 | `ep_cube.discharge_freeze` | Alias for `charge_freeze`; end-time taken from export window |
 | `ep_cube.idle` | Restore baseline TOU schedule |
 
-### Force export (no Predbat needed)
+### Force export and force charge (no Predbat needed)
 
 | Service | Purpose |
 |---------|---------|
+| `ep_cube.force_charge` | Charge from the grid for `duration_minutes` (1-240), stopping at `target_pct`. Done the way your *Force charge mode* option says: with Dynamic tariff it stops at the target; with the time-of-use off-peak option there is no target, so it charges until the time is up |
+| `ep_cube.force_charge_stop` | End a forced charge early and return to the previous mode |
 | `ep_cube.force_export` | Export battery energy to the grid for `duration_minutes` (1-240), stopping at `reserve_pct` (never below the cube's own self-consumption reserve) |
 | `ep_cube.force_export_stop` | End a forced export early and return to the previous mode |
 
-Both take an optional `device_id`. It uses the cube's Dynamic tariff mode, so Dynamic tariff must already be set up in the EP Cube app. The cube returns to its previous mode at the end of the window, with the same revert and watchdog Predbat's exports use. While Predbat is controlling the cube (its `switch.predbat_set_read_only` is off) `force_export` is refused, because Predbat would replace it with its own plan. With Predbat in read-only (monitor) mode, or without Predbat, it works; `force_export_stop` always works. Example:
+All four take an optional `device_id`. Forced export uses the cube's Dynamic tariff mode, so Dynamic tariff must already be set up in the EP Cube app (so does forced charge, if you chose that mode). The cube returns to its previous mode at the end of the window, with the same revert and watchdog Predbat's exports use. While Predbat is controlling the cube (its `switch.predbat_set_read_only` is off) `force_export` and `force_charge` are refused, because Predbat would replace it with its own plan. With Predbat in read-only (monitor) mode, or without Predbat, it works; the stop services always work. Example:
 
 ```yaml
 action: ep_cube.force_export

@@ -85,6 +85,45 @@ force_export_stop:
       selector:
         text:
 
+force_charge:
+  name: Force charge from the grid
+  description: Charge the battery from the grid for a set time. It is carried out the way your Force charge mode setting says (Configure). With Dynamic tariff the charge stops at the target SoC; with the time-of-use off-peak option there is no target, so it charges until the time is up. The cube returns to its previous mode at the end, or earlier if you call force_charge_stop. It is refused while Predbat is controlling the cube (its read-only switch is off); with Predbat in read-only mode, or without Predbat, it works.
+  fields:
+    duration_minutes:
+      name: Duration (minutes)
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 240
+          unit_of_measurement: min
+    target_pct:
+      name: Target SoC (%)
+      required: true
+      description: The charge stops at this state of charge (Dynamic tariff mode only).
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    device_id:
+      name: Device ID
+      required: false
+      description: Cube devId - only required if multiple EP Cubes are configured.
+      selector:
+        text:
+
+force_charge_stop:
+  name: Stop a forced charge
+  description: End a forced charge early and return the cube to its previous mode. Does nothing if no charge is running.
+  fields:
+    device_id:
+      name: Device ID
+      required: false
+      description: Cube devId - only required if multiple EP Cubes are configured.
+      selector:
+        text:
+
 # Diagnostic — bypasses Predbat plan reading
 debug_freeze:
   name: Debug — freeze for N minutes

@@ -634,6 +634,37 @@ def charge_shim(hass, fake_client):
     instance.cancel_revert_timer()
 
 
+class TestForceCharge:
+    async def test_follows_the_dynamic_charge_mode_to_the_target(self, charge_shim, fake_client):
+        await charge_shim.force_charge(60, 72.4)
+        payload = _write(fake_client, 0)
+        assert payload["touType"] == 1
+        assert payload["dynamicChargePrice"] == 999.99
+        assert payload["backupPowerReserveSoc"] == "73"
+        assert charge_shim._active_override["kind"] == KIND_CHARGE
+
+    async def test_follows_the_default_mode_to_a_tou_slot(self, hass, fake_client):
+        plain = PredbatShim(hass=hass, entry_id="e", client=fake_client)
+        try:
+            await plain.force_charge(60, 80.0)
+            assert _write(fake_client, 0)["touType"] == 0
+            assert plain._active_override["kind"] == KIND_CHARGE
+        finally:
+            plain.cancel_revert_timer()
+
+    async def test_stopping_restores_the_baseline(self, charge_shim, fake_client):
+        await charge_shim.force_charge(60, 72.0)
+        await charge_shim.charge_stop()
+        assert charge_shim._active_override is None
+        assert _write(fake_client, fake_client.switch_mode.await_count - 1)["touType"] == 0
+
+    async def test_a_failed_write_reverts_and_raises(self, charge_shim, fake_client):
+        fake_client.switch_mode.side_effect = [EPCubeError("Failure"), {}, {}]
+        with pytest.raises(EPCubeError):
+            await charge_shim.force_charge(60, 72.0)
+        assert charge_shim._active_override is None
+
+
 class TestNoPriceCheck:
     """The "no price data" warning judges fresh data, not whatever was fetched
     at start-up (the price coordinator only polls while a price sensor is on)."""

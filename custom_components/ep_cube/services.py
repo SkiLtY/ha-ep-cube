@@ -113,6 +113,8 @@ SERVICE_IDLE = "idle"
 SERVICE_DEBUG_FREEZE = "debug_freeze"
 SERVICE_FORCE_EXPORT = "force_export"
 SERVICE_FORCE_EXPORT_STOP = "force_export_stop"
+SERVICE_FORCE_CHARGE = "force_charge"
+SERVICE_FORCE_CHARGE_STOP = "force_charge_stop"
 SERVICE_DEBUG_DYNAMIC_CHARGE = "debug_dynamic_charge"
 SERVICE_DEBUG_PROBE = "debug_probe"
 SERVICE_DEBUG_PROBE_WRITE = "debug_probe_write"
@@ -125,6 +127,7 @@ KIND_FREEZE = "freeze"
 # Longest forced export the service accepts; the revert and watchdog are scheduled
 # from this window, so an unbounded value would leave the cube exporting unattended.
 FORCE_EXPORT_MAX_MINUTES = 240
+FORCE_CHARGE_MAX_MINUTES = 240
 
 # Predbat shim services accept only an optional device_id. Window/SoC/rate
 # parameters come from the Predbat dummy entities (see predbat_state.py).
@@ -151,6 +154,18 @@ FORCE_EXPORT_SCHEMA = vol.Schema(
             vol.Coerce(int), vol.Range(min=1, max=FORCE_EXPORT_MAX_MINUTES)
         ),
         vol.Required("reserve_pct"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+    }
+)
+
+# force_charge: the supported way to charge from the grid without Predbat. It follows
+# the configured force charge mode, like a Predbat charge window does.
+FORCE_CHARGE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("device_id"): cv.string,
+        vol.Required("duration_minutes"): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=FORCE_CHARGE_MAX_MINUTES)
+        ),
+        vol.Required("target_pct"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
     }
 )
 
@@ -726,6 +741,14 @@ class PredbatShim:
         force export mode, with the same revert and watchdog."""
         end_time = dt_util.utcnow() + timedelta(minutes=duration_minutes)
         await self._discharge_start_dynamic(end_time, reserve_pct)
+
+    async def force_charge(self, duration_minutes: int, target_pct: float) -> None:
+        """Supported forced grid charge for `duration_minutes`, stopping at `target_pct`.
+        Realised the way a Predbat charge window is, by the configured force charge
+        mode: Dynamic tariff stops at the target; a time-of-use off-peak slot has no
+        target, so it charges until the window ends."""
+        end_time = dt_util.utcnow() + timedelta(minutes=duration_minutes)
+        await self.charge_start(end_time, target_pct)
 
     async def debug_dynamic_charge(self, duration_minutes: int, limit_pct: float) -> None:
         """Experiment: charge from the grid in Dynamic-tariff mode for
@@ -1681,6 +1704,17 @@ async def async_register_services(hass: HomeAssistant) -> None:
     async def handle_force_export_stop(call: ServiceCall) -> None:
         await _resolve_shim(call).discharge_stop()
 
+    async def handle_force_charge(call: ServiceCall) -> None:
+        ensure_predbat_not_in_control(hass, "a forced charge")
+        shim = _resolve_shim(call)
+        duration = int(call.data["duration_minutes"])
+        target = float(call.data["target_pct"])
+        _LOGGER.info("force_charge: %d min, target %.0f%%", duration, target)
+        await shim.force_charge(duration, target)
+
+    async def handle_force_charge_stop(call: ServiceCall) -> None:
+        await _resolve_shim(call).charge_stop()
+
     async def handle_debug_dynamic_charge(call: ServiceCall) -> None:
         # Diagnostic: skips read_plan and charges from the grid in Dynamic-tariff
         # mode for `duration_minutes` (max 15), stopping at `limit_pct`.
@@ -1769,6 +1803,12 @@ async def async_register_services(hass: HomeAssistant) -> None:
         DOMAIN, SERVICE_FORCE_EXPORT_STOP, handle_force_export_stop, schema=SHIM_SCHEMA
     )
     hass.services.async_register(
+        DOMAIN, SERVICE_FORCE_CHARGE, handle_force_charge, schema=FORCE_CHARGE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_FORCE_CHARGE_STOP, handle_force_charge_stop, schema=SHIM_SCHEMA
+    )
+    hass.services.async_register(
         DOMAIN,
         SERVICE_DEBUG_PROBE_WRITE,
         handle_debug_probe_write,
@@ -1788,6 +1828,8 @@ def async_unregister_services(hass: HomeAssistant) -> None:
     for service in (
         SERVICE_FORCE_EXPORT,
         SERVICE_FORCE_EXPORT_STOP,
+        SERVICE_FORCE_CHARGE,
+        SERVICE_FORCE_CHARGE_STOP,
         SERVICE_DEBUG_DYNAMIC_CHARGE,
         SERVICE_DEBUG_PROBE,
         SERVICE_DEBUG_PROBE_WRITE,

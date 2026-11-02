@@ -831,6 +831,50 @@ class TestForceExportService:
             await hass.services.async_call(DOMAIN, "force_export", data, blocking=True)
 
 
+class TestForceChargeService:
+    async def test_service_starts_and_stops_a_charge(self, hass, setup_integration):
+        await hass.services.async_call(
+            DOMAIN, "force_charge", {"duration_minutes": 30, "target_pct": 80}, blocking=True
+        )
+        shim = hass.data[DOMAIN][setup_integration.entry_id]["shim"]
+        assert shim.is_active
+        await hass.services.async_call(DOMAIN, "force_charge_stop", {}, blocking=True)
+        assert not shim.is_active
+
+    async def test_refused_while_predbat_is_in_control(self, hass, setup_integration):
+        from homeassistant.exceptions import HomeAssistantError
+
+        hass.states.async_set("predbat.status", "Idle")
+        hass.states.async_set("switch.predbat_set_read_only", "off")
+        with pytest.raises(HomeAssistantError, match="Predbat is controlling this cube"):
+            await hass.services.async_call(
+                DOMAIN, "force_charge", {"duration_minutes": 30, "target_pct": 80}, blocking=True
+            )
+        assert not hass.data[DOMAIN][setup_integration.entry_id]["shim"].is_active
+
+    async def test_allowed_in_predbat_monitor_mode(self, hass, setup_integration):
+        hass.states.async_set("predbat.status", "Idle")
+        hass.states.async_set("switch.predbat_set_read_only", "on")
+        await hass.services.async_call(
+            DOMAIN, "force_charge", {"duration_minutes": 30, "target_pct": 80}, blocking=True
+        )
+        assert hass.data[DOMAIN][setup_integration.entry_id]["shim"].is_active
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            {"target_pct": 80},
+            {"duration_minutes": 30},
+            {"duration_minutes": 0, "target_pct": 80},
+            {"duration_minutes": 241, "target_pct": 80},
+            {"duration_minutes": 30, "target_pct": 101},
+        ],
+    )
+    async def test_schema_rejects_bad_input(self, hass, setup_integration, data):
+        with pytest.raises(vol.Invalid):
+            await hass.services.async_call(DOMAIN, "force_charge", data, blocking=True)
+
+
 class TestSelectKeepsTheBaselineInStep:
     async def test_a_manual_mode_change_updates_a_held_baseline(
         self, hass, setup_integration, fake_client
