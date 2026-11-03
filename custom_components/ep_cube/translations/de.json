@@ -143,6 +143,8 @@
     "number": {
       "self_consumption_reserve": {"name": "Eigenverbrauchsreserve"},
       "backup_reserve": {"name": "Notstromreserve"},
+      "dynamic_buy_below_set": {"name": "Dynamisch: Kaufen unter einstellen"},
+      "dynamic_sell_above_set": {"name": "Dynamisch: Verkaufen über einstellen"},
       "predbat_charge_limit": {"name": "Predbat Ladelimit"}
     }
   },

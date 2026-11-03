@@ -161,9 +161,13 @@ select.ep_cube_operating_mode
 switch.ep_cube_allow_grid_charge
 number.ep_cube_self_consumption_reserve
 number.ep_cube_backup_reserve
+number.ep_cube_set_dynamic_buy_below_price
+number.ep_cube_set_dynamic_sell_above_price
 ```
 
 Call `select.select_option` / `number.set_value` from automations.
+
+The two **Dynamic price** numbers (p/kWh, 0 to 99.99) set the Dynamic tariff's buy-below and sell-above prices from Home Assistant, for people who set them by hand instead of through Predbat. They are available only while the cube is in Dynamic tariff mode, and not while a forced export or charge is running (the integration owns the prices then). Like the force services, a change is refused while Predbat is controlling the cube (its read-only switch off); the value stays readable. Two combinations are refused because they are exactly what a forced export writes and could be mistaken for one left over after a restart: a buy-below of 0 with a sell-above from 0 to 5. Use a buy-below of 0.01 or a sell-above above 5 instead. The reserve level for Dynamic mode is the existing `number.ep_cube_self_consumption_reserve`.
 
 ---
 

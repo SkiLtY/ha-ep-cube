@@ -143,6 +143,8 @@
     "number": {
       "self_consumption_reserve": {"name": "Self-consumption reserve"},
       "backup_reserve": {"name": "Backup reserve"},
+      "dynamic_buy_below_set": {"name": "Set Dynamic buy-below price"},
+      "dynamic_sell_above_set": {"name": "Set Dynamic sell-above price"},
       "predbat_charge_limit": {"name": "Predbat charge limit"}
     }
   },

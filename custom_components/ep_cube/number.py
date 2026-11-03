@@ -53,9 +53,14 @@ from .const import (
     OPERATING_MODE_TOU,
 )
 from .coordinator import EPCubeCoordinator
-from .services import PredbatShim
+from .predbat_state import ensure_predbat_not_in_control
+from .services import PredbatShim, _is_shim_dynamic_signature
 
 _LOGGER = logging.getLogger(__name__)
+
+# Highest price the number boxes take. Kept under 999.99, the value the shim writes for
+# "always" during a forced charge, so a user's setting can never look like the shim's.
+THRESHOLD_MAX_P = 99.99
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -102,6 +107,43 @@ RESERVES: tuple[EPCubeReserveDescription, ...] = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class EPCubeThresholdDescription(NumberEntityDescription):
+    value_fn: Callable[[DeviceStatus], float | None]
+    wire_field: str
+
+
+# The Dynamic tariff's two prices. The cube keeps meaningless placeholders for them
+# outside Dynamic mode, so these are available only in Dynamic mode, and never while a
+# forced export or charge is running (the shim owns the thresholds then).
+THRESHOLDS: tuple[EPCubeThresholdDescription, ...] = (
+    EPCubeThresholdDescription(
+        key="dynamic_buy_below_set",
+        translation_key="dynamic_buy_below_set",
+        entity_category=EntityCategory.CONFIG,
+        native_unit_of_measurement="p/kWh",
+        native_min_value=0,
+        native_max_value=THRESHOLD_MAX_P,
+        native_step=0.01,
+        mode=NumberMode.BOX,
+        value_fn=lambda s: s.dynamic_buy_below,
+        wire_field="dynamicChargePrice",
+    ),
+    EPCubeThresholdDescription(
+        key="dynamic_sell_above_set",
+        translation_key="dynamic_sell_above_set",
+        entity_category=EntityCategory.CONFIG,
+        native_unit_of_measurement="p/kWh",
+        native_min_value=0,
+        native_max_value=THRESHOLD_MAX_P,
+        native_step=0.01,
+        mode=NumberMode.BOX,
+        value_fn=lambda s: s.dynamic_sell_above,
+        wire_field="dynamicDischargePrice",
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -118,6 +160,16 @@ async def async_setup_entry(
         )
         for desc in RESERVES
     ]
+    entities.extend(
+        EPCubeThresholdNumber(
+            coordinator=data["coordinator"],
+            client=data["client"],
+            shim=data["shim"],
+            entry_id=entry.entry_id,
+            description=desc,
+        )
+        for desc in THRESHOLDS
+    )
     entities.append(EPCubePredbatChargeLimit(entry_id=entry.entry_id))
     async_add_entities(entities)
 
@@ -198,6 +250,93 @@ class EPCubeReserveNumber(CoordinatorEntity[EPCubeCoordinator], NumberEntity):
             ) from err
 
         self._shim.patch_baseline(field, wire_value)
+        await self.coordinator.async_request_refresh()
+
+
+class EPCubeThresholdNumber(CoordinatorEntity[EPCubeCoordinator], NumberEntity):
+    """Writable Dynamic-tariff buy-below / sell-above price, for people who set them
+    by hand instead of through Predbat.
+
+    Like the force services they are refused while Predbat is driving the cube (see
+    ensure_predbat_not_in_control); the value stays readable.
+
+    Predbat's shim writes both prices itself during a forced export or charge and
+    parks them afterwards, so these never write while an override is running. A write
+    also patches the shim's baseline, so the revert at the end of a later override
+    restores the new value, not the old one."""
+
+    _attr_has_entity_name = True
+    entity_description: EPCubeThresholdDescription
+
+    def __init__(
+        self,
+        *,
+        coordinator: EPCubeCoordinator,
+        client: EPCubeClient,
+        shim: PredbatShim,
+        entry_id: str,
+        description: EPCubeThresholdDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._client = client
+        self._shim = shim
+        self._attr_unique_id = f"{entry_id}_{description.key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name="EP Cube",
+            manufacturer="Canadian Solar",
+            model="EP Cube",
+        )
+
+    @property
+    def available(self) -> bool:
+        return (
+            super().available
+            and self.native_value is not None
+            and not self._shim.is_active
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        if self.coordinator.data is None:
+            return None
+        return self.entity_description.value_fn(self.coordinator.data)
+
+    async def async_set_native_value(self, value: float) -> None:
+        field = self.entity_description.wire_field
+        ensure_predbat_not_in_control(self.hass, "a change to the Dynamic prices")
+        if self._shim.is_active:
+            raise HomeAssistantError(
+                "a forced export or charge is running and has taken over the Dynamic "
+                "prices; change them after it ends"
+            )
+        if self.native_value is None:
+            raise HomeAssistantError(
+                "the cube is not in Dynamic tariff mode; it keeps these prices only "
+                "while that mode is on"
+            )
+        value = round(float(value), 2)
+        try:
+            live = await self._client.get_switch_mode()
+            candidate = {**live, field: value}
+            if _is_shim_dynamic_signature(candidate):
+                raise HomeAssistantError(
+                    f"buy-below {candidate.get('dynamicChargePrice')} with sell-above "
+                    f"{candidate.get('dynamicDischargePrice')} is exactly what a forced "
+                    "export or charge writes, so it could be mistaken for one left over "
+                    "after a restart and reset. Use a buy-below above 0 (for example "
+                    "0.01) or a sell-above above 5."
+                )
+            payload = payload_from_switch_mode_read(
+                self._client.dev_id, live, overrides={field: value}
+            )
+            await self._client.switch_mode(payload, verify_keys=(field,))
+        except EPCubeError as err:
+            raise HomeAssistantError(
+                f"failed to set {self.entity_description.key}={value}: {err}"
+            ) from err
+        self._shim.patch_baseline(field, value)
         await self.coordinator.async_request_refresh()
 
 

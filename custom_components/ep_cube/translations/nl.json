@@ -143,6 +143,8 @@
     "number": {
       "self_consumption_reserve": {"name": "Zelfverbruik-reserve"},
       "backup_reserve": {"name": "Back-up-reserve"},
+      "dynamic_buy_below_set": {"name": "Dynamisch: koop onder instellen"},
+      "dynamic_sell_above_set": {"name": "Dynamisch: verkoop boven instellen"},
       "predbat_charge_limit": {"name": "Predbat laadlimiet"}
     }
   },
