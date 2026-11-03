@@ -48,6 +48,10 @@ class EPCubeSensorDescription(SensorEntityDescription):
     available_fn: Callable[[DeviceStatus], bool] | None = None
 
 
+# A lifetime reading below this share of the highest seen is a new count, not a glitch.
+_LIFETIME_RESET_BELOW = 0.5
+
+
 @dataclass(frozen=True, kw_only=True)
 class EPCubeStatsSensorDescription(SensorEntityDescription):
     """Description for sensors fed by EPCubeStatsCoordinator.
@@ -1415,6 +1419,11 @@ class EPCubeStatsSensor(CoordinatorEntity[EPCubeStatsCoordinator], RestoreSensor
         if value is None:
             return self._highest
         if self._highest is not None and value < self._highest:
-            return self._highest
+            # A zero or a small dip is a cloud glitch: hold. A positive reading
+            # well below the highest is the cloud starting a new count (for
+            # example at the year roll-over): follow it, and HA's total_increasing
+            # handling treats it as a reset.
+            if value <= 0 or value >= self._highest * _LIFETIME_RESET_BELOW:
+                return self._highest
         self._highest = float(value)
         return value

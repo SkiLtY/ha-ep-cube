@@ -65,7 +65,7 @@ class TestNeverStepsBackwards:
         data["total"] = {"solarelectricity": 101.5}
         assert sensor.native_value == 101.5
 
-    def test_a_lower_or_zero_reading_keeps_the_highest(self):
+    def test_a_small_dip_or_zero_reading_keeps_the_highest(self):
         data = {"total": {"solarelectricity": 100.0}}
         sensor = _sensor("solar_total", data)
         assert sensor.native_value == 100.0
@@ -73,6 +73,20 @@ class TestNeverStepsBackwards:
         assert sensor.native_value == 100.0
         data["total"] = {"solarelectricity": 99.0}
         assert sensor.native_value == 100.0
+        data["total"] = {"solarelectricity": 50.0}      # exactly half: still a dip
+        assert sensor.native_value == 100.0
+
+    def test_a_new_count_well_below_the_highest_is_followed(self):
+        # The cloud starting again (year roll-over): do not freeze for months.
+        data = {"total": {"solarelectricity": 3681.3}}
+        sensor = _sensor("solar_total", data)
+        assert sensor.native_value == 3681.3
+        data["total"] = {"solarelectricity": 0.0}       # first hours of the year
+        assert sensor.native_value == 3681.3
+        data["total"] = {"solarelectricity": 0.4}
+        assert sensor.native_value == 0.4
+        data["total"] = {"solarelectricity": 1.9}
+        assert sensor.native_value == 1.9
 
     def test_a_missing_reading_keeps_the_highest(self):
         data = {"total": {"solarelectricity": 100.0}}
