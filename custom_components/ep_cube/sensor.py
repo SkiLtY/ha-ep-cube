@@ -57,6 +57,10 @@ class EPCubeStatsSensorDescription(SensorEntityDescription):
     """
 
     value_fn: Callable[[dict[str, dict]], float | str | None]
+    # Lifetime counters only: never report less than the highest value seen (or
+    # restored), so a short cloud glitch cannot make the Energy dashboard count a
+    # reset followed by a jump.
+    monotonic: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -978,6 +982,50 @@ STATS_SENSORS: tuple[EPCubeStatsSensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=_bucket_field("year", "backupelectricity"),
     ),
+    # Lifetime totals for the Energy dashboard. State class TOTAL_INCREASING; the
+    # value comes from the cloud's `total` bucket, so after a restart it picks up
+    # again at the cloud's figure (the last value is restored until it arrives).
+    # Until the cloud's first year roll-over the `total` bucket equals the year.
+    EPCubeStatsSensorDescription(
+        key="grid_import_total",
+        translation_key="grid_import_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("total", "gridelectricityfrom"),
+        monotonic=True,
+    ),
+    EPCubeStatsSensorDescription(
+        key="grid_export_total",
+        translation_key="grid_export_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("total", "gridelectricityto"),
+        monotonic=True,
+    ),
+    EPCubeStatsSensorDescription(
+        key="solar_total",
+        translation_key="solar_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("total", "solarelectricity"),
+        monotonic=True,
+    ),
+    EPCubeStatsSensorDescription(
+        key="backup_total",
+        translation_key="backup_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=_bucket_field("total", "backupelectricity"),
+        monotonic=True,
+    ),
     # Derived percentages from the stats coordinator's today/yesterday
     # buckets (v1.2). All four pull from a single bucket dict so they share
     # the coordinator's existing update cadence — today's pair refreshes
@@ -1342,6 +1390,7 @@ class EPCubeStatsSensor(CoordinatorEntity[EPCubeStatsCoordinator], RestoreSensor
         self.entity_description = description
         self._attr_unique_id = f"{entry_id}_{description.key}"
         self._restored_value: float | str | None = None
+        self._highest: float | None = None
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry_id)},
             name="EP Cube",
@@ -1353,9 +1402,19 @@ class EPCubeStatsSensor(CoordinatorEntity[EPCubeStatsCoordinator], RestoreSensor
         await super().async_added_to_hass()
         if (last := await self.async_get_last_sensor_data()) is not None:
             self._restored_value = last.native_value
+            if self.entity_description.monotonic and isinstance(last.native_value, (int, float)):
+                self._highest = float(last.native_value)
 
     @property
     def native_value(self) -> float | str | None:
         if self.coordinator.data is None:
             return self._restored_value
-        return self.entity_description.value_fn(self.coordinator.data)
+        value = self.entity_description.value_fn(self.coordinator.data)
+        if not self.entity_description.monotonic:
+            return value
+        if value is None:
+            return self._highest
+        if self._highest is not None and value < self._highest:
+            return self._highest
+        self._highest = float(value)
+        return value
