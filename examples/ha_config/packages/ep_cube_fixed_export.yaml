@@ -1,0 +1,101 @@
+# Export to the grid at fixed hours, without Predbat. Drop this file next to
+# ep_cube.yaml in /config/packages/ and restart. Everything is set from the
+# helpers it creates (Settings > Devices & services > Helpers), no editing needed:
+#
+#   "Fixed export enabled"   the on/off switch
+#   "Fixed export start"     when to start, for example 17:00
+#   "Fixed export end"       when to stop, for example 19:00 (may be after midnight)
+#   "Fixed export minimum SoC"  only start if the battery is above this level
+#   "Fixed export reserve"      stop exporting at this level
+#
+# Needs: the EP Cube integration v1.7 or later, and Dynamic tariff set up in the
+# EP Cube app (the export uses it). The cube returns to its normal mode by itself at
+# the end of the window; the second automation is only a safety net.
+#
+# Predbat: do not use this while Predbat is controlling the cube. The force_export
+# service refuses in that case (the automation's trace shows the message), because
+# Predbat's next plan would replace the export. It works if Predbat is in read-only
+# (monitor) mode or not installed.
+#
+# Longest window is 4 hours (the service's limit); a longer one is cut to 4 hours.
+
+input_boolean:
+  ep_cube_fixed_export_enabled:
+    name: Fixed export enabled
+    icon: mdi:transmission-tower-export
+
+input_datetime:
+  ep_cube_fixed_export_start:
+    name: Fixed export start
+    has_date: false
+    has_time: true
+    initial: "17:00:00"
+  ep_cube_fixed_export_end:
+    name: Fixed export end
+    has_date: false
+    has_time: true
+    initial: "19:00:00"
+
+input_number:
+  ep_cube_fixed_export_min_soc:
+    name: Fixed export minimum SoC
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    initial: 40
+  ep_cube_fixed_export_reserve:
+    name: Fixed export reserve
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    initial: 30
+
+automation:
+  - id: ep_cube_fixed_export_start
+    alias: "EP Cube: fixed-hours export"
+    description: >-
+      At the start time, export to the grid until the end time or the reserve level,
+      if the switch is on and the battery is above the minimum level.
+    mode: single
+    triggers:
+      - trigger: time
+        at: input_datetime.ep_cube_fixed_export_start
+    conditions:
+      - condition: state
+        entity_id: input_boolean.ep_cube_fixed_export_enabled
+        state: "on"
+      - condition: numeric_state
+        entity_id: sensor.ep_cube_battery_soc
+        above: input_number.ep_cube_fixed_export_min_soc
+    actions:
+      - variables:
+          # Minutes from start to end; the modulo handles an end after midnight.
+          # Capped at the service's 4-hour limit.
+          minutes: >-
+            {% set span = (today_at(states('input_datetime.ep_cube_fixed_export_end'))
+                           - today_at(states('input_datetime.ep_cube_fixed_export_start'))
+                          ).total_seconds() / 60 %}
+            {{ [(span % 1440) | int, 240] | min }}
+      - condition: template
+        value_template: "{{ minutes | int >= 1 }}"
+      - action: ep_cube.force_export
+        data:
+          duration_minutes: "{{ minutes | int }}"
+          reserve_pct: "{{ states('input_number.ep_cube_fixed_export_reserve') | float(30) }}"
+
+  - id: ep_cube_fixed_export_stop
+    alias: "EP Cube: end the fixed-hours export"
+    description: >-
+      Safety net: at the end time, or when the switch is turned off, end any forced
+      export and return the cube to its normal mode. Does nothing if none is running.
+    mode: single
+    triggers:
+      - trigger: time
+        at: input_datetime.ep_cube_fixed_export_end
+      - trigger: state
+        entity_id: input_boolean.ep_cube_fixed_export_enabled
+        to: "off"
+    actions:
+      - action: ep_cube.force_export_stop
