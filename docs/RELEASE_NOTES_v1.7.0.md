@@ -1,6 +1,6 @@
-## 🏷️ EP Cube Integration v1.7.0 — force export and force charge without Predbat
+## 🏷️ EP Cube Integration v1.7.0 — control without Predbat, and lifetime totals
 
-> **TL;DR** — two new pairs of services let you export to the grid or charge from it for a set time from an automation, a script or Developer Tools, with the same safe revert Predbat's windows use. They step aside while Predbat is in charge.
+> **TL;DR** — two new pairs of services let you export to the grid or charge from it for a set time from an automation, a script or Developer Tools, with the same safe revert Predbat's windows use. They step aside while Predbat is in charge. Also new: number entities for the Dynamic prices, a fixed-hours export example, and lifetime energy totals for the Energy dashboard.
 
 ### ✨ New
 
