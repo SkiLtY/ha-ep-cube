@@ -60,7 +60,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Highest price the number boxes take. Kept under 999.99, the value the shim writes for
 # "always" during a forced charge, so a user's setting can never look like the shim's.
-THRESHOLD_MAX_P = 99.99
+THRESHOLD_MAX_P = 500.0
 
 
 @dataclass(frozen=True, kw_only=True)

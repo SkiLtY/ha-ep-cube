@@ -153,8 +153,11 @@ class TestWriting:
             await _write(hass, _entity(hass, setup_integration, "dynamic_buy_below_set"), 10.0)
 
     async def test_the_range_stays_below_the_shims_always_value(self, hass, setup_integration):
-        state = hass.states.get(_entity(hass, setup_integration, "dynamic_buy_below_set"))
-        assert state.attributes["max"] < 999.99
+        for key in ("dynamic_buy_below_set", "dynamic_sell_above_set"):
+            state = hass.states.get(_entity(hass, setup_integration, key))
+            assert state.attributes["min"] == 0
+            assert state.attributes["max"] == 500.0
+            assert state.attributes["max"] < 999.99
 
 class TestPredbatGate:
     @pytest.mark.parametrize("state", ["off", "unavailable"])
