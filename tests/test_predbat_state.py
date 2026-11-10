@@ -201,6 +201,45 @@ class TestChargeRun:
         assert read_plan(hass).charge_run_end is None
 
 
+class TestChargeHold:
+    """charge_hold_end: a freeze may only hold inside a charge the plan really has."""
+
+    CURVE = {
+        "2026-11-10T00:00:00+0000": 0,
+        "2026-11-10T17:00:00+0000": 28,
+        "2026-11-10T17:30:00+0000": 0,
+        "2026-11-11T00:30:00+0000": 100,
+        "2026-11-11T05:30:00+0000": 0,
+    }
+
+    @staticmethod
+    def _publish(hass, results):
+        hass.states.async_set("predbat.best_charge_limit", "28",
+                              {"results": results} if results is not None else {})
+
+    async def test_stale_window_but_no_planned_charge_gives_no_hold(self, hass):
+        # 10 Nov 2026 05:45: the published window said 13:30, the plan said 0 until 17:00.
+        self._publish(hass, self.CURVE)
+        now = datetime(2026, 11, 10, 5, 45, tzinfo=timezone.utc)
+        assert read_plan(hass, now).charge_hold_end is None
+
+    async def test_inside_a_planned_charge_the_hold_ends_when_charging_stops(self, hass):
+        self._publish(hass, self.CURVE)
+        now = datetime(2026, 11, 11, 4, 0, tzinfo=timezone.utc)
+        assert read_plan(hass, now).charge_hold_end == datetime(
+            2026, 11, 11, 5, 30, tzinfo=timezone.utc)
+
+    async def test_no_curve_gives_no_hold(self, hass):
+        self._publish(hass, None)
+        now = datetime(2026, 11, 11, 4, 0, tzinfo=timezone.utc)
+        assert read_plan(hass, now).charge_hold_end is None
+
+    async def test_a_charge_with_no_known_end_is_not_guessed(self, hass):
+        self._publish(hass, {"2026-11-11T00:30:00+0000": 100})
+        now = datetime(2026, 11, 11, 4, 0, tzinfo=timezone.utc)
+        assert read_plan(hass, now).charge_hold_end is None
+
+
 class TestPlannedEndSoc:
     """The SoC the plan reaches at the end of the export window (the plan page's Limit %)."""
 

@@ -89,9 +89,12 @@ class PredbatPlan:
     # 02:00 because the first slot was taken as the whole window.
     charge_run_end: datetime | None = None
     charge_run_limit_pct: int | None = None
+    # Where the plan's charging stops if it is charging right now; None when it is
+    # not (or cannot be told). The limit on how long a charge freeze may hold.
+    charge_hold_end: datetime | None = None
 
 
-def read_plan(hass: HomeAssistant) -> PredbatPlan:
+def read_plan(hass: HomeAssistant, now: datetime | None = None) -> PredbatPlan:
     """Read every Predbat entity in one snapshot and return a parsed plan.
 
     Raises PredbatStateError on malformed timestamp values. Missing entities
@@ -121,6 +124,7 @@ def read_plan(hass: HomeAssistant) -> PredbatPlan:
         discharge_planned_end_soc_pct=discharge_planned_end_soc_pct,
         charge_run_end=charge_run_end,
         charge_run_limit_pct=charge_run_limit_pct,
+        charge_hold_end=_charge_hold_end(hass, now or dt_util.utcnow()),
     )
 
 
@@ -136,18 +140,9 @@ def _charge_run(
     stops and the slot boundary stays the end). Returns (None, None) when the
     curve is missing or has nothing for the window.
     """
-    state = _state_obj(hass, "predbat.best_charge_limit")
-    results = state.attributes.get("results") if state is not None else None
-    if not isinstance(results, dict):
+    steps = _charge_steps(hass)
+    if steps is None:
         return None, None
-    steps: list[tuple[datetime, float]] = []
-    for key, value in results.items():
-        stamp = dt_util.parse_datetime(str(key))
-        try:
-            steps.append((stamp, float(value)))
-        except (TypeError, ValueError):
-            continue
-    steps = sorted((s for s in steps if s[0] is not None), key=lambda s: s[0])
 
     def value_at(when: datetime) -> float | None:
         found = None
@@ -170,6 +165,48 @@ def _charge_run(
             break                      # no known end: do not guess
         end = following[0]
     return end, int(math.ceil(run_limit))
+
+
+def _charge_steps(hass: HomeAssistant) -> list[tuple[datetime, float]] | None:
+    """The planned charge limit as sorted (slot start, limit %) change points,
+    or None when `predbat.best_charge_limit` has no curve."""
+    state = _state_obj(hass, "predbat.best_charge_limit")
+    results = state.attributes.get("results") if state is not None else None
+    if not isinstance(results, dict):
+        return None
+    steps: list[tuple[datetime, float]] = []
+    for key, value in results.items():
+        stamp = dt_util.parse_datetime(str(key))
+        try:
+            steps.append((stamp, float(value)))
+        except (TypeError, ValueError):
+            continue
+    return sorted((s for s in steps if s[0] is not None), key=lambda s: s[0])
+
+
+def _charge_hold_end(hass: HomeAssistant, now: datetime) -> datetime | None:
+    """When the plan's charging stops, if the plan is charging at `now`.
+
+    None when the curve is missing, the plan has no charge at `now` (limit 0),
+    or no later point ends it (an end is never guessed). A freeze or hold is
+    only legitimate inside a planned charge: `best_charge_start`/`_end` can be a
+    stale window from an earlier optimiser pass (10 Nov 2026: 01:00 to 13:30
+    published while the plan charged only until 05:30), and holding to that end
+    kept the reserve at 100% for hours.
+    """
+    steps = _charge_steps(hass)
+    if not steps:
+        return None
+    current = None
+    for stamp, value in steps:
+        if stamp <= now:
+            current = value
+    if current is None or current <= 0:
+        return None
+    for stamp, value in steps:
+        if stamp > now and value <= 0:
+            return stamp
+    return None
 
 
 def _planned_soc_pct_at(hass: HomeAssistant, when: datetime) -> int | None:

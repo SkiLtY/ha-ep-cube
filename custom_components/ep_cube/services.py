@@ -1678,7 +1678,20 @@ async def async_register_services(hass: HomeAssistant) -> None:
                 "charge_freeze fired but no charge window published — ignoring"
             )
             return
-        await shim.charge_freeze(end_time=plan.charge_window.end)
+        # Hold only inside a charge the plan really has right now, and only to its
+        # end. The published window can be a stale one (10 Nov 2026: 01:00 to 13:30
+        # while the plan charged to 05:30), which held the reserve at 100% for hours.
+        # Cannot tell (no curve) is treated like no charge: do nothing, the cube
+        # stays in Self-Consumption.
+        hold_end = plan.charge_hold_end
+        if hold_end is None:
+            _LOGGER.info(
+                "charge_freeze: the plan has no charge running now - not holding "
+                "the battery (published window %s)",
+                plan.charge_window,
+            )
+            return
+        await shim.charge_freeze(end_time=min(plan.charge_window.end, hold_end))
 
     async def handle_discharge_freeze(call: ServiceCall) -> None:
         shim = _resolve_shim(call)
