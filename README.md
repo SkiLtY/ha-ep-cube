@@ -138,7 +138,7 @@ All shim services accept only an optional `device_id`. Window and SoC parameters
 
 | Service | Purpose |
 |---------|---------|
-| `ep_cube.force_charge` | Charge from the grid for `duration_minutes` (1-240), stopping at `target_pct`. Done the way your *Force charge mode* option says: with Dynamic tariff it stops at the target; with the time-of-use off-peak option there is no target, so it charges until the time is up |
+| `ep_cube.force_charge` | Charge from the grid for `duration_minutes` (1-240), stopping at `target_pct`. Done the way your *Force charge mode* option says: with Dynamic tariff it stops at the target; with the time-of-use off-peak option there is no target, so it charges until the time is up; with the Backup option it charges to the target (a target below 50% is raised to 50%) |
 | `ep_cube.force_charge_stop` | End a forced charge early and return to the previous mode |
 | `ep_cube.force_export` | Export battery energy to the grid for `duration_minutes` (1-240), stopping at `reserve_pct` (never below the cube's own self-consumption reserve) |
 | `ep_cube.force_export_stop` | End a forced export early and return to the previous mode |
@@ -379,6 +379,7 @@ This stack uses **HA Container** (lightweight, no Supervisor). HA Container cann
 | **v1.5** | ✅ | **EV charger sensors + a dashboard that reconciles with your bill** — EV charger power and EV charger today (only when the cube reports a charger) and a house load that includes the car, contributed by [Eric Fisher](https://github.com/eafisher11); a Month tab with a daily billed-cost chart that matches Octopus's own page; estimates until each day is billed; solar-used-at-home rings everywhere; and a weekly package that adds up finished days instead of a utility meter that over-counted. See [release notes](docs/RELEASE_NOTES_v1.5.0.md). |
 | **v1.6** | ✅ | Battery charged / discharged today counters survive a restart ([#3](https://github.com/SkiLtY/ha-ep-cube/issues/3)), plus eco metrics ([#10](https://github.com/SkiLtY/ha-ep-cube/issues/10)) and read-only Dynamic tariff threshold sensors ([#11](https://github.com/SkiLtY/ha-ep-cube/issues/11)). |
 | **v1.7** | ✅ | **Control without Predbat, and lifetime totals** — shipped 2026-11-03 in [`v1.7.0`](https://github.com/SkiLtY/ha-ep-cube/releases/tag/v1.7.0). Force-export and force-charge services ([#13](https://github.com/SkiLtY/ha-ep-cube/issues/13), [#14](https://github.com/SkiLtY/ha-ep-cube/issues/14)) that step aside while Predbat is in charge, Dynamic buy-below and sell-above number entities ([#12](https://github.com/SkiLtY/ha-ep-cube/issues/12)), a fixed-hours export example ([#15](https://github.com/SkiLtY/ha-ep-cube/issues/15)) and lifetime energy totals that survive restarts ([#9](https://github.com/SkiLtY/ha-ep-cube/issues/9)). |
+| **v1.8** | ✅ | **Backup mode as a force charge option** — a workaround for a cube whose Dynamic-tariff grid charge is capped at about 1 kW. Choose *Backup mode* under Configure → Force charge mode. A charge window then writes Backup mode with the Backup reserve set to Predbat's target. Also, `charge_start` follows Predbat's plan curve instead of a stale published window. See [release notes](docs/RELEASE_NOTES_v1.8.0.md). |
 
 The full backlog, including the dashboard and Predbat-history ideas, is in the [issues](https://github.com/SkiLtY/ha-ep-cube/issues).
 

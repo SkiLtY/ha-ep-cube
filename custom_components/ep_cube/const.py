@@ -142,9 +142,12 @@ FORCE_CHARGE_MODE_DYNAMIC = "dynamic"
 #                 Backup mode charged at 6.3 kW on the same cube, minutes apart).
 FORCE_CHARGE_MODE_BACKUP = "backup"
 # The lowest Backup reserve the EP Cube app lets you choose. The cloud took lower values
-# when this was checked in May 2026 (firmware older than V1.3.1), but that has not been
-# confirmed since, so the reserve slider and the Backup charge option both stop here: a
-# Predbat target below it is raised to it, so the charge can overshoot a little.
+# in May 2026 (firmware older than V1.3.1) and again on 18 Nov 2026 (V1.3.1: a Backup
+# reserve of 10 was accepted and read back), so this is the app's limit, not the
+# cloud's. The reserve slider and the Backup charge option both stop here anyway, as the
+# conservative setting that has run nightly: a Predbat target below it is raised to it,
+# so the charge can overshoot a little. 18 Nov 2026 also showed that with the battery
+# above the reserve, Backup mode runs the house from the battery, like Self-Consumption.
 BACKUP_RESERVE_MIN_PCT = 50
 DEFAULT_FORCE_CHARGE_MODE = FORCE_CHARGE_MODE_TOU_OFFPEAK
 # A Dynamic charge is checked this many minutes after it starts: if the battery is
