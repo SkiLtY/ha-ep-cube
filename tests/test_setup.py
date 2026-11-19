@@ -992,3 +992,51 @@ class TestEvSensors:
 
         await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+class TestStalePredbatChargeWindow:
+    """charge_start / charge_freeze must follow the plan's curve, not a stale published window.
+
+    10 Nov 2026 05:45: best_charge_end said 13:30 while the plan charged only to 05:30.
+    """
+
+    @staticmethod
+    def _publish(hass, *, window_end, curve):
+        def stamp(when):
+            return when.strftime("%Y-%m-%dT%H:%M:%S+0000")
+
+        now = dt_util.utcnow()
+        start = now - timedelta(hours=4)
+        hass.states.async_set("predbat.best_charge_start", "00:00:00", {"timestamp": stamp(start)})
+        hass.states.async_set(
+            "predbat.best_charge_end", "00:00:00", {"timestamp": stamp(now + window_end)}
+        )
+        hass.states.async_set(
+            "predbat.best_charge_limit", "100",
+            {"results": {stamp(now + offset): value for offset, value in curve}},
+        )
+
+    async def test_no_charge_in_the_plan_starts_nothing(self, hass, setup_integration):
+        self._publish(hass, window_end=timedelta(hours=8), curve=[
+            (timedelta(hours=-5), 0), (timedelta(hours=10), 100),
+        ])
+        await hass.services.async_call(DOMAIN, "charge_start", {}, blocking=True)
+        await hass.services.async_call(DOMAIN, "charge_freeze", {}, blocking=True)
+        assert not hass.data[DOMAIN][setup_integration.entry_id]["shim"].is_active
+
+    async def test_a_charge_in_the_plan_ends_at_the_plans_end_not_the_stale_window(
+        self, hass, setup_integration
+    ):
+        self._publish(hass, window_end=timedelta(hours=8), curve=[
+            (timedelta(hours=-1), 100), (timedelta(hours=1), 0),
+        ])
+        await hass.services.async_call(DOMAIN, "charge_start", {}, blocking=True)
+        shim = hass.data[DOMAIN][setup_integration.entry_id]["shim"]
+        assert shim.is_active
+        ends_in = shim._active_override["end_time"] - dt_util.utcnow()
+        assert timedelta(minutes=50) < ends_in < timedelta(minutes=70)
+
+    async def test_a_missing_curve_starts_nothing(self, hass, setup_integration):
+        self._publish(hass, window_end=timedelta(hours=1), curve=[])
+        await hass.services.async_call(DOMAIN, "charge_start", {}, blocking=True)
+        assert not hass.data[DOMAIN][setup_integration.entry_id]["shim"].is_active

@@ -1640,6 +1640,25 @@ async def async_register_services(hass: HomeAssistant) -> None:
             end_time = plan.charge_run_end
             if plan.charge_run_limit_pct is not None:
                 target_soc_pct = float(plan.charge_run_limit_pct)
+        # Start only a charge the plan has running now, and never past its end. The
+        # published window can be a stale one (10 Nov 2026: 01:00 to 13:30 while the
+        # plan charged only to 05:30), which would run a grid charge for hours.
+        # Cannot tell (no curve) is treated like no charge: do nothing.
+        hold_end = plan.charge_hold_end
+        if hold_end is None:
+            _LOGGER.info(
+                "charge_start: the plan has no charge running now - not starting one "
+                "(published window %s)",
+                plan.charge_window,
+            )
+            return
+        if hold_end < end_time:
+            _LOGGER.info(
+                "charge_start: the plan's charge ends %s, before the published window "
+                "end %s - using the plan's end",
+                hold_end.isoformat(), end_time.isoformat(),
+            )
+            end_time = hold_end
         await shim.charge_start(end_time=end_time, target_soc_pct=target_soc_pct)
 
     async def handle_charge_stop(call: ServiceCall) -> None:
