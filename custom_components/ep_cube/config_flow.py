@@ -68,6 +68,7 @@ from .const import (
     DEFAULT_FORCE_EXPORT_MODE,
     DEFAULT_REGION,
     DOMAIN,
+    FORCE_CHARGE_MODE_BACKUP,
     FORCE_CHARGE_MODE_DYNAMIC,
     FORCE_CHARGE_MODE_TOU_OFFPEAK,
     FORCE_EXPORT_MODE_DYNAMIC,
@@ -149,7 +150,11 @@ class EPCubeOptionsFlow(OptionsFlow):
                 ),
                 vol.Required(CONF_FORCE_CHARGE_MODE, default=current_charge): SelectSelector(
                     SelectSelectorConfig(
-                        options=[FORCE_CHARGE_MODE_TOU_OFFPEAK, FORCE_CHARGE_MODE_DYNAMIC],
+                        options=[
+                            FORCE_CHARGE_MODE_TOU_OFFPEAK,
+                            FORCE_CHARGE_MODE_DYNAMIC,
+                            FORCE_CHARGE_MODE_BACKUP,
+                        ],
                         mode=SelectSelectorMode.DROPDOWN,
                         translation_key=CONF_FORCE_CHARGE_MODE,
                     )

@@ -136,6 +136,16 @@ PV_NAME_KEYS = ("pv1_name", "pv2_name", "pv3_name", "pv4_name")
 PV_NAME_MAX_LENGTH = 40
 FORCE_CHARGE_MODE_TOU_OFFPEAK = "tou_offpeak"
 FORCE_CHARGE_MODE_DYNAMIC = "dynamic"
+#   backup      - Backup mode with the Backup reserve set to Predbat's target: the cube
+#                 grid-charges to the reserve and holds there. A workaround for cubes
+#                 whose Dynamic-tariff grid charge is capped at about 1 kW (26 Oct 2026:
+#                 Backup mode charged at 6.3 kW on the same cube, minutes apart).
+FORCE_CHARGE_MODE_BACKUP = "backup"
+# The lowest Backup reserve the EP Cube app lets you choose. The cloud took lower values
+# when this was checked in May 2026 (firmware older than V1.3.1), but that has not been
+# confirmed since, so the reserve slider and the Backup charge option both stop here: a
+# Predbat target below it is raised to it, so the charge can overshoot a little.
+BACKUP_RESERVE_MIN_PCT = 50
 DEFAULT_FORCE_CHARGE_MODE = FORCE_CHARGE_MODE_TOU_OFFPEAK
 # A Dynamic charge is checked this many minutes after it starts: if the battery is
 # not charging from the grid then, the shim says so and re-sends the write once.

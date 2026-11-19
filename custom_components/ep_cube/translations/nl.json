@@ -234,7 +234,8 @@
     "force_charge_mode": {
       "options": {
         "tou_offpeak": "Time-of-use-dalslot (geen laaddoel)",
-        "dynamic": "Dynamisch tarief (laadt tot het doel van Predbat)"
+        "dynamic": "Dynamisch tarief (laadt tot het doel van Predbat)",
+        "backup": "Back-upmodus (laadt tot het doel van Predbat, noodoplossing)"
       }
     }
   }

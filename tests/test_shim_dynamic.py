@@ -970,3 +970,90 @@ class TestFreezeChargeReserveHold:
         payload = _write(fake_client, 0)
         assert payload["workStatus"] == "2"
         assert payload["selfConsumptioinReserveSoc"] == "20"       # reserve untouched
+
+
+# ----------------------------------------------------------------------
+# Backup charge mode: the workaround for a capped Dynamic grid charge
+# ----------------------------------------------------------------------
+@pytest.fixture
+def backup_shim(hass, fake_client):
+    from custom_components.ep_cube.const import FORCE_CHARGE_MODE_BACKUP
+
+    status = MagicMock()
+    status.data = MagicMock(soc_pct=30.0, grid_power_w=0.0, battery_power_w=0.0)
+    instance = PredbatShim(
+        hass=hass, entry_id="test-entry", client=fake_client,
+        force_export_mode=FORCE_EXPORT_MODE_DYNAMIC,
+        force_charge_mode=FORCE_CHARGE_MODE_BACKUP,
+        status_coordinator=status,
+    )
+    instance.status = status
+    yield instance
+    instance.cancel_revert_timer()
+
+
+class TestBackupChargeOption:
+    async def test_charge_start_writes_backup_mode_with_predbats_target(
+        self, backup_shim, fake_client
+    ):
+        await backup_shim.charge_start(end_time=_future(60), target_soc_pct=72.4)
+        payload = _write(fake_client, 0)
+        assert payload["workStatus"] == "3"                  # Backup mode
+        assert payload["backupPowerReserveSoc"] == "73"      # the target, rounded up
+        assert payload["allowChargingXiaGrid"] == "1"
+        assert payload["touType"] == 0
+        assert "dynamicChargePrice" not in payload
+        assert "dynamicDischargePrice" not in payload
+        assert backup_shim._active_override["kind"] == KIND_CHARGE
+        assert backup_shim._active_override["backup"] is True
+
+    async def test_a_repeat_call_is_a_no_op(self, backup_shim, fake_client):
+        end = _future(60)
+        await backup_shim.charge_start(end_time=end, target_soc_pct=80.0)
+        await backup_shim.charge_start(end_time=end, target_soc_pct=80.0)
+        assert fake_client.switch_mode.await_count == 1
+
+    @pytest.mark.parametrize(
+        ("target", "written"),
+        [(30.0, "50"), (49.2, "50"), (50.0, "50"), (50.1, "51"), (100.0, "100")],
+    )
+    async def test_a_target_below_the_backup_minimum_is_raised_to_it(
+        self, backup_shim, fake_client, target, written
+    ):
+        await backup_shim.charge_start(end_time=_future(60), target_soc_pct=target)
+        assert _write(fake_client, 0)["backupPowerReserveSoc"] == written
+
+    async def test_a_repeat_call_with_a_low_target_is_still_a_no_op(
+        self, backup_shim, fake_client
+    ):
+        end = _future(60)
+        await backup_shim.charge_start(end_time=end, target_soc_pct=30.0)
+        await backup_shim.charge_start(end_time=end, target_soc_pct=30.0)
+        assert fake_client.switch_mode.await_count == 1
+        assert backup_shim._active_override["limit_pct"] == 50
+
+    async def test_charge_stop_restores_the_baseline_in_one_write(
+        self, backup_shim, fake_client
+    ):
+        await backup_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        await backup_shim.charge_stop()
+        assert fake_client.switch_mode.await_count == 2      # override, baseline
+        assert _write(fake_client, 1)["workStatus"] != "3"
+        assert backup_shim._active_override is None
+
+    async def test_a_failed_write_raises_and_leaves_no_override(
+        self, backup_shim, fake_client
+    ):
+        fake_client.switch_mode.side_effect = EPCubeError("rejected")
+        with pytest.raises(EPCubeError):
+            await backup_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        assert backup_shim._active_override is None
+
+    async def test_the_charge_check_resends_the_backup_write(
+        self, backup_shim, fake_client
+    ):
+        await backup_shim.charge_start(end_time=_future(60), target_soc_pct=80.0)
+        with patch(NOTIFY):
+            await backup_shim._on_charge_check(None)         # not charging: resend
+        assert fake_client.switch_mode.await_count == 2
+        assert _write(fake_client, 1)["workStatus"] == "3"

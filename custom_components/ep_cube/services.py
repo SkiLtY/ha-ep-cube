@@ -80,7 +80,10 @@ from .const import (
     DYNAMIC_REVERT_MAX_RETRIES,
     DYNAMIC_REVERT_RETRY_SECONDS,
     DYNAMIC_REVERT_WATCHDOG_MINUTES,
+    BACKUP_RESERVE_MIN_PCT,
+    FORCE_CHARGE_MODE_BACKUP,
     FORCE_EXPORT_MODE_DYNAMIC,
+    OPERATING_MODE_BACKUP,
     OPERATING_MODE_SELF_CONSUMPTION,
     OPERATING_MODE_TOU,
     OVERRIDE_TARGET_TOLERANCE_PCT,
@@ -89,6 +92,7 @@ from .const import (
     SHIM_PRICE_PEAK,
     TOU_TYPE_DYNAMIC,
     TOU_TYPE_STANDARD,
+    WORK_STATUS_BACKUP,
     WORK_STATUS_SELF_CONSUMPTION,
     WORK_STATUS_TOU,
 )
@@ -628,6 +632,9 @@ class PredbatShim:
         if self.force_charge_mode == FORCE_CHARGE_MODE_DYNAMIC:
             await self._charge_start_dynamic(end_time, target_soc_pct)
             return
+        if self.force_charge_mode == FORCE_CHARGE_MODE_BACKUP:
+            await self._charge_start_backup(end_time, target_soc_pct)
+            return
         params = {"kind": KIND_CHARGE, "end_time": end_time, "target_soc_pct": target_soc_pct}
         if self._matches_active(params):
             _LOGGER.debug("charge_start: idempotent no-op")
@@ -799,6 +806,61 @@ class PredbatShim:
             DYNAMIC_CHARGE_BUY_BELOW_P, DYNAMIC_CHARGE_SELL_ABOVE_P,
         )
 
+    async def _charge_start_backup(self, end_time: datetime, limit_pct: float) -> None:
+        """Realise a charge window with Backup mode: workStatus 3 and the Backup
+        reserve set to Predbat's target. The cube grid-charges up to the reserve and
+        holds there; at end_time the baseline is restored like any other override.
+
+        Used when the cube's Dynamic-tariff grid charge is capped (26 Oct 2026)."""
+        await self._snapshot_baseline()
+        limit = max(0, min(100, int(math.ceil(float(limit_pct)))))
+        if limit < BACKUP_RESERVE_MIN_PCT:
+            _LOGGER.info(
+                "charge_start (backup): target %d%% is below the Backup minimum, "
+                "charging to %d%%", limit, BACKUP_RESERVE_MIN_PCT,
+            )
+            limit = BACKUP_RESERVE_MIN_PCT
+        params = {
+            "kind": KIND_CHARGE,
+            "backup": True,
+            "end_time": end_time,
+            "limit_pct": limit,
+        }
+        if self._matches_active(params):
+            _LOGGER.debug("charge_start (backup): idempotent no-op")
+            return
+        payload = payload_from_switch_mode_read(
+            self.client.dev_id,
+            self._baseline or {},
+            overrides={
+                "workStatus": WORK_STATUS_BACKUP,
+                "touType": TOU_TYPE_STANDARD,
+                "backupPowerReserveSoc": str(limit),
+                "allowChargingXiaGrid": "1",
+            },
+        )
+        # Backup mode has no use for Dynamic-tariff thresholds.
+        payload.pop("dynamicChargePrice", None)
+        payload.pop("dynamicDischargePrice", None)
+        try:
+            await self.client.switch_mode(
+                payload, verify_keys=("workStatus", "backupPowerReserveSoc")
+            )
+        except EPCubeError as err:
+            _LOGGER.error("backup charge override failed: %s", err)
+            raise
+        self._active_override = {
+            **params,
+            "applied_mode": OPERATING_MODE_BACKUP,
+            "applied_schedule": payload,
+        }
+        self._schedule_revert(end_time)
+        self._schedule_charge_check(end_time)
+        _LOGGER.info(
+            "charge_start applied: backup charge until %s, reserve %d%%",
+            end_time.isoformat(), limit,
+        )
+
     # ------------------------------------------------------------------
     # Dynamic charge safeguards
     # ------------------------------------------------------------------
@@ -864,7 +926,10 @@ class PredbatShim:
         cycle, so a miss costs one cheap slot, never a stuck state."""
         self._cancel_charge_check()
         override = self._active_override
-        if not override or override.get("kind") != KIND_CHARGE or not override.get("dynamic"):
+        backup = bool(override and override.get("backup"))
+        if not override or override.get("kind") != KIND_CHARGE or not (
+            override.get("dynamic") or backup
+        ):
             return
         status = getattr(self.status_coordinator, "data", None)
         if status is None:
@@ -874,7 +939,8 @@ class PredbatShim:
         if status.grid_power_w > 500 and status.battery_power_w > 500:
             return          # importing and charging: working
         message = (
-            f"A Dynamic charge to {override.get('limit_pct')}% started {DYNAMIC_CHARGE_CHECK_MINUTES} "
+            f"A {'Backup' if backup else 'Dynamic'} charge to {override.get('limit_pct')}% "
+            f"started {DYNAMIC_CHARGE_CHECK_MINUTES} "
             f"minutes ago but the battery is not charging from the grid (SoC {status.soc_pct:.0f}%, "
             f"grid {status.grid_power_w:.0f} W, battery {status.battery_power_w:.0f} W). "
             "Re-sending the setting once."
@@ -887,7 +953,11 @@ class PredbatShim:
         try:
             await self.client.switch_mode(
                 override["applied_schedule"],
-                verify_keys=("workStatus", "touType", "dynamicChargePrice", "backupPowerReserveSoc"),
+                verify_keys=(
+                    ("workStatus", "backupPowerReserveSoc")
+                    if backup
+                    else ("workStatus", "touType", "dynamicChargePrice", "backupPowerReserveSoc")
+                ),
             )
         except EPCubeError as err:
             _LOGGER.error("dynamic charge: re-sending the setting failed (%s)", err)

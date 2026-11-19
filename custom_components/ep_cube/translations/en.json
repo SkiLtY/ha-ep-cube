@@ -234,7 +234,8 @@
     "force_charge_mode": {
       "options": {
         "tou_offpeak": "Time-of-use off-peak slot (no charge target)",
-        "dynamic": "Dynamic tariff (charges to Predbat's target)"
+        "dynamic": "Dynamic tariff (charges to Predbat's target)",
+        "backup": "Backup mode (charges to Predbat's target, workaround)"
       }
     }
   }

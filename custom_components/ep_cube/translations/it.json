@@ -234,7 +234,8 @@
     "force_charge_mode": {
       "options": {
         "tou_offpeak": "Fascia Time-of-Use a basso costo (nessun obiettivo di carica)",
-        "dynamic": "Tariffa dinamica (carica fino all'obiettivo di Predbat)"
+        "dynamic": "Tariffa dinamica (carica fino all'obiettivo di Predbat)",
+        "backup": "Modalità Backup (carica fino all'obiettivo di Predbat, soluzione alternativa)"
       }
     }
   }

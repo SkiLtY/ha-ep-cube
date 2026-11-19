@@ -47,6 +47,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import DeviceStatus, EPCubeClient, EPCubeError, payload_from_switch_mode_read
 from .const import (
+    BACKUP_RESERVE_MIN_PCT,
     DOMAIN,
     OPERATING_MODE_BACKUP,
     OPERATING_MODE_SELF_CONSUMPTION,
@@ -96,7 +97,7 @@ RESERVES: tuple[EPCubeReserveDescription, ...] = (
         translation_key="backup_reserve",
         entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=PERCENTAGE,
-        native_min_value=50,
+        native_min_value=BACKUP_RESERVE_MIN_PCT,
         native_max_value=100,
         native_step=1,
         mode=NumberMode.SLIDER,

@@ -234,7 +234,8 @@
     "force_charge_mode": {
       "options": {
         "tou_offpeak": "Time-of-Use-Nachtslot (kein Ladeziel)",
-        "dynamic": "Dynamischer Tarif (lädt bis zum Ziel von Predbat)"
+        "dynamic": "Dynamischer Tarif (lädt bis zum Ziel von Predbat)",
+        "backup": "Backup-Modus (lädt bis zum Ziel von Predbat, Behelfslösung)"
       }
     }
   }
