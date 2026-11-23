@@ -31,12 +31,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .api import DeviceStatus
-from .const import BATTERY_WARRANTY_CYCLES, DOMAIN, PV_NAME_KEYS
+from .const import BATTERY_WARRANTY_CYCLES, DOMAIN, OPERATING_MODE_TOU, PV_NAME_KEYS
 from .coordinator import (
     EPCubeCoordinator,
     EPCubePriceCoordinator,
     EPCubeStatsCoordinator,
 )
+from .tou_schedule import BAND_NONE, BANDS, band_at, next_change, period_rows
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -595,6 +596,19 @@ CONNECTION_TYPE_SENSOR = EPCubeSensorDescription(
         None if s.networking is None else _CONNECTION_CODES.get(s.networking, "unknown")
     ),
 )
+# The Time of Use schedule held on the cube, read from getSwitchMode. The state is the
+# band in force now (off-peak, mid-peak, peak, or none when no slot covers this time);
+# the periods and the next change are attributes. The cube sends bands and prices, not
+# an action, so what a band does (charge, discharge) is up to the user's automations.
+TOU_SCHEDULE_OPTIONS = [*BANDS, BAND_NONE]
+TOU_SCHEDULE_SENSOR = EPCubeSensorDescription(
+    key="tou_schedule",
+    translation_key="tou_schedule",
+    device_class=SensorDeviceClass.ENUM,
+    options=TOU_SCHEDULE_OPTIONS,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    value_fn=lambda s: None,
+)
 MODEL_SENSOR = EPCubeSensorDescription(
     key="model",
     translation_key="model",
@@ -1113,6 +1127,7 @@ async def async_setup_entry(
     )
     entities.append(EPCubeFirmwareSensor(coordinator, entry.entry_id, RTU_VERSION_SENSOR, "rtu_version"))
     entities.append(EPCubeConnectionSensor(coordinator, entry.entry_id, CONNECTION_TYPE_SENSOR))
+    entities.append(EPCubeTouScheduleSensor(coordinator, entry.entry_id, TOU_SCHEDULE_SENSOR))
     entities.append(EPCubeDetailsSensor(coordinator, entry.entry_id, MODEL_SENSOR, "model"))
     entities.append(
         EPCubeDetailsSensor(coordinator, entry.entry_id, SERIAL_NUMBER_SENSOR, "serial_number")
@@ -1250,6 +1265,52 @@ class EPCubeConnectionSensor(EPCubeSensor):
         data = self.coordinator.data
         code = getattr(data, "networking", None) if data is not None else None
         return {"networking_code": code} if code is not None else {}
+
+
+class EPCubeTouScheduleSensor(EPCubeSensor):
+    """The cube's Time of Use schedule: the band now, with the periods as attributes.
+
+    Read-only. Unavailable while the cloud's reply carries no schedule. In Dynamic
+    mode the lists are placeholders; `schedule_in_use` says whether the cube is in
+    Time of Use mode, which is when the bands apply.
+    """
+
+    def _schedule(self):
+        data = self.coordinator.data
+        return getattr(data, "tou_schedule", None) if data is not None else None
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._schedule() is not None
+
+    @property
+    def native_value(self) -> str | None:
+        schedule = self._schedule()
+        if schedule is None:
+            return None
+        slot = band_at(schedule, dt_util.now())
+        return slot.band if slot is not None else BAND_NONE
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        schedule = self._schedule()
+        if schedule is None:
+            return {}
+        now = dt_util.now()
+        attrs: dict[str, Any] = {
+            "periods": period_rows(schedule),
+            "clock_change_set": schedule.dst_active,
+            "schedule_in_use": self.coordinator.data.operating_mode == OPERATING_MODE_TOU,
+        }
+        slot = band_at(schedule, now)
+        if slot is not None and slot.price is not None:
+            attrs["current_price"] = slot.price
+        upcoming = next_change(schedule, now)
+        if upcoming is not None:
+            moment, band = upcoming
+            attrs["next_change"] = moment.isoformat()
+            attrs["next_band"] = band
+        return attrs
 
 
 class EPCubeDetailsSensor(EPCubeSensor):

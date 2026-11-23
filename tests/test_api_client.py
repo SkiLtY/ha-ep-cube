@@ -279,6 +279,16 @@ class TestApiPrefix:
 # get_status merges two reads into one DeviceStatus.
 # ----------------------------------------------------------------------
 class TestGetStatus:
+    async def test_carries_the_tou_schedule_from_switch_mode(
+        self, aioclient_mock, client_factory, home_device_info, get_switch_mode
+    ):
+        aioclient_mock.get(_url_re("/api/device/homeDeviceInfo"), json=_envelope(home_device_info))
+        aioclient_mock.get(_url_re("/api/device/getSwitchMode"), json=_envelope(get_switch_mode))
+        status = await client_factory().get_status()
+        assert status.tou_schedule is not None
+        assert status.tou_schedule.work_days.days == frozenset({1, 2, 3, 4, 5})
+        assert len(status.tou_schedule.work_days.slots) == 3
+
     async def test_merges_home_device_info_and_switch_mode(
         self, aioclient_mock, client_factory, home_device_info, get_switch_mode
     ):

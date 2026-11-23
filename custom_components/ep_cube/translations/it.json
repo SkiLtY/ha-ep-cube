@@ -49,6 +49,7 @@
       "backup_loads_mode": {"name": "Modalità carichi di backup"},
       "firmware_version": {"name": "Versione firmware"},
       "connection_type": {"name": "Tipo di connessione", "state": {"wifi": "Wi-Fi", "ethernet": "Ethernet", "unknown": "Sconosciuto"}},
+      "tou_schedule": {"name": "Programma TOU", "state": {"off_peak": "Fuori picco", "mid_peak": "Picco medio", "peak": "Picco", "none": "Nessun periodo"}},
       "rtu_version": {"name": "Versione modulo di comunicazione"},
       "model": {"name": "Modello"},
       "serial_number": {"name": "Numero di serie"},

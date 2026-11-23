@@ -49,6 +49,7 @@
       "backup_loads_mode": {"name": "Backup-Lastmodus"},
       "firmware_version": {"name": "Firmware-Version"},
       "connection_type": {"name": "Verbindungsart", "state": {"wifi": "WLAN", "ethernet": "Ethernet", "unknown": "Unbekannt"}},
+      "tou_schedule": {"name": "TOU-Zeitplan", "state": {"off_peak": "Nebenzeit", "mid_peak": "Mittlere Zeit", "peak": "Spitzenzeit", "none": "Kein Zeitraum"}},
       "rtu_version": {"name": "Kommunikationsmodul-Version"},
       "model": {"name": "Modell"},
       "serial_number": {"name": "Seriennummer"},

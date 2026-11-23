@@ -47,6 +47,7 @@ from .const import (
     OPERATING_MODE_TOU,
     WORK_STATUS_TO_OPERATING_MODE,
 )
+from .tou_schedule import TouSchedule, parse_schedule
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -185,6 +186,8 @@ class DeviceStatus:
     # How the cube reaches the cloud: 1 = Wi-Fi, 3 = Ethernet (seen on real cubes; other
     # codes are not known). A cube on Ethernet reports signal_level 0.
     networking: int | None = None
+    # The Time of Use schedule from getSwitchMode (None if the payload carries none).
+    tou_schedule: TouSchedule | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -908,6 +911,7 @@ class EPCubeClient:
             lpc_time_duration=_float_or_none(info.get("lpcTimeDuration")),
             backup_loads_mode=_int_or_none(info.get("backupLoadsMode")),
             networking=_int_or_none(info.get("networking")),
+            tou_schedule=parse_schedule(mode),
         )
 
     async def get_switch_mode(self) -> dict[str, Any]:

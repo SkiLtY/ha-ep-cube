@@ -49,6 +49,7 @@
       "backup_loads_mode": {"name": "Back-up-belastingmodus"},
       "firmware_version": {"name": "Firmwareversie"},
       "connection_type": {"name": "Verbindingstype", "state": {"wifi": "Wi-Fi", "ethernet": "Ethernet", "unknown": "Onbekend"}},
+      "tou_schedule": {"name": "TOU-schema", "state": {"off_peak": "Daltarief", "mid_peak": "Middentarief", "peak": "Piektarief", "none": "Geen periode"}},
       "rtu_version": {"name": "Versie communicatiemodule"},
       "model": {"name": "Model"},
       "serial_number": {"name": "Serienummer"},

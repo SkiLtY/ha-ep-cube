@@ -115,6 +115,8 @@ class TestSetupEntry:
             "fault_warning_type", "signal_level", "system_status", "charging_limit_soc",
             "winter_mode", "lpp_time_duration", "lpc_time_duration", "backup_loads_mode",
             "firmware_version", "connection_type", "rtu_version", "model", "serial_number", "rtu_serial_number",
+            # v1.8.1 Time of Use schedule from getSwitchMode
+            "tou_schedule",
             # v1.2 instant-KPI tiles (derived from homeDeviceInfo power channels)
             "instant_self_consumption_pct",
             "instant_self_sufficiency_pct",
