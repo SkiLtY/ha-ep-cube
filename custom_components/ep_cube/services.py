@@ -655,7 +655,7 @@ class PredbatShim:
 
     async def charge_stop(self) -> None:
         if self._active_override and self._active_override["kind"] == KIND_CHARGE:
-            await self._revert_to_baseline()
+            await self._stop_revert()
             _LOGGER.info("charge_stop: reverted to baseline")
         else:
             _LOGGER.debug("charge_stop: no active charge override (no-op)")
@@ -694,7 +694,7 @@ class PredbatShim:
 
     async def discharge_stop(self) -> None:
         if self._active_override and self._active_override["kind"] == KIND_DISCHARGE:
-            await self._revert_to_baseline()
+            await self._stop_revert()
             _LOGGER.info("discharge_stop: reverted to baseline")
         else:
             _LOGGER.debug("discharge_stop: no active discharge override (no-op)")
@@ -1541,6 +1541,17 @@ class PredbatShim:
                 "could not leave safe Dynamic thresholds before the revert (%s) - "
                 "continuing with the baseline write", err,
             )
+
+    async def _stop_revert(self) -> None:
+        """Revert for a stop service. A failure still reaches the caller, but a
+        bounded retry is armed first, as it is when the revert timer fails: a
+        cloud blip at the end of a window must not leave the cube on the override
+        (a 21 Nov export ended while the cloud reported the cube offline)."""
+        try:
+            await self._revert_to_baseline()
+        except EPCubeError:
+            self._schedule_revert_retry()
+            raise
 
     def _schedule_revert_retry(self) -> None:
         """Retry a failed revert shortly, a bounded number of times. A cube

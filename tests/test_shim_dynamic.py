@@ -243,6 +243,20 @@ class TestDynamicExport:
         assert dyn_shim._revert_retries == 1
         assert dyn_shim._active_override is not None     # still believed active
 
+    async def test_a_failed_stop_raises_and_arms_a_retry(self, dyn_shim, fake_client):
+        await dyn_shim.discharge_start(end_time=_future(30), target_soc_pct=50.0)
+        fake_client.switch_mode.side_effect = EPCubeError("Device is offline")
+        with pytest.raises(EPCubeError):
+            await dyn_shim.discharge_stop()
+        assert dyn_shim._retry_unsub is not None
+        assert dyn_shim._revert_retries == 1
+        assert dyn_shim._active_override is not None
+        # the retry then lands once the cloud is back
+        fake_client.switch_mode.side_effect = None
+        await dyn_shim._on_revert_retry(dt_util.utcnow())
+        assert dyn_shim._active_override is None
+        assert dyn_shim._retry_unsub is None
+
 
 
 class TestForceExport:
