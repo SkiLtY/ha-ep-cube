@@ -1,0 +1,131 @@
+# Export to the grid when the export price is high, without Predbat. Drop this file
+# next to ep_cube.yaml in /config/packages/ and restart. Everything is set from the
+# helpers it creates (Settings > Devices & services > Helpers):
+#
+#   "Price export enabled"       the on/off switch
+#   "Price export threshold"     export in any half hour paying at least this (p/kWh)
+#   "Price export minimum SoC"   only start if the battery is above this level
+#   "Price export reserve"       stop exporting at this level
+#
+# It also creates "EP Cube export price" (p/kWh), the price it compares with the
+# threshold. Out of the box that is the current export rate from the Octopus Energy
+# integration, found by itself (the sensor ending in _export_current_rate). With
+# another supplier, change the marked state line to read your own export price
+# sensor, in pence per kWh.
+#
+# How it works: one minute into each half hour (at :01 and :31) it checks the price.
+# If it is at or above the threshold and the battery is above the minimum, it calls
+# ep_cube.force_export until one minute into the next half hour. If the next half
+# hour still pays enough, the export is renewed; if not, it ends on its own and the
+# cube goes back to the mode it was in (Self-Consumption, Time of Use or Backup).
+#
+# Needs: the EP Cube integration v1.7 or later, and Dynamic tariff set up in the
+# EP Cube app (the export uses it, the cube does not have to stay in it).
+#
+# Predbat: do not use this while Predbat is controlling the cube. The force_export
+# service refuses in that case (the automation's trace shows the message), because
+# Predbat's next plan would replace the export. It works if Predbat is in read-only
+# (monitor) mode or not installed.
+
+input_boolean:
+  ep_cube_price_export_enabled:
+    name: Price export enabled
+    icon: mdi:transmission-tower-export
+
+input_number:
+  ep_cube_price_export_threshold:
+    name: Price export threshold
+    min: 0
+    max: 100
+    step: 0.5
+    unit_of_measurement: "p/kWh"
+    initial: 25
+  ep_cube_price_export_min_soc:
+    name: Price export minimum SoC
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    initial: 40
+  ep_cube_price_export_reserve:
+    name: Price export reserve
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    initial: 30
+
+template:
+  - sensor:
+      - name: EP Cube export price
+        unique_id: ep_cube_price_export_price
+        unit_of_measurement: "p/kWh"
+        state_class: measurement
+        icon: mdi:cash-plus
+        # The Octopus Energy integration gives GBP/kWh; this turns it into pence.
+        # Other suppliers: replace this state line with your own sensor, in p/kWh.
+        state: >-
+          {% set rate = states.sensor
+               | selectattr('entity_id', 'search', '^sensor[.]octopus_energy_electricity_.+_export_current_rate$')
+               | first | default(none) %}
+          {{ (rate.state | float * 100) | round(2) if rate is not none and rate.state | is_number else none }}
+        # Other suppliers: replace this with {{ has_value('sensor.your_export_price') }}.
+        availability: >-
+          {{ states.sensor
+               | selectattr('entity_id', 'search', '^sensor[.]octopus_energy_electricity_.+_export_current_rate$')
+               | selectattr('state', 'is_number') | list | count > 0 }}
+
+automation:
+  - id: ep_cube_price_export_start
+    alias: "EP Cube: export when the price is high"
+    description: >-
+      One minute into each half hour, or when the switch is turned on, export to the
+      grid until one minute into the next half hour if the export price is at or
+      above the threshold and the battery is above the minimum level.
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: 1
+      - trigger: time_pattern
+        minutes: 31
+      - trigger: state
+        entity_id: input_boolean.ep_cube_price_export_enabled
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.ep_cube_price_export_enabled
+        state: "on"
+      - condition: numeric_state
+        entity_id: sensor.ep_cube_export_price
+        above: 0
+      - condition: template
+        value_template: >-
+          {{ states('sensor.ep_cube_export_price') | float(0)
+             >= states('input_number.ep_cube_price_export_threshold') | float(1000) }}
+      - condition: numeric_state
+        entity_id: sensor.ep_cube_battery_soc
+        above: input_number.ep_cube_price_export_min_soc
+    actions:
+      - variables:
+          # Minutes until one minute into the next half hour (:01 or :31), so a
+          # renewal arrives before the export ends and the cube does not flip back
+          # and forth between half hours.
+          minutes: "{{ 30 - ((now().minute - 1) % 30) }}"
+      - action: ep_cube.force_export
+        data:
+          duration_minutes: "{{ minutes | int }}"
+          reserve_pct: "{{ states('input_number.ep_cube_price_export_reserve') | float(30) }}"
+
+  - id: ep_cube_price_export_stop
+    alias: "EP Cube: end the price export"
+    description: >-
+      When the switch is turned off, end any forced export and return the cube to
+      its normal mode. Does nothing if none is running. (A running export also ends
+      by itself at the end of its half hour.)
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.ep_cube_price_export_enabled
+        to: "off"
+    actions:
+      - action: ep_cube.force_export_stop
